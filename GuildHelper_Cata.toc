@@ -1,5 +1,4 @@
 ## Interface: 40402
-
 ## Version: 0.0.1
 ## Title: GuildHelper by |cff55d2ffD4KiR |T132115:16:16:0:0|t
 ## Notes:
@@ -15,6 +14,40 @@
 ## Notes-zhTW:
 ## Description:
 ## Author: D4KiR |T132115:16:16:0:0|t
+## Category: Guild
+## Category-deDE: Gilde
+## Category-esES: Hermandad
+## Category-esMX: Hermandad
+## Category-frFR: Guilde
+## Category-itIT: Gilda
+## Category-koKR: 길드
+## Category-ptBR: Guilda
+## Category-ruRU: Гильдия
+## Category-zhCN: 公会
+## Category-zhTW: 公會
 ## DefaultState: enabled
+## SavedVariables: GHTAB
+## SavedVariablesPerCharacter: GHTABPC
+## X-Curse-Project-ID: 1787470
+## X-Wago-ID: b6XyB0Kp
+## IconTexture: Interface\Icons\INV_Shirt_GuildTabard_01
 
 libs\D4Lib\D4Lib.xml
+
+locale\enUS.lua
+locale\deDE.lua
+locale\esES.lua
+locale\esMX.lua
+locale\frFR.lua
+locale\itIT.lua
+locale\koKR.lua
+locale\ptBR.lua
+locale\ruRU.lua
+locale\zhCN.lua
+locale\zhTW.lua
+
+theme.lua
+core.lua
+window.lua
+sync.lua
+members.lua
