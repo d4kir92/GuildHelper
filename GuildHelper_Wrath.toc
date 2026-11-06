@@ -1,0 +1,20 @@
+## Interface: 38002, 30403
+
+## Version: 0.0.1
+## Title: GuildHelper by |cff55d2ffD4KiR |T132115:16:16:0:0|t
+## Notes:
+## Notes-deDE:
+## Notes-esES:
+## Notes-esMX:
+## Notes-frFR:
+## Notes-itIT:
+## Notes-koKR:
+## Notes-ptBR:
+## Notes-ruRU:
+## Notes-zhCN:
+## Notes-zhTW:
+## Description:
+## Author: D4KiR |T132115:16:16:0:0|t
+## DefaultState: enabled
+
+libs\D4Lib\D4Lib.xml

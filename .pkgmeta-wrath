@@ -1,0 +1,9 @@
+package-as: GuildHelper
+
+ignore:
+  - GuildHelper.toc
+  - GuildHelper_Camelot.toc
+  - GuildHelper_Mists.toc
+  - GuildHelper_Cata.toc
+  - GuildHelper_TBC.toc
+  - GuildHelper_Vanilla.toc
