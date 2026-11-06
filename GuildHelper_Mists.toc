@@ -51,3 +51,5 @@ core.lua
 window.lua
 sync.lua
 members.lua
+dashboard.lua
+settings.lua

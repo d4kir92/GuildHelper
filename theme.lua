@@ -3,7 +3,15 @@ local Theme = {}
 GuildHelper.Theme = Theme
 Theme.WHITE = "Interface\\Buttons\\WHITE8X8"
 Theme.MEDIA = "Interface\\AddOns\\GuildHelper\\media\\"
-Theme.DEFAULT = "modern"
+Theme.DEFAULT = "materialdark"
+Theme.ORDER = {"materialdark", "materiallight", "obsidian", "forever"}
+Theme.LANGFONTS = {
+    koKR = "Fonts\\2002.TTF",
+    zhCN = "Fonts\\ARKai_T.ttf",
+    zhTW = "Fonts\\blei00d.TTF",
+    ruRU = "Fonts\\FRIZQT___CYR.TTF",
+}
+
 Theme.WESTERN = {
     enUS = true,
     enGB = true,
@@ -15,9 +23,65 @@ Theme.WESTERN = {
     ptBR = true,
 }
 
+local function Hex(value, alpha)
+    return {tonumber(strsub(value, 1, 2), 16) / 255, tonumber(strsub(value, 3, 4), 16) / 255, tonumber(strsub(value, 5, 6), 16) / 255, alpha or 1}
+end
+
 Theme.DESIGNS = {
-    modern = {
-        label = "LID_DESIGNMODERN",
+    materialdark = {
+        label = "LID_DESIGNMATERIALDARK",
+        font = "Fonts\\ARIALN.TTF",
+        colors = {
+            window = Hex("141218"),
+            border = Hex("49454f"),
+            divider = Hex("2b2930"),
+            panel = Hex("1d1b20"),
+            card = Hex("2b2930"),
+            control = Hex("211f26"),
+            hover = Hex("36343b"),
+            navActive = Hex("4a4458"),
+            pillActive = Hex("4a4458"),
+            rowHover = Hex("e6e0e9", 0.08),
+            rowSelected = Hex("4f378b"),
+            accent = Hex("d0bcff"),
+            accentText = Hex("381e72"),
+            text = Hex("e6e0e9"),
+            navText = Hex("cac4d0"),
+            muted = Hex("938f99"),
+            online = Hex("7dd68c"),
+            onlineBg = Hex("1f3a26"),
+            barBg = Hex("36343b"),
+            thumb = Hex("938f99"),
+        },
+    },
+    materiallight = {
+        label = "LID_DESIGNMATERIALLIGHT",
+        font = "Fonts\\ARIALN.TTF",
+        colors = {
+            window = Hex("fef7ff"),
+            border = Hex("cac4d0"),
+            divider = Hex("ece6f0"),
+            panel = Hex("f7f2fa"),
+            card = Hex("ece6f0"),
+            control = Hex("f3edf7"),
+            hover = Hex("e6e0e9"),
+            navActive = Hex("e8def8"),
+            pillActive = Hex("e8def8"),
+            rowHover = Hex("1d1b20", 0.08),
+            rowSelected = Hex("eaddff"),
+            accent = Hex("6750a4"),
+            accentText = Hex("ffffff"),
+            text = Hex("1d1b20"),
+            navText = Hex("49454f"),
+            muted = Hex("79747e"),
+            online = Hex("1e7a3a"),
+            onlineBg = Hex("d4f0da"),
+            barBg = Hex("e6e0e9"),
+            thumb = Hex("79747e"),
+        },
+    },
+    obsidian = {
+        label = "LID_DESIGNOBSIDIAN",
         font = "Fonts\\ARIALN.TTF",
         colors = {
             window = {0.071, 0.075, 0.086, 0.98},
@@ -42,10 +106,65 @@ Theme.DESIGNS = {
             thumb = {0.25, 0.26, 0.29, 1},
         },
     },
+    forever = {
+        label = "LID_DESIGNFOREVER",
+        native = true,
+        colors = {
+            window = {1, 1, 1, 1},
+            border = {0.75, 0.75, 0.75, 1},
+            divider = {0.4, 0.4, 0.4, 0.6},
+            panel = {0, 0, 0, 0.8},
+            card = {0.08, 0.08, 0.08, 0.9},
+            control = {0.08, 0.08, 0.08, 0.9},
+            hover = {0.3, 0.3, 0.3, 0.6},
+            navActive = {1, 0.82, 0, 0.18},
+            pillActive = {1, 0.82, 0, 0.18},
+            rowHover = {1, 1, 1, 0.08},
+            rowSelected = {1, 0.82, 0, 0.16},
+            accent = {1, 0.82, 0, 1},
+            accentText = {0, 0, 0, 1},
+            text = {1, 1, 1, 1},
+            navText = {1, 0.82, 0, 1},
+            muted = {0.62, 0.62, 0.62, 1},
+            online = {0.25, 1, 0.25, 1},
+            onlineBg = {0.05, 0.22, 0.05, 0.9},
+            barBg = {0.2, 0.2, 0.2, 1},
+            thumb = {0.55, 0.55, 0.55, 1},
+        },
+    },
+}
+
+Theme.DIALOG = {
+    bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
+    edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
+    tile = true,
+    tileSize = 32,
+    edgeSize = 32,
+    insets = {
+        left = 11,
+        right = 12,
+        top = 12,
+        bottom = 11
+    },
+}
+
+Theme.TOOLTIP = {
+    bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
+    edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+    tile = true,
+    tileSize = 16,
+    edgeSize = 16,
+    insets = {
+        left = 4,
+        right = 4,
+        top = 4,
+        bottom = 4
+    },
 }
 
 Theme.CORNERS = {{"TOPLEFT", 0, 0.5, 0, 0.5, 1, -1}, {"TOPRIGHT", 0.5, 1, 0, 0.5, -1, -1}, {"BOTTOMLEFT", 0, 0.5, 0.5, 1, 1, 1}, {"BOTTOMRIGHT", 0.5, 1, 0.5, 1, -1, 1}}
 Theme.elements = {}
+Theme.texts = {}
 Theme.callbacks = {}
 local Shape = {}
 Shape.__index = Shape
@@ -61,6 +180,19 @@ function Shape:SetShown(shown)
     end
 end
 
+local Backdrop = {}
+Backdrop.__index = Backdrop
+function Backdrop:SetColor(r, g, b, a)
+    if self.isBorder then
+        self.frame:SetBackdropBorderColor(r, g, b, a or 1)
+    else
+        self.frame:SetBackdropColor(r, g, b, a or 1)
+    end
+end
+
+function Backdrop:SetShown()
+end
+
 function GuildHelper:GetDesign()
     local value = GuildHelper:GetConfig("DESIGN", Theme.DEFAULT)
     if Theme.DESIGNS[value] == nil then return Theme.DEFAULT end
@@ -70,8 +202,41 @@ end
 
 function GuildHelper:SetDesign(value)
     if Theme.DESIGNS[value] == nil then value = Theme.DEFAULT end
+    local wasNative = Theme:IsNative()
     GuildHelper:SetConfig("DESIGN", value)
-    Theme:Refresh()
+    if wasNative ~= Theme:IsNative() and GuildHelper.Window.frame then
+        GuildHelper.Window:Rebuild()
+    else
+        Theme:Refresh()
+    end
+end
+
+function Theme:IsNative()
+    return self:GetDesignTable().native == true
+end
+
+function Theme:Reset()
+    wipe(self.elements)
+    wipe(self.texts)
+end
+
+function Theme:NativePanel(frame, fillKey, borderKey)
+    if frame.SetBackdrop == nil and BackdropTemplateMixin then
+        Mixin(frame, BackdropTemplateMixin)
+        frame:HookScript("OnSizeChanged", frame.OnBackdropSizeChanged)
+    end
+
+    frame:SetBackdrop(fillKey == "window" and self.DIALOG or self.TOOLTIP)
+    local fill = self:Track(setmetatable({
+        frame = frame
+    }, Backdrop), "shape", fillKey)
+
+    local border = self:Track(setmetatable({
+        frame = frame,
+        isBorder = true
+    }, Backdrop), "shape", borderKey or "border")
+
+    return fill, border
 end
 
 function Theme:GetDesignTable()
@@ -92,8 +257,10 @@ function Theme:GetHex(key)
 end
 
 function Theme:GetFont()
+    local lang = GuildHelper:GetLanguage()
     local font = self:GetDesignTable().font
-    if font and self.WESTERN[GetLocale()] then return font end
+    if font and self.WESTERN[lang] and self.WESTERN[GetLocale()] then return font end
+    if lang ~= GetLocale() and self.LANGFONTS[lang] then return self.LANGFONTS[lang] end
 
     return STANDARD_TEXT_FONT
 end
@@ -155,6 +322,24 @@ function Theme:Text(parent, size, key, flags)
     return self:Track(text, "text", key, size, flags)
 end
 
+function Theme:SetTrans(text, key, upper)
+    if text.ghTrans == nil then tinsert(self.texts, text) end
+    text.ghTrans = key
+    text.ghUpper = upper
+    self:ApplyTrans(text)
+end
+
+function Theme:ApplyTrans(text)
+    local value = GuildHelper:Trans(text.ghTrans)
+    text:SetText(text.ghUpper and strupper(value) or value)
+end
+
+function Theme:RefreshTexts()
+    for _, text in ipairs(self.texts) do
+        self:ApplyTrans(text)
+    end
+end
+
 function Theme:Background(frame, key, layer)
     local texture = frame:CreateTexture(nil, layer or "BACKGROUND")
     texture:SetAllPoints(frame)
@@ -201,6 +386,7 @@ function Theme:Round(frame, key, radius, layer, sublevel, inset)
 end
 
 function Theme:Panel(frame, fillKey, borderKey, radius, layer)
+    if self:IsNative() then return self:NativePanel(frame, fillKey, borderKey) end
     local border = borderKey and self:Round(frame, borderKey, radius, layer, 0)
     local fill = self:Round(frame, fillKey, borderKey and radius - 1 or radius, layer, 1, borderKey and 1 or 0)
 

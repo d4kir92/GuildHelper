@@ -2,12 +2,21 @@ local _, GuildHelper = ...
 local Theme = GuildHelper.Theme
 local Window = {}
 GuildHelper.Window = Window
-Window.WIDTH = 1040
+Window.WIDTH = 1200
 Window.HEIGHT = 570
+Window.MINWIDTH = 1060
+Window.MINHEIGHT = 480
+Window.MINSCALE = 0.5
+Window.MAXSCALE = 2
+Window.TEMPLATES = {"ButtonFrameTemplate", "PortraitFrameTemplate", "BasicFrameTemplateWithInset"}
 Window.SIDEBAR = 181
 Window.PADDING = 18
 Window.MARGIN = 24
 Window.NAV = {
+    {
+        key = "dashboard",
+        label = "LID_DASHBOARD"
+    },
     {
         key = "members",
         label = "LID_MEMBERS"
@@ -35,6 +44,10 @@ Window.NAV = {
     {
         key = "management",
         label = "LID_MANAGEMENT"
+    },
+    {
+        key = "settings",
+        label = "LID_SETTINGS"
     },
 }
 
@@ -64,7 +77,7 @@ end
 function Window:CreatePageTitle(content, label)
     local title = Theme:Text(content, 20, "text")
     title:SetPoint("TOPLEFT", content, "TOPLEFT", self.PADDING, -29)
-    title:SetText(GuildHelper:Trans(label))
+    Theme:SetTrans(title, label)
 
     return title
 end
@@ -73,7 +86,7 @@ function Window:BuildPlaceholder(content, entry)
     Window:CreatePageTitle(content, entry.label)
     local text = Theme:Text(content, 14, "muted")
     text:SetPoint("CENTER", content, "CENTER", 0, 0)
-    text:SetText(GuildHelper:Trans("LID_COMINGSOON"))
+    Theme:SetTrans(text, "LID_COMINGSOON")
 end
 
 function Window:UpdateNav()
@@ -98,7 +111,7 @@ function Window:CreateNavButton(index, entry)
     button.dot:SetPoint("LEFT", button, "LEFT", 11, 0)
     button.text = Theme:Text(button, 13.5, "navText")
     button.text:SetPoint("LEFT", button, "LEFT", 26, 0)
-    button.text:SetText(GuildHelper:Trans(entry.label))
+    Theme:SetTrans(button.text, entry.label)
     button:SetScript("OnEnter", function() Window:UpdateNav() end)
     button:SetScript("OnLeave", function() Window:UpdateNav() end)
     button:SetScript("OnClick", function() Window:SelectPage(entry.key) end)
@@ -197,7 +210,7 @@ function Window:CreateSidebar()
     self:UpdateLogo()
     local title = Theme:Text(frame, 15, "text")
     title:SetPoint("TOPLEFT", logo, "TOPRIGHT", 10, -1)
-    title:SetText(GuildHelper:Trans("LID_ADDONTITLE"))
+    Theme:SetTrans(title, "LID_ADDONTITLE")
     local flavor = Theme:Text(frame, 11, "muted")
     flavor:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -3)
     flavor:SetText(self:GetFlavorName())
@@ -214,6 +227,21 @@ end
 
 function Window:CreateCloseButton()
     local frame = self.frame
+    if frame.CloseButton then
+        frame.CloseButton:SetScript("OnClick", function() frame:Hide() end)
+
+        return
+    end
+
+    if Theme:IsNative() then
+        local native = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
+        native:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -4, -4)
+        native:SetFrameLevel(frame:GetFrameLevel() + 10)
+        native:SetScript("OnClick", function() frame:Hide() end)
+
+        return
+    end
+
     local close = CreateFrame("Button", nil, frame)
     close:SetSize(31, 31)
     close:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -self.MARGIN, -24)
@@ -234,8 +262,156 @@ function Window:CreateCloseButton()
     close:SetScript("OnClick", function() frame:Hide() end)
 end
 
+function Window:CreateMainFrame()
+    if Theme:IsNative() and DoesTemplateExist then
+        for _, template in ipairs(self.TEMPLATES) do
+            if DoesTemplateExist(template) then
+                local frame = CreateFrame("Frame", "GuildHelperFrame", UIParent, template)
+                frame.ghTemplate = template
+
+                return frame
+            end
+        end
+    end
+
+    return CreateFrame("Frame", "GuildHelperFrame", UIParent)
+end
+
+function Window:SetupMainFrame(frame)
+    if frame.ghTemplate == nil then
+        Theme:Panel(frame, "window", "border", 10)
+
+        return
+    end
+
+    if frame.ghTemplate == "ButtonFrameTemplate" and ButtonFrameTemplate_HidePortrait then ButtonFrameTemplate_HidePortrait(frame) end
+    for _, key in ipairs({"Inset", "InsetBg", "PortraitContainer", "portrait"}) do
+        if frame[key] and frame[key].Hide then frame[key]:Hide() end
+    end
+
+    local title = frame.TitleContainer and frame.TitleContainer.TitleText or frame.TitleText
+    if title then Theme:SetTrans(title, "LID_ADDONTITLE") end
+end
+
+function Window:AnchorTopLeft()
+    local frame = self.frame
+    local left, top = frame:GetLeft(), frame:GetTop()
+    if left == nil or top == nil then return end
+    frame:ClearAllPoints()
+    frame:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left, top)
+end
+
+function Window:SetScaleKeepPosition(scale)
+    local frame = self.frame
+    local effective = frame:GetEffectiveScale()
+    local left, top = frame:GetLeft(), frame:GetTop()
+    frame:SetScale(min(max(scale, self.MINSCALE), self.MAXSCALE))
+    if left == nil or top == nil then return end
+    effective = effective / frame:GetEffectiveScale()
+    frame:ClearAllPoints()
+    frame:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left * effective, top * effective)
+end
+
+function Window:ApplySize()
+    local frame = self.frame
+    frame:SetSize(max(self.MINWIDTH, GuildHelper:GetConfig("WIDTH", self.WIDTH)), max(self.MINHEIGHT, GuildHelper:GetConfig("HEIGHT", self.HEIGHT)))
+    self:SetScaleKeepPosition(GuildHelper:GetConfig("SCALE", 1))
+end
+
+function Window:ResetSize()
+    GuildHelper:SetConfig("WIDTH", self.WIDTH)
+    GuildHelper:SetConfig("HEIGHT", self.HEIGHT)
+    GuildHelper:SetConfig("SCALE", 1)
+    self:ApplySize()
+end
+
+function Window:StartScaling(grip)
+    local frame = self.frame
+    local startScale = frame:GetScale()
+    local startX = GetCursorPosition()
+    local width = frame:GetWidth() * frame:GetEffectiveScale()
+    grip.mode = "scale"
+    grip:SetScript("OnUpdate", function(sel)
+        if IsMouseButtonDown and not IsMouseButtonDown("LeftButton") then return Window:StopResize(sel) end
+        local x = GetCursorPosition()
+        Window:SetScaleKeepPosition(startScale * (width + x - startX) / width)
+    end)
+end
+
+function Window:StartResizing(grip)
+    local frame = self.frame
+    local scale = frame:GetEffectiveScale()
+    local startX, startY = GetCursorPosition()
+    local startWidth, startHeight = frame:GetWidth(), frame:GetHeight()
+    local maxWidth = max(self.MINWIDTH, (UIParent:GetRight() or 0) * UIParent:GetEffectiveScale() / scale - (frame:GetLeft() or 0))
+    local maxHeight = max(self.MINHEIGHT, frame:GetTop() or 0)
+    grip.mode = "size"
+    grip:SetScript("OnUpdate", function(sel)
+        if IsMouseButtonDown and not IsMouseButtonDown("LeftButton") then return Window:StopResize(sel) end
+        local x, y = GetCursorPosition()
+        local width = min(max(startWidth + (x - startX) / scale, Window.MINWIDTH), maxWidth)
+        local height = min(max(startHeight + (startY - y) / scale, Window.MINHEIGHT), maxHeight)
+        frame:SetSize(width, height)
+    end)
+end
+
+function Window:StopResize(grip)
+    local frame = self.frame
+    if grip.mode == nil then return end
+    grip:SetScript("OnUpdate", nil)
+    if grip.mode == "size" then
+        GuildHelper:SetConfig("WIDTH", floor(frame:GetWidth() + 0.5))
+        GuildHelper:SetConfig("HEIGHT", floor(frame:GetHeight() + 0.5))
+    else
+        GuildHelper:SetConfig("SCALE", floor(frame:GetScale() * 100 + 0.5) / 100)
+    end
+
+    grip.mode = nil
+end
+
+function Window:ShowGripTooltip(grip)
+    local normal, highlight = NORMAL_FONT_COLOR, HIGHLIGHT_FONT_COLOR
+    GameTooltip:SetOwner(grip, "ANCHOR_RIGHT")
+    GameTooltip:AddDoubleLine(GuildHelper:Trans("LID_LEFTCLICK"), GuildHelper:Trans("LID_RESIZEWINDOW"), normal.r, normal.g, normal.b, highlight.r, highlight.g, highlight.b)
+    GameTooltip:AddDoubleLine(GuildHelper:Trans("LID_SHIFTLEFTCLICK"), GuildHelper:Trans("LID_SCALE"), normal.r, normal.g, normal.b, highlight.r, highlight.g, highlight.b)
+    GameTooltip:AddDoubleLine(GuildHelper:Trans("LID_RIGHTCLICK"), GuildHelper:Trans("LID_RESETSIZESCALE"), normal.r, normal.g, normal.b, highlight.r, highlight.g, highlight.b)
+    GameTooltip:Show()
+end
+
+function Window:CreateResizeGrip()
+    local frame = self.frame
+    local grip = CreateFrame("Button", nil, frame)
+    grip:SetSize(16, 16)
+    grip:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -5, 5)
+    grip:SetFrameLevel(frame:GetFrameLevel() + 20)
+    grip:SetNormalTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Up")
+    grip:SetHighlightTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Highlight")
+    grip:SetPushedTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Down")
+    grip:RegisterForClicks("RightButtonUp")
+    grip:RegisterForDrag("LeftButton")
+    grip:SetScript("OnDragStart", function() end)
+    grip:SetScript("OnDragStop", function(sel) Window:StopResize(sel) end)
+    grip:SetScript("OnMouseDown", function(sel, button)
+        if button ~= "LeftButton" then return end
+        GameTooltip:Hide()
+        Window:AnchorTopLeft()
+        if IsShiftKeyDown() then
+            Window:StartScaling(sel)
+        else
+            Window:StartResizing(sel)
+        end
+    end)
+
+    grip:SetScript("OnMouseUp", function(sel, button) if button == "LeftButton" then Window:StopResize(sel) end end)
+    grip:SetScript("OnHide", function(sel) Window:StopResize(sel) end)
+    grip:SetScript("OnClick", function() Window:ResetSize() end)
+    grip:SetScript("OnEnter", function(sel) Window:ShowGripTooltip(sel) end)
+    grip:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    self.grip = grip
+end
+
 function Window:Create()
-    local frame = CreateFrame("Frame", "GuildHelperFrame", UIParent)
+    local frame = self:CreateMainFrame()
     frame:SetSize(self.WIDTH, self.HEIGHT)
     frame:SetPoint("CENTER")
     frame:SetFrameStrata("HIGH")
@@ -247,29 +423,63 @@ function Window:Create()
     frame:SetScript("OnDragStart", frame.StartMoving)
     frame:SetScript("OnDragStop", frame.StopMovingOrSizing)
     frame:Hide()
-    tinsert(UISpecialFrames, "GuildHelperFrame")
+    if self.events == nil then tinsert(UISpecialFrames, "GuildHelperFrame") end
     self.frame = frame
-    Theme:Panel(frame, "window", "border", 10)
+    self:SetupMainFrame(frame)
     self:CreateSidebar()
     self:CreateCloseButton()
+    self:CreateResizeGrip()
+    self:ApplySize()
     frame:SetScript("OnShow", function()
         Window:UpdateLogo()
-        Window:SelectPage(Window.current or GuildHelper:GetConfig("PAGE", "members"))
+        Window:SelectPage(Window.current or GuildHelper:GetConfig("PAGE", "dashboard"))
     end)
-
-    Theme:OnRefresh(function() Window:UpdateLogo() end)
-    local events = CreateFrame("Frame")
-    for _, event in ipairs({"PLAYER_GUILD_UPDATE", "GUILDTABARD_UPDATE"}) do
-        pcall(events.RegisterEvent, events, event)
-    end
-
-    events:SetScript("OnEvent", function() Window:UpdateLogo() end)
 
     frame:SetScript("OnHide", function()
         for _, content in pairs(Window.pageFrames) do
             if content.OnPageHide then content:OnPageHide() end
         end
     end)
+
+    if self.events then return end
+    Theme:OnRefresh(function() Window:UpdateLogo() end)
+    self.events = CreateFrame("Frame")
+    for _, event in ipairs({"PLAYER_GUILD_UPDATE", "GUILDTABARD_UPDATE"}) do
+        pcall(self.events.RegisterEvent, self.events, event)
+    end
+
+    self.events:SetScript("OnEvent", function() Window:UpdateLogo() end)
+end
+
+Window.rebuildCallbacks = {}
+function Window:OnRebuild(callback)
+    tinsert(self.rebuildCallbacks, callback)
+end
+
+function Window:Rebuild()
+    local old = self.frame
+    local shown = old:IsShown()
+    local scale = old:GetEffectiveScale()
+    local left, top = old:GetLeft(), old:GetTop()
+    old:Hide()
+    old:SetScript("OnShow", nil)
+    old:SetScript("OnHide", nil)
+    wipe(self.pageFrames)
+    wipe(self.navButtons)
+    for _, callback in ipairs(self.rebuildCallbacks) do
+        callback()
+    end
+
+    Theme:Reset()
+    self:Create()
+    if left and top then
+        local frame = self.frame
+        scale = scale / frame:GetEffectiveScale()
+        frame:ClearAllPoints()
+        frame:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left * scale, top * scale)
+    end
+
+    if shown then self.frame:Show() end
 end
 
 function Window:Toggle()

@@ -5,53 +5,73 @@ local Members = {}
 GuildHelper.Members = Members
 Members.ROWHEIGHT = 35
 Members.HEADERHEIGHT = 36
-Members.TABLEWIDTH = 584
+Members.DETAILWIDTH = 220
 Members.TABLETOP = 108
 Members.BOTTOM = 21
+Members.NAMEX = 15
+Members.MINNAME = 140
+Members.NOTEWIDTH = 170
+Members.MINNOTE = 70
 Members.COLUMNS = {
     {
         key = "name",
-        label = "LID_NAME",
-        x = 15
+        label = "LID_NAME"
     },
     {
         key = "level",
         label = "LID_LVL",
-        x = 155
+        width = 40
+    },
+    {
+        key = "zone",
+        label = "LID_ZONE",
+        width = 122
     },
     {
         key = "rank",
         label = "LID_RANK",
-        x = 199
+        width = 92
     },
     {
         key = "ilvl",
         label = "LID_ILVL",
-        x = 291
+        width = 48
     },
     {
         key = "lastOnline",
         label = "LID_LASTSEEN",
-        x = 340
+        width = 90
     },
     {
         key = "note",
         label = "LID_NOTE",
-        x = 430
+        note = true
+    },
+    {
+        key = "officerNote",
+        label = "LID_OFFICERNOTE",
+        note = true
     },
 }
+
+Members.COLUMNX = {}
+Members.COLUMNW = {}
+Members.nameWidth = Members.MINNAME
+
+Members.NOTELENGTH = 31
 
 Members.list = {}
 Members.view = {}
 Members.rows = {}
 Members.offset = 0
+Members.numVisible = 0
 Members.sortKey = "name"
 Members.sortAsc = true
 Members.filter = {
     text = "",
     class = nil,
     rank = nil,
-    onlineOnly = false,
+    onlineOnly = true,
     hideAlts = false,
 }
 
@@ -162,6 +182,7 @@ function Members:Scan()
                 note = note or "",
                 officerNote = officerNote or "",
                 online = online and true or false,
+                guid = select(17, GetGuildRosterInfo(index)),
             }
 
             member.lastOnline = self:GetLastOnlineHours(index, member.online)
@@ -197,14 +218,34 @@ end
 function Members:GetSortValue(member, key)
     if key == "level" then return member.level end
     if key == "rank" then return member.rankIndex end
+    if key == "zone" then return member.zone == "" and "\255" or strlower(member.zone) end
     if key == "ilvl" then return self:GetItemLevel(member) or -1 end
     if key == "lastOnline" then return member.lastOnline or 999999 end
     if key == "note" then return member.note == "" and "\255" or strlower(member.note) end
+    if key == "officerNote" then return member.officerNote == "" and "\255" or strlower(member.officerNote) end
 
     return member.key
 end
 
+function Members:LoadFilter()
+    local saved = GuildHelper:GetConfig("MEMBERFILTER", {})
+    self.filter.class = saved.class
+    self.filter.rank = saved.rank
+    self.filter.onlineOnly = saved.onlineOnly ~= false
+    self.filter.hideAlts = saved.hideAlts == true
+end
+
+function Members:SaveFilter()
+    GuildHelper:SetConfig("MEMBERFILTER", {
+        class = self.filter.class,
+        rank = self.filter.rank,
+        onlineOnly = self.filter.onlineOnly,
+        hideAlts = self.filter.hideAlts,
+    })
+end
+
 function Members:ApplyFilter()
+    self:SaveFilter()
     wipe(self.view)
     for _, member in ipairs(self.list) do
         if self:Matches(member) then tinsert(self.view, member) end
@@ -243,7 +284,24 @@ function Members:Select(member)
     self:Update()
 end
 
+function Members:CreateNativeButton(parent, height)
+    local button = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
+    button:SetHeight(height)
+    button:SetText(" ")
+    button.text = button:GetFontString()
+    button.native = true
+
+    return button
+end
+
 function Members:CreatePill(parent, label)
+    if Theme:IsNative() then
+        local native = self:CreateNativeButton(parent, 24)
+        self:SetPillText(native, label)
+
+        return native
+    end
+
     local pill = CreateFrame("Button", nil, parent)
     pill:SetHeight(28)
     pill.fill, pill.border = Theme:Panel(pill, "control", "border", 14)
@@ -263,6 +321,16 @@ end
 
 function Members:StylePill(pill)
     local active = pill.active
+    if pill.native then
+        if active then
+            pill:LockHighlight()
+        else
+            pill:UnlockHighlight()
+        end
+
+        return
+    end
+
     Theme:SetKey(pill.fill, active and "pillActive" or (pill:IsMouseOver() and "hover" or "control"))
     Theme:SetKey(pill.border, active and "accent" or "border")
     Theme:SetKey(pill.text, active and "accent" or "text")
@@ -409,26 +477,37 @@ function Members:CreateHeaderArea(content)
     local title = Window:CreatePageTitle(content, "LID_MEMBERS")
     self.count = Theme:Text(content, 13, "muted")
     self.count:SetPoint("BOTTOMLEFT", title, "BOTTOMRIGHT", 10, 1)
-    local box = CreateFrame("Frame", nil, content)
-    box:SetSize(200, 31)
-    box:SetPoint("TOPRIGHT", content, "TOPRIGHT", -Window.MARGIN - 42, -24)
-    box.fill, box.border = Theme:Panel(box, "control", "border", 7)
-    local icon = Theme:Icon(box, "search", 12, "muted")
-    icon:SetPoint("LEFT", box, "LEFT", 12, 0)
-    local search = CreateFrame("EditBox", nil, box)
-    search:SetPoint("TOPLEFT", box, "TOPLEFT", 32, 0)
-    search:SetPoint("BOTTOMRIGHT", box, "BOTTOMRIGHT", -8, 0)
+    local box, search
+    local inset = 32
+    if Theme:IsNative() then
+        search = CreateFrame("EditBox", nil, content, "InputBoxTemplate")
+        search:SetSize(190, 24)
+        search:SetPoint("TOPRIGHT", content, "TOPRIGHT", -Window.MARGIN - 42, -27)
+        box = search
+        inset = 2
+    else
+        box = CreateFrame("Frame", nil, content)
+        box:SetSize(200, 31)
+        box:SetPoint("TOPRIGHT", content, "TOPRIGHT", -Window.MARGIN - 42, -24)
+        box.fill, box.border = Theme:Panel(box, "control", "border", 7)
+        local icon = Theme:Icon(box, "search", 12, "muted")
+        icon:SetPoint("LEFT", box, "LEFT", 12, 0)
+        search = CreateFrame("EditBox", nil, box)
+        search:SetPoint("TOPLEFT", box, "TOPLEFT", 32, 0)
+        search:SetPoint("BOTTOMRIGHT", box, "BOTTOMRIGHT", -8, 0)
+        Theme:Track(search, "text", "text", 12.5)
+    end
+
     search:SetAutoFocus(false)
     search:SetMaxLetters(60)
-    Theme:Track(search, "text", "text", 12.5)
     search.placeholder = Theme:Text(box, 12.5, "muted")
-    search.placeholder:SetPoint("LEFT", box, "LEFT", 32, 0)
+    search.placeholder:SetPoint("LEFT", box, "LEFT", inset, 0)
     search.placeholder:SetPoint("RIGHT", box, "RIGHT", -8, 0)
-    search.placeholder:SetText(GuildHelper:Trans("LID_SEARCH"))
+    Theme:SetTrans(search.placeholder, "LID_SEARCH")
     search:SetScript("OnEscapePressed", search.ClearFocus)
     search:SetScript("OnEnterPressed", search.ClearFocus)
-    search:SetScript("OnEditFocusGained", function() Theme:SetKey(box.border, "accent") end)
-    search:SetScript("OnEditFocusLost", function() Theme:SetKey(box.border, "border") end)
+    search:SetScript("OnEditFocusGained", function() if box.border then Theme:SetKey(box.border, "accent") end end)
+    search:SetScript("OnEditFocusLost", function() if box.border then Theme:SetKey(box.border, "border") end end)
     search:SetScript("OnTextChanged", function(sel)
         local text = sel:GetText() or ""
         sel.placeholder:SetShown(text == "")
@@ -465,7 +544,7 @@ function Members:CreateFilters(content)
         end)
     end)
 
-    self.onlinePill = self:CreatePill(filters, GuildHelper:Trans("LID_ONLINEONLY"))
+    self.onlinePill = self:CreatePill(filters)
     self.onlinePill:SetPoint("LEFT", self.rankPill, "RIGHT", 8, 0)
     self.onlinePill:SetScript("OnClick", function()
         Members.filter.onlineOnly = not Members.filter.onlineOnly
@@ -473,7 +552,7 @@ function Members:CreateFilters(content)
         Members:ApplyFilter()
     end)
 
-    self.altsPill = self:CreatePill(filters, GuildHelper:Trans("LID_HIDEALTS"))
+    self.altsPill = self:CreatePill(filters)
     self.altsPill:SetPoint("LEFT", self.onlinePill, "RIGHT", 8, 0)
     self.altsPill:SetScript("OnClick", function()
         Members.filter.hideAlts = not Members.filter.hideAlts
@@ -485,6 +564,8 @@ end
 function Members:UpdateFilters()
     self:SetPillText(self.classPill, self:GetOptionLabel(self:GetClassOptions(), self.filter.class))
     self:SetPillText(self.rankPill, self:GetOptionLabel(self:GetRankOptions(), self.filter.rank))
+    self:SetPillText(self.onlinePill, GuildHelper:Trans("LID_ONLINEONLY"))
+    self:SetPillText(self.altsPill, GuildHelper:Trans("LID_HIDEALTS"))
     self:SetPillActive(self.classPill, self.filter.class ~= nil)
     self:SetPillActive(self.rankPill, self.filter.rank ~= nil)
     self:SetPillActive(self.onlinePill, self.filter.onlineOnly)
@@ -533,26 +614,20 @@ function Members:CreateRow(parent, index)
     row.dot = row:CreateTexture(nil, "ARTWORK")
     row.dot:SetTexture(Theme.MEDIA .. "circle")
     row.dot:SetSize(7, 7)
-    row.dot:SetPoint("LEFT", row, "LEFT", self.COLUMNS[1].x, 0)
+    row.dot:SetPoint("LEFT", row, "LEFT", self.NAMEX, 0)
     row.name = Theme:Text(row, 13.5)
-    row.name:SetPoint("LEFT", row, "LEFT", self.COLUMNS[1].x + 15, 0)
+    row.name:SetPoint("LEFT", row, "LEFT", self.NAMEX + 15, 0)
     row.tag = Theme:Text(row, 10.5, "muted")
     row.tag:SetPoint("LEFT", row.name, "RIGHT", 6, 0)
     row.level = Theme:Text(row, 13, "text")
-    row.level:SetPoint("LEFT", row, "LEFT", self.COLUMNS[2].x, 0)
+    row.zone = Theme:Text(row, 12.5, "navText")
     row.rank = Theme:Text(row, 13, "text")
-    row.rank:SetPoint("LEFT", row, "LEFT", self.COLUMNS[3].x, 0)
-    row.rank:SetWidth(self.COLUMNS[4].x - self.COLUMNS[3].x - 8)
     row.ilvl = Theme:Text(row, 13, "text")
-    row.ilvl:SetPoint("LEFT", row, "LEFT", self.COLUMNS[4].x, 0)
     row.seen = Theme:Text(row, 12, "muted")
-    row.seen:SetPoint("LEFT", row, "LEFT", self.COLUMNS[5].x, 0)
     row.note = Theme:Text(row, 12, "navText")
-    row.note:SetPoint("LEFT", row, "LEFT", self.COLUMNS[6].x, 0)
-    row.note:SetWidth(self.TABLEWIDTH - self.COLUMNS[6].x - 14)
+    row.officer = Theme:Text(row, 12, "navText")
     row.badge = CreateFrame("Frame", nil, row)
     row.badge:SetHeight(18)
-    row.badge:SetPoint("LEFT", row, "LEFT", self.COLUMNS[5].x - 2, 0)
     Theme:Round(row.badge, "onlineBg", 9)
     row.badge.text = Theme:Text(row.badge, 11, "online")
     row.badge.text:SetPoint("CENTER", row.badge, "CENTER", 0, 0)
@@ -585,10 +660,13 @@ function Members:FillRow(row, member)
         row.tag:SetText("")
     end
 
+    self:FitName(row)
     row.level:SetText(member.level)
+    row.zone:SetText(member.zone)
     row.rank:SetText(member.rank)
     row.ilvl:SetText(self:GetItemLevel(member) or "–")
     row.note:SetText(member.note)
+    row.officer:SetText(member.officerNote)
     row.badge:SetShown(member.online)
     row.seen:SetShown(not member.online)
     if member.online then
@@ -604,8 +682,7 @@ end
 function Members:CreateTable(content)
     local panel = CreateFrame("Frame", nil, content)
     panel:SetPoint("TOPLEFT", content, "TOPLEFT", Window.PADDING, -self.TABLETOP)
-    panel:SetPoint("BOTTOMLEFT", content, "BOTTOMLEFT", Window.PADDING, self.BOTTOM)
-    panel:SetWidth(self.TABLEWIDTH)
+    panel:SetPoint("BOTTOMRIGHT", content, "BOTTOMRIGHT", -Window.MARGIN - self.DETAILWIDTH - 12, self.BOTTOM)
     Theme:Panel(panel, "panel", "border", 9)
     panel:EnableMouseWheel(true)
     panel:SetScript("OnMouseWheel", function(_, delta)
@@ -615,11 +692,10 @@ function Members:CreateTable(content)
 
     self.panel = panel
     self.headers = {}
-    for i, column in ipairs(self.COLUMNS) do
-        local nextColumn = self.COLUMNS[i + 1]
+    self.headerByKey = {}
+    for _, column in ipairs(self.COLUMNS) do
         local header = CreateFrame("Button", nil, panel)
-        header:SetPoint("TOPLEFT", panel, "TOPLEFT", column.x, 0)
-        header:SetSize((nextColumn and nextColumn.x or self.TABLEWIDTH - 10) - column.x, self.HEADERHEIGHT)
+        header:SetHeight(self.HEADERHEIGHT)
         header.column = column
         header.text = Theme:Text(header, 11, "muted")
         header.text:SetPoint("LEFT", header, "LEFT", 0, 0)
@@ -635,17 +711,17 @@ function Members:CreateTable(content)
         end)
 
         tinsert(self.headers, header)
+        self.headerByKey[column.key] = header
     end
 
     local line = Theme:Line(panel, "border")
     line:SetHeight(1)
     line:SetPoint("TOPLEFT", panel, "TOPLEFT", 1, -self.HEADERHEIGHT)
     line:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -1, -self.HEADERHEIGHT)
-    local height = Window.HEIGHT - self.TABLETOP - self.BOTTOM
-    local visible = floor((height - self.HEADERHEIGHT - 2) / self.ROWHEIGHT)
-    for i = 1, visible do
-        self.rows[i] = self:CreateRow(panel, i)
-    end
+    panel:SetScript("OnSizeChanged", function()
+        Members:LayoutRows()
+        Members:Update()
+    end)
 
     local thumb = CreateFrame("Button", nil, panel)
     thumb:SetWidth(4)
@@ -657,7 +733,7 @@ function Members:CreateTable(content)
         sel:SetScript("OnUpdate", function()
             local y = select(2, GetCursorPosition()) / sel:GetEffectiveScale()
             local range = Members:GetTrackHeight() - sel:GetHeight()
-            local maxOffset = max(0, #Members.view - #Members.rows)
+            local maxOffset = max(0, #Members.view - Members.numVisible)
             if range <= 0 or maxOffset == 0 then return end
             local offset = floor(sel.startOffset + (sel.startY - y) / range * maxOffset + 0.5)
             if offset ~= Members.offset then
@@ -670,6 +746,84 @@ function Members:CreateTable(content)
     thumb:SetScript("OnMouseUp", function(sel) sel:SetScript("OnUpdate", nil) end)
     thumb:SetScript("OnHide", function(sel) sel:SetScript("OnUpdate", nil) end)
     self.thumb = thumb
+    self:LayoutRows()
+end
+
+function Members:IsColumnShown(column)
+    return column.key ~= "officerNote" or self:CanViewOfficerNote()
+end
+
+function Members:LayoutColumns()
+    local panel = self.panel
+    local fixed, notes = 0, 0
+    for _, column in ipairs(self.COLUMNS) do
+        if column.note and self:IsColumnShown(column) then
+            notes = notes + 1
+        elseif column.width then
+            fixed = fixed + column.width
+        end
+    end
+
+    local free = panel:GetWidth() - self.NAMEX - 14 - fixed
+    local noteWidth = max(self.MINNOTE, min(self.NOTEWIDTH, (free - self.MINNAME) / max(1, notes)))
+    local nameWidth = max(self.MINNAME, free - noteWidth * notes)
+    local x = self.NAMEX
+    for _, column in ipairs(self.COLUMNS) do
+        local width = column.width or (column.note and noteWidth) or nameWidth
+        local shown = self:IsColumnShown(column)
+        local header = self.headerByKey[column.key]
+        self.COLUMNX[column.key] = x
+        self.COLUMNW[column.key] = width
+        header:ClearAllPoints()
+        header:SetPoint("TOPLEFT", panel, "TOPLEFT", x, 0)
+        header:SetSize(max(1, width - 6), self.HEADERHEIGHT)
+        header:SetShown(shown)
+        if shown then x = x + width end
+    end
+
+    self.nameWidth = nameWidth
+    for _, row in ipairs(self.rows) do
+        self:LayoutRow(row)
+    end
+end
+
+function Members:LayoutRow(row)
+    local pos, width = self.COLUMNX, self.COLUMNW
+    local function Place(region, key, offset, size)
+        region:ClearAllPoints()
+        region:SetPoint("LEFT", row, "LEFT", pos[key] + (offset or 0), 0)
+        if size then region:SetWidth(max(1, width[key] - size)) end
+    end
+
+    Place(row.level, "level")
+    Place(row.zone, "zone", 0, 8)
+    Place(row.rank, "rank", 0, 8)
+    Place(row.ilvl, "ilvl")
+    Place(row.seen, "lastOnline")
+    Place(row.badge, "lastOnline", -2)
+    Place(row.note, "note", 0, 10)
+    Place(row.officer, "officerNote", 0, 10)
+    row.officer:SetShown(self:CanViewOfficerNote())
+end
+
+function Members:FitName(row)
+    row.name:SetWidth(0)
+    local tag = row.tag:GetText() or ""
+    local limit = self.nameWidth - 23 - (tag ~= "" and row.tag:GetStringWidth() + 6 or 0)
+    if row.name:GetStringWidth() > limit then row.name:SetWidth(max(20, limit)) end
+end
+
+function Members:LayoutRows()
+    local height = self.panel:GetHeight() or 0
+    self.numVisible = max(0, floor((height - self.HEADERHEIGHT - 2) / self.ROWHEIGHT))
+    for i = #self.rows + 1, self.numVisible do
+        self.rows[i] = self:CreateRow(self.panel, i)
+    end
+
+    for i = self.numVisible + 1, #self.rows do
+        self.rows[i].member = nil
+        self.rows[i]:Hide()
+    end
 end
 
 function Members:GetTrackHeight()
@@ -679,7 +833,7 @@ end
 function Members:UpdateScrollBar()
     local thumb = self.thumb
     local total = #self.view
-    local visible = #self.rows
+    local visible = self.numVisible
     local maxOffset = max(0, total - visible)
     if maxOffset == 0 then
         thumb:Hide()
@@ -701,7 +855,7 @@ function Members:CreateStatCard(parent, label)
     Theme:Round(card, "card", 7)
     card.label = Theme:Text(card, 10.5, "muted")
     card.label:SetPoint("TOPLEFT", card, "TOPLEFT", 10, -9)
-    card.label:SetText(GuildHelper:Trans(label))
+    Theme:SetTrans(card.label, label)
     card.value = Theme:Text(card, 16, "text")
     card.value:SetPoint("TOPLEFT", card, "TOPLEFT", 10, -25)
     card.value:SetPoint("RIGHT", card, "RIGHT", -8, 0)
@@ -710,6 +864,14 @@ function Members:CreateStatCard(parent, label)
 end
 
 function Members:CreateButton(parent, label, primary)
+    if Theme:IsNative() then
+        local native = self:CreateNativeButton(parent, 26)
+        native:SetWidth(90)
+        Theme:SetTrans(native.text, label)
+
+        return native
+    end
+
     local button = CreateFrame("Button", nil, parent)
     button:SetSize(90, 32)
     if primary then
@@ -720,7 +882,7 @@ function Members:CreateButton(parent, label, primary)
 
     button.text = Theme:Text(button, 13, primary and "accentText" or "text")
     button.text:SetPoint("CENTER", button, "CENTER", 0, 0)
-    button.text:SetText(GuildHelper:Trans(label))
+    Theme:SetTrans(button.text, label)
     if not primary then
         button:SetScript("OnEnter", function(sel) Theme:SetKey(sel.fill, "hover") end)
         button:SetScript("OnLeave", function(sel) Theme:SetKey(sel.fill, "control") end)
@@ -733,7 +895,7 @@ function Members:GetProfessionRow(index)
     local detail = self.detail
     local row = detail.professions[index]
     if row then return row end
-    row = CreateFrame("Frame", nil, detail)
+    row = CreateFrame("Frame", nil, detail.body)
     row:SetSize(188, 26)
     row.name = Theme:Text(row, 12.5, "text")
     row.name:SetPoint("TOPLEFT", row, "TOPLEFT", 0, 0)
@@ -755,44 +917,69 @@ end
 
 function Members:CreateDetail(content)
     local detail = CreateFrame("Frame", nil, content)
-    detail:SetPoint("TOPLEFT", content, "TOPLEFT", Window.PADDING + self.TABLEWIDTH + 12, -self.TABLETOP)
+    detail:SetPoint("TOPRIGHT", content, "TOPRIGHT", -Window.MARGIN, -self.TABLETOP)
     detail:SetPoint("BOTTOMRIGHT", content, "BOTTOMRIGHT", -Window.MARGIN, self.BOTTOM)
+    detail:SetWidth(self.DETAILWIDTH)
     Theme:Panel(detail, "panel", "border", 9)
     detail.professions = {}
     self.detail = detail
-    local avatar = CreateFrame("Frame", nil, detail)
+    local scroll = CreateFrame("ScrollFrame", nil, detail)
+    scroll:SetPoint("TOPLEFT", detail, "TOPLEFT", 0, -1)
+    scroll:SetPoint("BOTTOMRIGHT", detail, "BOTTOMRIGHT", 0, 58)
+    local body = CreateFrame("Frame", nil, scroll)
+    body:SetSize(self.DETAILWIDTH, 1)
+    scroll:SetScrollChild(body)
+    scroll:EnableMouseWheel(true)
+    scroll:SetScript("OnMouseWheel", function(sel, delta)
+        sel:SetVerticalScroll(min(max(sel:GetVerticalScroll() - delta * 30, 0), sel:GetVerticalScrollRange()))
+        Members:UpdateDetailThumb()
+    end)
+
+    scroll:SetScript("OnScrollRangeChanged", function(sel)
+        sel:SetVerticalScroll(min(sel:GetVerticalScroll(), sel:GetVerticalScrollRange()))
+        Members:UpdateDetailThumb()
+    end)
+
+    detail.scroll = scroll
+    detail.body = body
+    detail.thumb = CreateFrame("Frame", nil, detail)
+    detail.thumb:SetWidth(4)
+    detail.thumb:SetFrameLevel(scroll:GetFrameLevel() + 5)
+    Theme:Round(detail.thumb, "thumb", 2)
+    detail.thumb:Hide()
+    local avatar = CreateFrame("Frame", nil, body)
     avatar:SetSize(40, 40)
-    avatar:SetPoint("TOPLEFT", detail, "TOPLEFT", 16, -16)
+    avatar:SetPoint("TOPLEFT", body, "TOPLEFT", 16, -16)
     avatar.border = Theme:CreateShape(avatar, 8, "BACKGROUND", 0)
     avatar.fill = Theme:CreateShape(avatar, 7, "BACKGROUND", 1, 1)
     avatar.letter = Theme:Text(avatar, 17)
     avatar.letter:SetPoint("CENTER", avatar, "CENTER", 0, 0)
     detail.avatar = avatar
-    detail.name = Theme:Text(detail, 18)
+    detail.name = Theme:Text(body, 18)
     detail.name:SetPoint("TOPLEFT", avatar, "TOPRIGHT", 12, -2)
-    detail.name:SetPoint("RIGHT", detail, "RIGHT", -12, 0)
-    detail.sub = Theme:Text(detail, 12, "muted")
+    detail.name:SetPoint("RIGHT", body, "RIGHT", -12, 0)
+    detail.sub = Theme:Text(body, 12, "muted")
     detail.sub:SetPoint("TOPLEFT", detail.name, "BOTTOMLEFT", 0, -4)
-    detail.sub:SetPoint("RIGHT", detail, "RIGHT", -12, 0)
-    detail.ilvl = self:CreateStatCard(detail, "LID_ILVL")
-    detail.ilvl:SetPoint("TOPLEFT", detail, "TOPLEFT", 16, -68)
-    detail.rank = self:CreateStatCard(detail, "LID_RANK")
+    detail.sub:SetPoint("RIGHT", body, "RIGHT", -12, 0)
+    detail.ilvl = self:CreateStatCard(body, "LID_ILVL")
+    detail.ilvl:SetPoint("TOPLEFT", body, "TOPLEFT", 16, -68)
+    detail.rank = self:CreateStatCard(body, "LID_RANK")
     detail.rank:SetPoint("TOPLEFT", detail.ilvl, "TOPRIGHT", 8, 0)
-    detail.noteHeader = Theme:Text(detail, 11, "muted")
-    detail.noteHeader:SetText(strupper(GuildHelper:Trans("LID_NOTE")))
-    detail.noteText = Theme:Text(detail, 12.5, "text")
+    detail.noteHeader = Theme:Text(body, 11, "muted")
+    Theme:SetTrans(detail.noteHeader, "LID_NOTE", true)
+    detail.noteText = Theme:Text(body, 12.5, "text")
     detail.noteText:SetWidth(188)
     detail.noteText:SetWordWrap(true)
-    detail.officerHeader = Theme:Text(detail, 11, "muted")
-    detail.officerHeader:SetText(strupper(GuildHelper:Trans("LID_OFFICERNOTE")))
-    detail.officerText = Theme:Text(detail, 12.5, "text")
+    detail.officerHeader = Theme:Text(body, 11, "muted")
+    Theme:SetTrans(detail.officerHeader, "LID_OFFICERNOTE", true)
+    detail.officerText = Theme:Text(body, 12.5, "text")
     detail.officerText:SetWidth(188)
     detail.officerText:SetWordWrap(true)
-    detail.profHeader = Theme:Text(detail, 11, "muted")
-    detail.profHeader:SetText(strupper(GuildHelper:Trans("LID_PROFESSIONS")))
-    detail.profEmpty = Theme:Text(detail, 12, "muted")
-    detail.altHeader = Theme:Text(detail, 11, "muted")
-    detail.altText = Theme:Text(detail, 12.5, "text")
+    detail.profHeader = Theme:Text(body, 11, "muted")
+    Theme:SetTrans(detail.profHeader, "LID_PROFESSIONS", true)
+    detail.profEmpty = Theme:Text(body, 12, "muted")
+    detail.altHeader = Theme:Text(body, 11, "muted")
+    detail.altText = Theme:Text(body, 12.5, "text")
     detail.altText:SetWidth(188)
     detail.altText:SetWordWrap(true)
     detail.whisper = self:CreateButton(detail, "LID_WHISPER", true)
@@ -803,12 +990,14 @@ function Members:CreateDetail(content)
     detail.invite:SetScript("OnClick", function() Members:Invite(Members:GetSelected()) end)
     detail.empty = Theme:Text(detail, 13, "muted")
     detail.empty:SetPoint("CENTER", detail, "CENTER", 0, 0)
+    detail.noteHit = self:CreateNoteEditor(body, detail.noteHeader, detail.noteText, true)
+    detail.officerHit = self:CreateNoteEditor(body, detail.officerHeader, detail.officerText, false)
     detail.content = {avatar, detail.name, detail.sub, detail.ilvl, detail.rank, detail.noteHeader, detail.noteText, detail.officerHeader, detail.officerText, detail.profHeader, detail.profEmpty, detail.altHeader, detail.altText, detail.whisper, detail.invite}
 end
 
 function Members:PlaceSection(header, text, y, value, empty)
     header:ClearAllPoints()
-    header:SetPoint("TOPLEFT", self.detail, "TOPLEFT", 16, y)
+    header:SetPoint("TOPLEFT", self.detail.body, "TOPLEFT", 16, y)
     text:ClearAllPoints()
     text:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 0, -6)
     text:SetText(value ~= "" and value or empty)
@@ -819,6 +1008,192 @@ end
 
 function Members:IsSelf(member)
     return member and member.short == UnitName("player")
+end
+
+function Members:CanViewOfficerNote()
+    if C_GuildInfo and C_GuildInfo.CanViewOfficerNote then return C_GuildInfo.CanViewOfficerNote() == true end
+    if CanViewOfficerNote then return CanViewOfficerNote() == true end
+
+    return false
+end
+
+function Members:CanEditOfficerNote()
+    if C_GuildInfo and C_GuildInfo.CanEditOfficerNote then return C_GuildInfo.CanEditOfficerNote() == true end
+    if CanEditOfficerNote then return CanEditOfficerNote() == true end
+
+    return false
+end
+
+function Members:CanEditPublicNote(member)
+    if self:IsSelf(member) then return true end
+    if CanEditPublicNote then return CanEditPublicNote() == true end
+    if C_GuildInfo and C_GuildInfo.CanEditPublicNote then return C_GuildInfo.CanEditPublicNote() == true end
+
+    return false
+end
+
+function Members:FindRosterIndex(member)
+    for index = 1, GetNumGuildMembers() or 0 do
+        if GetGuildRosterInfo(index) == member.name then return index end
+    end
+
+    return nil
+end
+
+function Members:SetNote(member, text, isPublic)
+    if member == nil then return end
+    text = text or ""
+    if isPublic and not self:CanEditPublicNote(member) then return end
+    if not isPublic and not self:CanEditOfficerNote() then return end
+    if C_GuildInfo and C_GuildInfo.SetNote and member.guid then
+        C_GuildInfo.SetNote(member.guid, text, isPublic)
+    else
+        local index = self:FindRosterIndex(member)
+        if index == nil then return end
+        if isPublic and GuildRosterSetPublicNote then
+            GuildRosterSetPublicNote(index, text)
+        elseif not isPublic and GuildRosterSetOfficerNote then
+            GuildRosterSetOfficerNote(index, text)
+        else
+            return
+        end
+    end
+
+    if isPublic then
+        member.note = text
+    else
+        member.officerNote = text
+    end
+
+    self:RequestRoster()
+    self:Update()
+end
+
+function Members:CreateNoteEditor(parent, header, text, isPublic, getMember)
+    getMember = getMember or function() return Members:GetSelected() end
+
+    return self:CreateInlineEditor(parent, header, text, self.NOTELENGTH, function()
+        local member = getMember()
+        if member == nil then return nil end
+
+        return isPublic and member.note or member.officerNote, member
+    end, function(value, member) Members:SetNote(member, value, isPublic) end)
+end
+
+function Members:CreateInlineEditor(parent, header, text, maxLetters, getValue, save)
+    local hit = CreateFrame("Button", nil, parent)
+    hit:SetPoint("TOPLEFT", header, "TOPLEFT", -6, 5)
+    hit:SetPoint("BOTTOMRIGHT", text, "BOTTOMRIGHT", 6, -5)
+    hit.bg = Theme:Round(hit, "rowHover", 6)
+    hit.bg:SetShown(false)
+    hit:SetFrameLevel(parent:GetFrameLevel() + 3)
+    hit:SetScript("OnEnter", function(sel)
+        sel.bg:SetShown(true)
+        GameTooltip:SetOwner(sel, "ANCHOR_RIGHT")
+        if sel.canEdit == false then
+            GameTooltip:AddLine(GuildHelper:Trans("LID_NOEDITRIGHT"), 1, 0.3, 0.3)
+        else
+            GameTooltip:AddLine(GuildHelper:Trans("LID_CLICKTOEDIT"), 1, 1, 1)
+        end
+
+        GameTooltip:Show()
+    end)
+
+    hit:SetScript("OnLeave", function(sel)
+        sel.bg:SetShown(false)
+        GameTooltip:Hide()
+    end)
+
+    local box
+    if Theme:IsNative() then
+        box = CreateFrame("EditBox", nil, parent, "InputBoxTemplate")
+        box:SetPoint("TOPLEFT", text, "TOPLEFT", 2, 5)
+        box:SetPoint("TOPRIGHT", text, "TOPRIGHT", 0, 5)
+        box:SetHeight(24)
+    else
+        box = CreateFrame("EditBox", nil, parent)
+        box:SetPoint("TOPLEFT", text, "TOPLEFT", -6, 7)
+        box:SetPoint("TOPRIGHT", text, "TOPRIGHT", 6, 7)
+        box:SetHeight(28)
+        box:SetTextInsets(6, 6, 0, 0)
+        Theme:Panel(box, "control", "accent", 6)
+        Theme:Track(box, "text", "text", 12.5)
+    end
+
+    box:SetFrameLevel(hit:GetFrameLevel() + 2)
+    box:SetAutoFocus(false)
+    box:SetMaxLetters(maxLetters)
+    box:Hide()
+    box:SetScript("OnEnterPressed", function(sel)
+        save(strtrim(sel:GetText() or ""), sel.target)
+        sel:ClearFocus()
+    end)
+
+    box:SetScript("OnEscapePressed", function(sel) sel:ClearFocus() end)
+    box:SetScript("OnEditFocusLost", function(sel)
+        sel.target = nil
+        sel:Hide()
+    end)
+
+    hit:SetScript("OnClick", function(sel)
+        GameTooltip:Hide()
+        if sel.canEdit == false then
+            if UIErrorsFrame then UIErrorsFrame:AddMessage(GuildHelper:Trans("LID_NOEDITRIGHT"), 1, 0.1, 0.1) end
+
+            return
+        end
+
+        local value, target = getValue()
+        if value == nil then return end
+        box.target = target or true
+        box:SetText(value)
+        box:Show()
+        box:SetFocus()
+        box:HighlightText()
+    end)
+
+    hit.box = box
+
+    return hit
+end
+
+function Members:UpdateNoteEditor(hit, member, canEdit)
+    hit:SetShown(member ~= nil)
+    hit.canEdit = canEdit == true
+    local target = hit.box.target
+    if target and (member == nil or type(target) ~= "table" or target.key ~= member.key) then hit.box:ClearFocus() end
+end
+
+function Members:FindByKey(key)
+    for _, member in ipairs(self.list) do
+        if member.key == key then return member end
+    end
+
+    return nil
+end
+
+function Members:GetSelf()
+    return self:FindByKey(strlower(UnitName("player") or ""))
+end
+
+function Members:Focus(member)
+    self.focusKey = member and member.key
+    Window:SelectPage("members")
+end
+
+function Members:ApplyFocus()
+    local key = self.focusKey
+    if key == nil then return end
+    self.focusKey = nil
+    self.selectedKey = key
+    for index, member in ipairs(self.view) do
+        if member.key == key then
+            if index <= self.offset or index > self.offset + self.numVisible then self.offset = max(0, index - 1) end
+            break
+        end
+    end
+
+    self:Update()
 end
 
 function Members:Whisper(member)
@@ -845,9 +1220,29 @@ function Members:ColoredName(member)
     return format("|cff%02x%02x%02x%s|r", r * 255, g * 255, b * 255, member.short)
 end
 
+function Members:UpdateDetailThumb()
+    local detail = self.detail
+    local scroll = detail.scroll
+    local range = scroll:GetVerticalScrollRange()
+    if range <= 0 or not detail.body:IsShown() then
+        detail.thumb:Hide()
+
+        return
+    end
+
+    local track = scroll:GetHeight() - 12
+    local height = max(24, track * scroll:GetHeight() / (scroll:GetHeight() + range))
+    detail.thumb:SetHeight(height)
+    detail.thumb:ClearAllPoints()
+    detail.thumb:SetPoint("TOPRIGHT", scroll, "TOPRIGHT", -4, -6 - (track - height) * scroll:GetVerticalScroll() / range)
+    detail.thumb:Show()
+end
+
 function Members:UpdateDetail()
     local detail = self.detail
     local member = self:GetSelected()
+    if member == nil or member.key ~= detail.shownKey then detail.scroll:SetVerticalScroll(0) end
+    detail.shownKey = member and member.key
     for _, region in ipairs(detail.content) do
         region:SetShown(member ~= nil)
     end
@@ -857,7 +1252,15 @@ function Members:UpdateDetail()
         row:Hide()
     end
 
-    if member == nil then return end
+    local viewOfficer = self:CanViewOfficerNote()
+    self:UpdateNoteEditor(detail.noteHit, member, self:CanEditPublicNote(member))
+    self:UpdateNoteEditor(detail.officerHit, viewOfficer and member or nil, self:CanEditOfficerNote())
+    if member == nil then
+        detail.body:SetHeight(1)
+        self:UpdateDetailThumb()
+
+        return
+    end
     local r, g, b = self:GetClassColor(member)
     detail.avatar.border:SetColor(r, g, b, 1)
     detail.avatar.fill:SetColor(r * 0.28, g * 0.28, b * 0.28, 1)
@@ -871,20 +1274,18 @@ function Members:UpdateDetail()
     local data = GuildHelper.Sync:GetData(member.short)
     local professions = data and data.professions or {}
     local y = self:PlaceSection(detail.noteHeader, detail.noteText, -136, member.note, "–")
-    local hasOfficer = member.officerNote ~= ""
+    local hasOfficer = viewOfficer or member.officerNote ~= ""
     detail.officerHeader:SetShown(hasOfficer)
     detail.officerText:SetShown(hasOfficer)
     if hasOfficer then y = self:PlaceSection(detail.officerHeader, detail.officerText, y, member.officerNote, "–") end
     detail.profHeader:ClearAllPoints()
-    detail.profHeader:SetPoint("TOPLEFT", detail, "TOPLEFT", 16, y)
+    detail.profHeader:SetPoint("TOPLEFT", detail.body, "TOPLEFT", 16, y)
     y = y - 20
     local step = #professions > 3 and 26 or 31
-    local limit = -(detail:GetHeight() - 64)
     for i, prof in ipairs(professions) do
-        if y - step < limit then break end
         local row = self:GetProfessionRow(i)
         row:ClearAllPoints()
-        row:SetPoint("TOPLEFT", detail, "TOPLEFT", 16, y)
+        row:SetPoint("TOPLEFT", detail.body, "TOPLEFT", 16, y)
         row.name:SetText(prof[1])
         row.value:SetText(format("%d/%d", prof[2], prof[3]))
         local progress = prof[3] > 0 and min(1, prof[2] / prof[3]) or 0
@@ -897,7 +1298,7 @@ function Members:UpdateDetail()
     detail.profEmpty:SetShown(#professions == 0)
     if #professions == 0 then
         detail.profEmpty:ClearAllPoints()
-        detail.profEmpty:SetPoint("TOPLEFT", detail, "TOPLEFT", 16, y)
+        detail.profEmpty:SetPoint("TOPLEFT", detail.body, "TOPLEFT", 16, y)
         detail.profEmpty:SetText(GuildHelper:Trans("LID_NODATA"))
         y = y - 22
     end
@@ -916,10 +1317,13 @@ function Members:UpdateDetail()
     detail.altHeader:SetShown(#names > 0)
     detail.altText:SetShown(#names > 0)
     detail.altHeader:ClearAllPoints()
-    detail.altHeader:SetPoint("TOPLEFT", detail, "TOPLEFT", 16, y - 10)
+    detail.altHeader:SetPoint("TOPLEFT", detail.body, "TOPLEFT", 16, y - 10)
     detail.altText:ClearAllPoints()
     detail.altText:SetPoint("TOPLEFT", detail.altHeader, "BOTTOMLEFT", 0, -8)
     detail.altText:SetText(table.concat(names, ", "))
+    if #names > 0 then y = y - 10 - 14 - 8 - detail.altText:GetStringHeight() end
+    detail.body:SetHeight(max(1, -y + 12))
+    self:UpdateDetailThumb()
     local isSelf = self:IsSelf(member)
     detail.whisper:SetAlpha(isSelf and 0.4 or 1)
     detail.whisper:SetEnabled(not isSelf)
@@ -928,7 +1332,7 @@ function Members:UpdateDetail()
 end
 
 function Members:Update()
-    if self.content == nil or not self.content:IsVisible() then return end
+    if self.content == nil or self.detail == nil or not self.content:IsVisible() then return end
     local inGuild = IsInGuild()
     self.panel:SetShown(inGuild)
     self.detail:SetShown(inGuild)
@@ -942,10 +1346,11 @@ function Members:Update()
     end
 
     if self:GetSelected() == nil then self.selectedKey = self.view[1] and self.view[1].key or nil end
-    local maxOffset = max(0, #self.view - #self.rows)
+    self:LayoutColumns()
+    local maxOffset = max(0, #self.view - self.numVisible)
     self.offset = min(max(self.offset, 0), maxOffset)
     for i, row in ipairs(self.rows) do
-        local member = self.view[self.offset + i]
+        local member = i <= self.numVisible and self.view[self.offset + i]
         if member then
             self:FillRow(row, member)
             row:Show()
@@ -969,10 +1374,11 @@ function Members:Build(content)
     self:CreateDetail(content)
     self.noGuild = Theme:Text(content, 14, "muted")
     self.noGuild:SetPoint("CENTER", content, "CENTER", 0, 0)
-    self.noGuild:SetText(GuildHelper:Trans("LID_NOGUILD"))
+    Theme:SetTrans(self.noGuild, "LID_NOGUILD")
     content.OnPageShow = function()
         Members:RequestRoster()
         Members:Refresh()
+        Members:ApplyFocus()
     end
 
     content.OnPageHide = function()
@@ -980,7 +1386,24 @@ function Members:Build(content)
     end
 end
 
+function Members:Reset()
+    self.content = nil
+    self.panel = nil
+    self.detail = nil
+    self.headers = nil
+    self.headerByKey = nil
+    self.thumb = nil
+    self.menu = nil
+    self.searchBox = nil
+    self.filters = nil
+    self.rows = {}
+    self.numVisible = 0
+    self.filter.text = ""
+end
+
 function Members:Init()
+    Window:OnRebuild(function() Members:Reset() end)
+    self:LoadFilter()
     Theme:OnRefresh(function() Members:Update() end)
     GuildHelper.Sync:OnUpdate(function() Members:Update() end)
     local events = CreateFrame("Frame")
