@@ -15,7 +15,8 @@ Window.FLIPCORNERS = {
 }
 
 Window.FLIPEDGE = "_UI-Frame-Metal-EdgeBottom"
-Window.FLIPCROP = 3
+Window.FLIPSHADOW = 5
+Window.BGINSET = 6
 function Window:GetAtlas(name)
     local info = C_Texture and C_Texture.GetAtlasInfo and C_Texture.GetAtlasInfo(name)
     if info == nil or info.file == nil and info.filename == nil or not info.width or info.width <= 0 then return nil end
@@ -23,11 +24,15 @@ function Window:GetAtlas(name)
     return info
 end
 
+function Window:GetFlipCrop(info)
+    return min(self.FLIPSHADOW, info.height - 1)
+end
+
 function Window:SetFlipped(texture, info, width)
+    local crop = self:GetFlipCrop(info)
     local right = info.leftTexCoord + (info.rightTexCoord - info.leftTexCoord) * (width or info.width) / info.width
-    texture:SetTexture(info.file or info.filename)
-    local crop = min(self.FLIPCROP, info.height - 1)
     local bottom = info.bottomTexCoord - (info.bottomTexCoord - info.topTexCoord) * crop / info.height
+    texture:SetTexture(info.file or info.filename)
     texture:SetTexCoord(info.leftTexCoord, right, bottom, info.topTexCoord)
     texture:SetSize(width or info.width, info.height - crop)
 end
@@ -43,16 +48,18 @@ function Window:FlipTopBorder(frame)
 
     for _, entry in ipairs(self.FLIPCORNERS) do
         local corner = slice[entry[1]]
-        local x = entry[4]
+        local x, y = entry[4], entry[5]
         local source = slice[entry[6]]
         if source and source:GetNumPoints() > 0 then
-            local _, _, _, sourceX = source:GetPoint(1)
+            local _, _, _, sourceX, sourceY = source:GetPoint(1)
             if sourceX then x = sourceX end
+            if sourceY then y = -sourceY end
         end
 
+        local info = self:GetAtlas(entry[2])
         corner:ClearAllPoints()
-        corner:SetPoint(entry[3], slice, entry[3], x, entry[5] - self.FLIPCROP)
-        self:SetFlipped(corner, self:GetAtlas(entry[2]))
+        corner:SetPoint(entry[3], slice, entry[3], x, y - self:GetFlipCrop(info))
+        self:SetFlipped(corner, info)
     end
 
     slice.TopEdge:Hide()
@@ -433,13 +440,18 @@ function Window:SetupMainFrame(frame)
 
     if frame.CloseButton then
         frame.CloseButton:ClearAllPoints()
-        frame.CloseButton:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -3, -8)
+        local slice = frame.NineSlice
+        if slice and slice.ghEdges and slice.TopRightCorner then
+            frame.CloseButton:SetPoint("TOPRIGHT", slice.TopRightCorner, "TOPRIGHT", -7, self.FLIPSHADOW - 11)
+        else
+            frame.CloseButton:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -3, -8)
+        end
         frame.CloseButton:SetFrameLevel(max(frame:GetFrameLevel(), frame.NineSlice and frame.NineSlice:GetFrameLevel() or 0) + 10)
     end
 
     if frame.Bg then
         frame.Bg:ClearAllPoints()
-        frame.Bg:SetPoint("TOPLEFT", frame, "TOPLEFT", 2, -3)
+        frame.Bg:SetPoint("TOPLEFT", frame, "TOPLEFT", self.BGINSET, -3)
         frame.Bg:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -2, 2)
     end
 end

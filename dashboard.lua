@@ -9,6 +9,9 @@ Dashboard.LINE = 22
 Dashboard.TOP = 70
 Dashboard.STATSTOP = 186
 Dashboard.LISTTOP = 266
+Dashboard.SCROLLTOP = 66
+Dashboard.SCROLLPAD = 4
+Dashboard.MINLOWER = 278
 function Dashboard:GetMOTD()
     if C_GuildInfo and C_GuildInfo.GetMOTD then return C_GuildInfo.GetMOTD() or "" end
     if GetGuildRosterMOTD then return GetGuildRosterMOTD() or "" end
@@ -93,7 +96,12 @@ function Dashboard:CreateList(card)
     body:SetSize(1, 1)
     scroll:SetScrollChild(body)
     scroll:EnableMouseWheel(true)
-    scroll:SetScript("OnMouseWheel", function(sel, delta) sel:SetVerticalScroll(min(max(sel:GetVerticalScroll() - delta * self.LINE * 2, 0), sel:GetVerticalScrollRange())) end)
+    scroll:SetScript("OnMouseWheel", function(sel, delta)
+        local current = sel:GetVerticalScroll()
+        local target = min(max(current - delta * self.LINE * 2, 0), sel:GetVerticalScrollRange())
+        if target == current then return Dashboard:ScrollPage(delta) end
+        sel:SetVerticalScroll(target)
+    end)
     scroll:SetScript("OnSizeChanged", function(sel, width) body:SetWidth(max(1, width or sel:GetWidth())) end)
     scroll:SetScript("OnScrollRangeChanged", function(sel) sel:SetVerticalScroll(min(sel:GetVerticalScroll(), sel:GetVerticalScrollRange())) end)
     card.scroll = scroll
@@ -157,16 +165,72 @@ function Dashboard:FinishList(card, count)
     card.body:SetHeight(max(1, count * self.LINE))
 end
 
+function Dashboard:ScrollPage(delta)
+    local scroll = self.page
+    if scroll == nil then return end
+    scroll:SetVerticalScroll(min(max(scroll:GetVerticalScroll() - delta * 40, 0), scroll:GetVerticalScrollRange()))
+    self:UpdatePageThumb()
+end
+
+function Dashboard:UpdatePageThumb()
+    local scroll, thumb = self.page, self.pageThumb
+    if scroll == nil or thumb == nil then return end
+    local range = scroll:GetVerticalScrollRange()
+    if range <= 0 then
+        thumb:Hide()
+
+        return
+    end
+
+    local track = scroll:GetHeight() - 12
+    local height = max(24, track * scroll:GetHeight() / (scroll:GetHeight() + range))
+    thumb:SetHeight(height)
+    thumb:ClearAllPoints()
+    thumb:SetPoint("TOPRIGHT", scroll, "TOPRIGHT", -9, -6 - (track - height) * scroll:GetVerticalScroll() / range)
+    thumb:Show()
+end
+
+function Dashboard:CreatePage(content)
+    local scroll = CreateFrame("ScrollFrame", nil, content)
+    scroll:SetPoint("TOPLEFT", content, "TOPLEFT", 0, -self.SCROLLTOP)
+    scroll:SetPoint("BOTTOMRIGHT", content, "BOTTOMRIGHT", 0, Members.BOTTOM - self.SCROLLPAD)
+    local body = CreateFrame("Frame", nil, scroll)
+    body:SetSize(1, 1)
+    scroll:SetScrollChild(body)
+    scroll:EnableMouseWheel(true)
+    scroll:SetScript("OnMouseWheel", function(_, delta) Dashboard:ScrollPage(delta) end)
+    scroll:SetScript("OnSizeChanged", function(sel, width, height)
+        body:SetWidth(max(1, width or sel:GetWidth()))
+        body:SetHeight(max(height or sel:GetHeight(), self.LISTTOP - self.SCROLLTOP + self.MINLOWER + self.SCROLLPAD))
+        Dashboard:UpdatePageThumb()
+    end)
+
+    scroll:SetScript("OnScrollRangeChanged", function(sel)
+        sel:SetVerticalScroll(min(sel:GetVerticalScroll(), sel:GetVerticalScrollRange()))
+        Dashboard:UpdatePageThumb()
+    end)
+
+    local thumb = CreateFrame("Frame", nil, content)
+    thumb:SetWidth(4)
+    thumb:SetFrameLevel(scroll:GetFrameLevel() + 20)
+    Theme:Round(thumb, "thumb", 2)
+    thumb:Hide()
+    self.page = scroll
+    self.pageThumb = thumb
+
+    return body
+end
+
 function Dashboard:CreateMOTD(content)
     local card = self:CreateTextCard(content, "LID_MOTD")
-    card:SetPoint("TOPLEFT", content, "TOPLEFT", Window.PADDING, -self.TOP)
+    card:SetPoint("TOPLEFT", content, "TOPLEFT", Window.PADDING, -self.TOP + self.SCROLLTOP)
     card:SetHeight(102)
     card.hit = Members:CreateEditLink(card, card.title, card.title)
 
     self.motd = card
     self.information = self:CreateTextCard(content, "LID_GUILDINFORMATION")
     self.information:SetPoint("TOPLEFT", card, "TOPRIGHT", 12, 0)
-    self.information:SetPoint("BOTTOMRIGHT", content, "TOPRIGHT", -Window.MARGIN, -self.TOP - 102)
+    self.information:SetPoint("BOTTOMRIGHT", content, "TOPRIGHT", -Window.MARGIN, -self.TOP + self.SCROLLTOP - 102)
 end
 
 function Dashboard:CreateTextCard(parent, label)
@@ -187,8 +251,8 @@ end
 
 function Dashboard:CreateStats(content)
     local stats = CreateFrame("Frame", nil, content)
-    stats:SetPoint("TOPLEFT", content, "TOPLEFT", Window.PADDING, -self.STATSTOP)
-    stats:SetPoint("TOPRIGHT", content, "TOPRIGHT", -Window.MARGIN, -self.STATSTOP)
+    stats:SetPoint("TOPLEFT", content, "TOPLEFT", Window.PADDING, -self.STATSTOP + self.SCROLLTOP)
+    stats:SetPoint("TOPRIGHT", content, "TOPRIGHT", -Window.MARGIN, -self.STATSTOP + self.SCROLLTOP)
     stats:SetHeight(64)
     stats.items = {self:CreateStat(stats, "LID_ONLINENOW"), self:CreateStat(stats, "LID_GUILDHELPERUSERS"), self:CreateStat(stats, "LID_AVGILVLONLINE")}
     stats:SetScript("OnSizeChanged", function(sel, width)
@@ -234,21 +298,23 @@ function Dashboard:Build(content)
     local title = Window:CreatePageTitle(content, "LID_DASHBOARD")
     self.guildName = Theme:Text(content, 13, "muted")
     self.guildName:SetPoint("BOTTOMLEFT", title, "BOTTOMRIGHT", 10, 1)
-    self:CreateMOTD(content)
-    self:CreateStats(content)
-    local side = CreateFrame("Frame", nil, content)
-    side:SetPoint("TOPRIGHT", content, "TOPRIGHT", -Window.MARGIN, -self.LISTTOP)
-    side:SetPoint("BOTTOMRIGHT", content, "BOTTOMRIGHT", -Window.MARGIN, Members.BOTTOM)
+    local body = self:CreatePage(content)
+    local top = -self.LISTTOP + self.SCROLLTOP
+    self:CreateMOTD(body)
+    self:CreateStats(body)
+    local side = CreateFrame("Frame", nil, body)
+    side:SetPoint("TOPRIGHT", body, "TOPRIGHT", -Window.MARGIN, top)
+    side:SetPoint("BOTTOMRIGHT", body, "BOTTOMRIGHT", -Window.MARGIN, self.SCROLLPAD)
     side:SetWidth(self.SIDE)
     self.side = side
     self:CreateMyCard(side)
     self.professions = self:CreateList(self:CreateCard(side, "LID_GUILDPROFESSIONS"))
     self.professions:SetPoint("TOPLEFT", self.myCard, "BOTTOMLEFT", 0, -12)
     self.professions:SetPoint("BOTTOMRIGHT", side, "BOTTOMRIGHT", 0, 0)
-    self.zones = self:CreateList(self:CreateCard(content, "LID_WHOISWHERE"))
-    self.news = self:CreateTextCard(content, "LID_GUILDNEWS")
-    self.news:SetPoint("TOPLEFT", content, "TOPLEFT", Window.PADDING, -self.LISTTOP)
-    self.news:SetPoint("BOTTOMLEFT", content, "BOTTOMLEFT", Window.PADDING, Members.BOTTOM)
+    self.zones = self:CreateList(self:CreateCard(body, "LID_WHOISWHERE"))
+    self.news = self:CreateTextCard(body, "LID_GUILDNEWS")
+    self.news:SetPoint("TOPLEFT", body, "TOPLEFT", Window.PADDING, top)
+    self.news:SetPoint("BOTTOMLEFT", body, "BOTTOMLEFT", Window.PADDING, self.SCROLLPAD)
     self.zones:SetPoint("TOPLEFT", self.news, "TOPRIGHT", 12, 0)
     self.zones:SetPoint("BOTTOMRIGHT", side, "BOTTOMLEFT", -12, 0)
     content:SetScript("OnSizeChanged", function(_, width)
