@@ -7,8 +7,8 @@ GuildHelper.Dashboard = Dashboard
 Dashboard.SIDE = 260
 Dashboard.LINE = 22
 Dashboard.TOP = 70
-Dashboard.STATSTOP = 176
-Dashboard.LISTTOP = 256
+Dashboard.STATSTOP = 186
+Dashboard.LISTTOP = 266
 function Dashboard:GetMOTD()
     if C_GuildInfo and C_GuildInfo.GetMOTD then return C_GuildInfo.GetMOTD() or "" end
     if GetGuildRosterMOTD then return GetGuildRosterMOTD() or "" end
@@ -160,13 +160,13 @@ end
 function Dashboard:CreateMOTD(content)
     local card = self:CreateTextCard(content, "LID_MOTD")
     card:SetPoint("TOPLEFT", content, "TOPLEFT", Window.PADDING, -self.TOP)
-    card:SetHeight(92)
+    card:SetHeight(102)
     card.hit = Members:CreateEditLink(card, card.title, card.title)
 
     self.motd = card
     self.information = self:CreateTextCard(content, "LID_GUILDINFORMATION")
     self.information:SetPoint("TOPLEFT", card, "TOPRIGHT", 12, 0)
-    self.information:SetPoint("BOTTOMRIGHT", content, "TOPRIGHT", -Window.MARGIN, -self.TOP - 92)
+    self.information:SetPoint("BOTTOMRIGHT", content, "TOPRIGHT", -Window.MARGIN, -self.TOP - 102)
 end
 
 function Dashboard:CreateTextCard(parent, label)
