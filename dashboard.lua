@@ -20,6 +20,48 @@ function Dashboard:CanEditMOTD()
     return CanEditMOTD ~= nil and CanEditMOTD() == true
 end
 
+function Dashboard:GetGuildInformation()
+    if C_GuildInfo and C_GuildInfo.GetInfoText then return C_GuildInfo.GetInfoText() or "" end
+    if GetGuildInfoText then return GetGuildInfoText() or "" end
+
+    return ""
+end
+
+function Dashboard:HasNews()
+    return GetNumGuildNews ~= nil and C_GuildInfo ~= nil and C_GuildInfo.GetGuildNewsInfo ~= nil
+end
+
+function Dashboard:FormatNews(info)
+    if info.isHeader then return format("%02d.%02d.", (info.day or 0) + 1, (info.month or 0) + 1) end
+    local who = info.whoText or UNKNOWN or "?"
+    local what = info.whatText or UNKNOWN or "?"
+    if info.newsType == 0 then who = what end
+    if info.newsType == 6 then who = tonumber(info.data and info.data[1]) or tonumber(info.whatText) or 0 end
+    local template = _G["GUILD_NEWS_FORMAT" .. tostring(info.newsType)]
+    if template then
+        local ok, text = pcall(format, template, who, what)
+        if ok then return text end
+    end
+
+    return tostring(who) .. ": " .. what
+end
+
+function Dashboard:UpdateNews()
+    if not self:HasNews() then
+        self.news.text:SetText(GuildHelper:Trans("LID_NEWSUNAVAILABLE"))
+    else
+        local entries = {}
+        for index = 1, GetNumGuildNews() do
+            local info = C_GuildInfo.GetGuildNewsInfo(index)
+            if info then tinsert(entries, self:FormatNews(info)) end
+        end
+
+        self.news.text:SetText(#entries > 0 and table.concat(entries, "\n\n") or GuildHelper:Trans("LID_NONEWS"))
+    end
+
+    self.news:ResizeText()
+end
+
 function Dashboard:CreateCard(parent, label)
     local card = CreateFrame("Frame", nil, parent)
     Theme:Panel(card, "panel", "border", 9)
@@ -116,18 +158,31 @@ function Dashboard:FinishList(card, count)
 end
 
 function Dashboard:CreateMOTD(content)
-    local card = self:CreateCard(content, "LID_MOTD")
+    local card = self:CreateTextCard(content, "LID_MOTD")
     card:SetPoint("TOPLEFT", content, "TOPLEFT", Window.PADDING, -self.TOP)
-    card:SetPoint("TOPRIGHT", content, "TOPRIGHT", -Window.MARGIN, -self.TOP)
     card:SetHeight(92)
-    card.text = Theme:Text(card, 13.5, "text")
-    card.text:SetPoint("TOPLEFT", card, "TOPLEFT", 16, -36)
-    card.text:SetPoint("RIGHT", card, "RIGHT", -16, 0)
-    card.text:SetWordWrap(true)
-    card.text:SetJustifyV("TOP")
-    card.hit = Members:CreateEditLink(card, card.title, card.text)
+    card.hit = Members:CreateEditLink(card, card.title, card.title)
 
     self.motd = card
+    self.information = self:CreateTextCard(content, "LID_GUILDINFORMATION")
+    self.information:SetPoint("TOPLEFT", card, "TOPRIGHT", 12, 0)
+    self.information:SetPoint("BOTTOMRIGHT", content, "TOPRIGHT", -Window.MARGIN, -self.TOP - 92)
+end
+
+function Dashboard:CreateTextCard(parent, label)
+    local card = self:CreateList(self:CreateCard(parent, label))
+    card.text = Theme:Text(card.body, 13, "text")
+    card.text:SetPoint("TOPLEFT", card.body, "TOPLEFT", 10, 0)
+    card.text:SetWordWrap(true)
+    card.text:SetJustifyV("TOP")
+    card.ResizeText = function(sel)
+        sel.text:SetWidth(max(1, sel.body:GetWidth() - 20))
+        sel.body:SetHeight(max(1, sel.text:GetStringHeight() + 8))
+    end
+
+    card.body:SetScript("OnSizeChanged", function() card:ResizeText() end)
+
+    return card
 end
 
 function Dashboard:CreateStats(content)
@@ -191,14 +246,25 @@ function Dashboard:Build(content)
     self.professions:SetPoint("TOPLEFT", self.myCard, "BOTTOMLEFT", 0, -12)
     self.professions:SetPoint("BOTTOMRIGHT", side, "BOTTOMRIGHT", 0, 0)
     self.zones = self:CreateList(self:CreateCard(content, "LID_WHOISWHERE"))
-    self.zones:SetPoint("TOPLEFT", content, "TOPLEFT", Window.PADDING, -self.LISTTOP)
+    self.news = self:CreateTextCard(content, "LID_GUILDNEWS")
+    self.news:SetPoint("TOPLEFT", content, "TOPLEFT", Window.PADDING, -self.LISTTOP)
+    self.news:SetPoint("BOTTOMLEFT", content, "BOTTOMLEFT", Window.PADDING, Members.BOTTOM)
+    self.zones:SetPoint("TOPLEFT", self.news, "TOPRIGHT", 12, 0)
     self.zones:SetPoint("BOTTOMRIGHT", side, "BOTTOMLEFT", -12, 0)
+    content:SetScript("OnSizeChanged", function(_, width)
+        local available = width - Window.PADDING - Window.MARGIN
+        self.motd:SetWidth(max(1, (available - 12) / 2))
+        self.news:SetWidth(max(1, (available - self.SIDE - 24) * 0.6))
+    end)
+
+    content:GetScript("OnSizeChanged")(content, content:GetWidth())
     self.noGuild = Theme:Text(content, 14, "muted")
     self.noGuild:SetPoint("CENTER", content, "CENTER", 0, 0)
     Theme:SetTrans(self.noGuild, "LID_NOGUILD")
     content.OnPageShow = function()
         Members:RequestRoster()
         Dashboard:Refresh()
+        if IsInGuild() and Dashboard:HasNews() and QueryGuildNews then QueryGuildNews() end
     end
 end
 
@@ -217,6 +283,11 @@ function Dashboard:UpdateMOTD()
     Theme:SetKey(self.motd.text, motd ~= "" and "text" or "muted")
     self.motd.hit:Show()
     self.motd.hit.canEdit = self:CanEditMOTD()
+    self.motd:ResizeText()
+    local information = self:GetGuildInformation()
+    self.information.text:SetText(information ~= "" and information or "–")
+    Theme:SetKey(self.information.text, information ~= "" and "text" or "muted")
+    self.information:ResizeText()
 end
 
 function Dashboard:UpdateStats()
@@ -328,7 +399,7 @@ end
 function Dashboard:Update()
     if not self:IsVisible() then return end
     local inGuild = IsInGuild()
-    for _, region in ipairs({self.motd, self.stats, self.side, self.zones}) do
+    for _, region in ipairs({self.motd, self.information, self.news, self.stats, self.side, self.zones}) do
         region:SetShown(inGuild)
     end
 
@@ -341,6 +412,7 @@ function Dashboard:Update()
 
     self.guildName:SetText(GetGuildInfo("player") or "")
     self:UpdateMOTD()
+    self:UpdateNews()
     self:UpdateStats()
     self:UpdateZones()
     self:UpdateProfessions()
@@ -350,6 +422,8 @@ end
 function Dashboard:Reset()
     self.content = nil
     self.motd = nil
+    self.information = nil
+    self.news = nil
     self.stats = nil
     self.side = nil
     self.zones = nil
@@ -364,9 +438,12 @@ for _, event in ipairs({"GUILD_ROSTER_UPDATE", "PLAYER_GUILD_UPDATE", "GUILD_MOT
     Dashboard.events:RegisterEvent(event)
 end
 
+if Dashboard:HasNews() then Dashboard.events:RegisterEvent("GUILD_NEWS_UPDATE") end
 Dashboard.events:SetScript("OnEvent", function(_, event)
     if not Dashboard:IsVisible() then return end
-    if event == "GUILD_MOTD" then
+    if event == "GUILD_NEWS_UPDATE" then
+        Dashboard:UpdateNews()
+    elseif event == "GUILD_MOTD" then
         Dashboard:Update()
     else
         Dashboard:Refresh()
