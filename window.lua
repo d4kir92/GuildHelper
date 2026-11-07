@@ -210,10 +210,12 @@ function Window:CreateSidebar()
     self:UpdateLogo()
     local title = Theme:Text(frame, 15, "text")
     title:SetPoint("TOPLEFT", logo, "TOPRIGHT", 10, -1)
-    Theme:SetTrans(title, "LID_ADDONTITLE")
+    title:SetWidth(self.SIDEBAR - 76)
+    self.guildTitle = title
     local flavor = Theme:Text(frame, 11, "muted")
     flavor:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -3)
-    flavor:SetText(self:GetFlavorName())
+    self.statusLine = flavor
+    self:UpdateGuildName()
     for index, entry in ipairs(self.NAV) do
         self:CreateNavButton(index, entry)
     end
@@ -222,7 +224,7 @@ function Window:CreateSidebar()
     footer:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 26, 24)
     footer:SetWidth(self.SIDEBAR - 40)
     footer:SetWordWrap(true)
-    footer:SetText(format("v%s", GuildHelper:GetVersion() or ""))
+    footer:SetText(format("GuildHelper v%s", GuildHelper:GetVersion() or ""))
 end
 
 function Window:CreateCloseButton()
@@ -285,12 +287,103 @@ function Window:SetupMainFrame(frame)
     end
 
     if frame.ghTemplate == "ButtonFrameTemplate" and ButtonFrameTemplate_HidePortrait then ButtonFrameTemplate_HidePortrait(frame) end
-    for _, key in ipairs({"Inset", "InsetBg", "PortraitContainer", "portrait"}) do
+    for _, key in ipairs({"Inset", "InsetBg", "PortraitContainer", "portrait", "TitleBg", "TitleContainer", "TitleText", "TopTileStreaks"}) do
         if frame[key] and frame[key].Hide then frame[key]:Hide() end
     end
 
-    local title = frame.TitleContainer and frame.TitleContainer.TitleText or frame.TitleText
-    if title then Theme:SetTrans(title, "LID_ADDONTITLE") end
+    if frame.Bg then
+        frame.Bg:ClearAllPoints()
+        frame.Bg:SetPoint("TOPLEFT", frame, "TOPLEFT", 2, -3)
+        frame.Bg:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -2, 2)
+    end
+end
+
+Window.GUILDBUTTONS = {"GuildMicroButton", "SocialsMicroButton", "FriendsMicroButton"}
+function Window:GetGuildButton()
+    for _, name in ipairs(self.GUILDBUTTONS) do
+        if _G[name] then return _G[name] end
+    end
+
+    return nil
+end
+
+function Window:HideGuildOverlay()
+    local overlay = self.guildOverlay
+    if overlay == nil or InCombatLockdown() then return end
+    overlay:Hide()
+    GameTooltip:Hide()
+end
+
+function Window:GetGuildOverlay()
+    if self.guildOverlay then return self.guildOverlay end
+    local target = self:GetGuildButton()
+    if target == nil or InCombatLockdown() then return nil end
+    local overlay = CreateFrame("Button", "GuildHelperGuildOverlay", UIParent, "SecureActionButtonTemplate")
+    overlay:SetFrameStrata("DIALOG")
+    overlay:RegisterForClicks("AnyUp", "AnyDown")
+    overlay:SetAttribute("type", "click")
+    overlay:SetAttribute("clickbutton", target)
+    overlay.bg = overlay:CreateTexture(nil, "BACKGROUND")
+    overlay.bg:SetAllPoints(overlay)
+    overlay.bg:SetColorTexture(1, 1, 1, 0.06)
+    overlay:SetScript("OnLeave", function() Window:HideGuildOverlay() end)
+    overlay:SetScript("PostClick", function(_, _, down)
+        if down then return end
+        Window:HideGuildOverlay()
+        if Window.frame then Window.frame:Hide() end
+    end)
+
+    overlay:Hide()
+    self.overlayEvents = CreateFrame("Frame")
+    self.overlayEvents:RegisterEvent("PLAYER_REGEN_DISABLED")
+    self.overlayEvents:SetScript("OnEvent", function() overlay:Hide() end)
+    self.guildOverlay = overlay
+
+    return overlay
+end
+
+function Window:ShowGuildOverlay(region)
+    if InCombatLockdown() then return false end
+    local overlay = self:GetGuildOverlay()
+    local left, top = region:GetLeft(), region:GetTop()
+    if overlay == nil or left == nil or top == nil then return false end
+    local scale = region:GetEffectiveScale() / UIParent:GetEffectiveScale()
+    overlay:ClearAllPoints()
+    overlay:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left * scale, top * scale)
+    overlay:SetSize(region:GetWidth() * scale, region:GetHeight() * scale)
+    overlay:Show()
+    GameTooltip:SetOwner(overlay, "ANCHOR_RIGHT")
+    GameTooltip:AddLine(GuildHelper:Trans("LID_EDITINBLIZZARD"), 1, 1, 1, true)
+    GameTooltip:Show()
+
+    return true
+end
+
+function Window:GetOnlineCount()
+    local total, online = GetNumGuildMembers()
+    total = total or 0
+    if online == nil then
+        online = 0
+        for index = 1, total do
+            if select(9, GetGuildRosterInfo(index)) then online = online + 1 end
+        end
+    end
+
+    return online, total
+end
+
+function Window:UpdateGuildName()
+    if self.guildTitle == nil or self.statusLine == nil then return end
+    local name = IsInGuild() and GetGuildInfo("player")
+    if name and name ~= "" then
+        self.guildTitle.ghTrans = nil
+        self.guildTitle:SetText(name)
+        local online, total = self:GetOnlineCount()
+        self.statusLine:SetText(GuildHelper:Trans("LID_ONLINECOUNT", nil, Theme:GetHex("online") .. online .. "|r", total))
+    else
+        Theme:SetTrans(self.guildTitle, "LID_ADDONTITLE")
+        self.statusLine:SetText(self:GetFlavorName())
+    end
 end
 
 function Window:AnchorTopLeft()
@@ -432,23 +525,32 @@ function Window:Create()
     self:ApplySize()
     frame:SetScript("OnShow", function()
         Window:UpdateLogo()
+        Window:UpdateGuildName()
         Window:SelectPage(Window.current or GuildHelper:GetConfig("PAGE", "dashboard"))
     end)
 
     frame:SetScript("OnHide", function()
+        Window:HideGuildOverlay()
         for _, content in pairs(Window.pageFrames) do
             if content.OnPageHide then content:OnPageHide() end
         end
     end)
 
     if self.events then return end
-    Theme:OnRefresh(function() Window:UpdateLogo() end)
+    Theme:OnRefresh(function()
+        Window:UpdateLogo()
+        Window:UpdateGuildName()
+    end)
+
     self.events = CreateFrame("Frame")
-    for _, event in ipairs({"PLAYER_GUILD_UPDATE", "GUILDTABARD_UPDATE"}) do
+    for _, event in ipairs({"PLAYER_GUILD_UPDATE", "GUILDTABARD_UPDATE", "GUILD_ROSTER_UPDATE"}) do
         pcall(self.events.RegisterEvent, self.events, event)
     end
 
-    self.events:SetScript("OnEvent", function() Window:UpdateLogo() end)
+    self.events:SetScript("OnEvent", function(_, event)
+        if event ~= "GUILD_ROSTER_UPDATE" then Window:UpdateLogo() end
+        Window:UpdateGuildName()
+    end)
 end
 
 Window.rebuildCallbacks = {}

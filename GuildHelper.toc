@@ -58,6 +58,7 @@ theme.lua
 core.lua
 window.lua
 sync.lua
+specs.lua
 members.lua
 dashboard.lua
 settings.lua

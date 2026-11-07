@@ -323,13 +323,18 @@ function Theme:Text(parent, size, key, flags)
 end
 
 function Theme:SetTrans(text, key, upper)
-    if text.ghTrans == nil then tinsert(self.texts, text) end
+    if not text.ghTransTracked then
+        text.ghTransTracked = true
+        tinsert(self.texts, text)
+    end
+
     text.ghTrans = key
     text.ghUpper = upper
     self:ApplyTrans(text)
 end
 
 function Theme:ApplyTrans(text)
+    if text.ghTrans == nil then return end
     local value = GuildHelper:Trans(text.ghTrans)
     text:SetText(text.ghUpper and strupper(value) or value)
 end

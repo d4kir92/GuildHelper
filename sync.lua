@@ -6,13 +6,19 @@ Sync.SEND_THROTTLE = 15
 Sync.ANSWER_THROTTLE = 120
 Sync.lastSend = 0
 Sync.listeners = {}
-function Sync:GetStore()
+function Sync:GetGuildKey()
     if not IsInGuild() then return nil end
     local guild = GetGuildInfo("player")
     if guild == nil then return nil end
+
+    return guild .. "-" .. (GetRealmName() or "")
+end
+
+function Sync:GetStore()
+    local key = self:GetGuildKey()
+    if key == nil then return nil end
     GHTAB = GHTAB or {}
     GHTAB.MEMBERDATA = GHTAB.MEMBERDATA or {}
-    local key = guild .. "-" .. (GetRealmName() or "")
     GHTAB.MEMBERDATA[key] = GHTAB.MEMBERDATA[key] or {}
 
     return GHTAB.MEMBERDATA[key]
@@ -22,7 +28,11 @@ function Sync:GetData(shortName)
     local store = self:GetStore()
     if store == nil or shortName == nil then return nil end
 
-    return store[strlower(shortName)]
+    return store[self:GetKey(shortName)]
+end
+
+function Sync:GetKey(name)
+    return strlower(strsplit("-", name))
 end
 
 function Sync:OnUpdate(callback)
@@ -87,16 +97,59 @@ function Sync:BuildInfo()
     return table.concat(parts, "~")
 end
 
-function Sync:Store(shortName, ilvl, professions)
+function Sync:GetEntry(shortName)
     local store = self:GetStore()
-    if store == nil then return end
-    store[strlower(shortName)] = {
-        ilvl = ilvl and ilvl > 0 and ilvl or nil,
-        professions = professions,
-        time = time(),
-    }
+    if store == nil then return nil end
+    local key = self:GetKey(shortName)
+    store[key] = store[key] or {}
+    store[key].time = time()
 
+    return store[key]
+end
+
+function Sync:Store(shortName, ilvl, professions)
+    local entry = self:GetEntry(shortName)
+    if entry == nil then return end
+    entry.ilvl = ilvl and ilvl > 0 and ilvl or nil
+    entry.professions = professions
     self:Notify()
+end
+
+function Sync:BuildSpecs()
+    local parts = {"S", GuildHelper.Specs:GetMainName() or ""}
+    for _, entry in ipairs(GuildHelper.Specs:GetOwn()) do
+        tinsert(parts, format("%s;%s;%s", entry.role or "", entry.spec or "", tostring(entry.icon or "")))
+    end
+
+    tinsert(parts, GuildHelper.Specs:GetTwitch())
+
+    return table.concat(parts, "~")
+end
+
+function Sync:ParseSpecs(shortName, message)
+    local entry = self:GetEntry(shortName)
+    if entry == nil then return end
+    local parts = {strsplit("~", message)}
+    local specs = {}
+    for slot = 1, #GuildHelper.Specs.SLOTS do
+        local role, spec, icon = strsplit(";", parts[slot + 2] or "")
+        specs[slot] = {
+            role = role or "",
+            spec = spec or "",
+            icon = tonumber(icon) or (icon ~= "" and icon or nil)
+        }
+    end
+
+    entry.main = parts[2] or ""
+    entry.specs = specs
+    entry.twitch = parts[#GuildHelper.Specs.SLOTS + 3] or ""
+    self:Notify()
+end
+
+function Sync:SendSpecs()
+    local message = self:BuildSpecs()
+    self:ParseSpecs(UnitName("player"), message)
+    self:Send(message)
 end
 
 function Sync:Parse(shortName, message)
@@ -134,6 +187,7 @@ function Sync:SendInfo(force)
     local message = self:BuildInfo()
     self:Parse(UnitName("player"), message)
     self:Send(message)
+    self:SendSpecs()
 end
 
 function Sync:ScheduleInfo(delay)
@@ -153,6 +207,8 @@ function Sync:OnMessage(message, channel, sender)
     local kind = strsub(message, 1, 1)
     if kind == "I" then
         self:Parse(shortName, message)
+    elseif kind == "S" then
+        self:ParseSpecs(shortName, message)
     elseif kind == "Q" and GetTime() - self.lastSend > self.ANSWER_THROTTLE then
         self:ScheduleInfo(random(2, 12))
     end

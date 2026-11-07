@@ -51,15 +51,159 @@ function Settings:CreateRow(parent, y, label, desc)
     return pill
 end
 
-function Settings:SetPill(pill, label)
+function Settings:SetPill(pill, label, minWidth)
     Members:SetPillText(pill, label)
-    pill:SetWidth(max(self.PILLWIDTH, pill:GetWidth()))
+    pill:SetWidth(max(minWidth or self.PILLWIDTH, pill:GetWidth()))
+end
+
+function Settings:CreateCheck(parent)
+    if Theme:IsNative() then
+        local native = CreateFrame("CheckButton", nil, parent, "UICheckButtonTemplate")
+        native:SetSize(26, 26)
+
+        return native
+    end
+
+    local check = CreateFrame("Button", nil, parent)
+    check:SetSize(20, 20)
+    check.fill, check.border = Theme:Panel(check, "control", "border", 5)
+    check.mark = CreateFrame("Frame", nil, check)
+    check.mark:SetPoint("TOPLEFT", check, "TOPLEFT", 5, -5)
+    check.mark:SetPoint("BOTTOMRIGHT", check, "BOTTOMRIGHT", -5, 5)
+    Theme:Round(check.mark, "accent", 3)
+    check.SetChecked = function(sel, value)
+        sel.checked = value == true
+        sel.mark:SetShown(sel.checked)
+        Theme:SetKey(sel.border, sel.checked and "accent" or "border")
+    end
+
+    check.GetChecked = function(sel) return sel.checked == true end
+
+    return check
+end
+
+function Settings:CreateSpecRow(parent, y, slot)
+    local Specs = GuildHelper.Specs
+    local spec = Members:CreatePill(parent, "")
+    spec:SetPoint("TOPRIGHT", parent, "TOPRIGHT", -18, y)
+    local role = Members:CreatePill(parent, "")
+    role:SetPoint("TOPRIGHT", spec, "TOPLEFT", -8, 0)
+    local title = Theme:Text(parent, 14, "text")
+    title:SetPoint("LEFT", parent, "TOPLEFT", 18, y - 14)
+    title:SetPoint("RIGHT", role, "LEFT", -12, 0)
+    Theme:SetTrans(title, Specs.SLOTS[slot])
+    role:SetScript("OnClick", function(sel)
+        Members:OpenMenu(sel, Specs:GetRoleOptions(), Specs:GetOwn()[slot].role, function(value)
+            Specs:SetOwn(slot, "role", value)
+            Settings:Update()
+        end)
+    end)
+
+    spec:SetScript("OnClick", function(sel)
+        Members:OpenMenu(sel, Specs:GetSpecOptions(), Specs:GetOwn()[slot].spec, function(value)
+            Specs:SetOwnSpec(slot, value)
+            Settings:Update()
+        end)
+    end)
+
+    return {
+        role = role,
+        spec = spec
+    }
+end
+
+function Settings:CreateCharacterPanel(content, anchor)
+    local panel = CreateFrame("Frame", nil, content)
+    panel:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -16)
+    panel:SetSize(self.WIDTH, 236)
+    Theme:Panel(panel, "panel", "border", 9)
+    local header = Theme:Text(panel, 11, "muted")
+    header:SetPoint("TOPLEFT", panel, "TOPLEFT", 18, -16)
+    Theme:SetTrans(header, "LID_CHARACTER", true)
+    self.mainCheck = self:CreateCheck(panel)
+    self.mainCheck:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -42)
+    self.mainCheck:SetScript("OnClick", function()
+        GuildHelper.Specs:SetMain(not GuildHelper.Specs:IsMain())
+        Settings:Update()
+    end)
+
+    local title = Theme:Text(panel, 14, "text")
+    title:SetPoint("TOPLEFT", panel, "TOPLEFT", 48, -42)
+    title:SetPoint("RIGHT", panel, "RIGHT", -18, 0)
+    Theme:SetTrans(title, "LID_MAINCHAR")
+    local sub = Theme:Text(panel, 12, "muted")
+    sub:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -5)
+    sub:SetPoint("RIGHT", panel, "RIGHT", -18, 0)
+    Theme:SetTrans(sub, "LID_MAINCHARDESC")
+    local line = Theme:Line(panel, "divider")
+    line:SetHeight(1)
+    line:SetPoint("TOPLEFT", panel, "TOPLEFT", 1, -92)
+    line:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -1, -92)
+    self.specRows = {self:CreateSpecRow(panel, -108, 1), self:CreateSpecRow(panel, -148, 2)}
+    self:CreateTwitchRow(panel, -188)
+end
+
+function Settings:UpdateCharacter()
+    local Specs = GuildHelper.Specs
+    self.mainCheck:SetChecked(Specs:IsMain())
+    local none = GuildHelper:Trans("LID_NONE")
+    for slot, row in ipairs(self.specRows) do
+        local entry = Specs:GetOwn()[slot]
+        self:SetPill(row.role, Specs:Format({
+            role = entry.role
+        }) or none, 120)
+
+        self:SetPill(row.spec, Specs:Format({
+            spec = entry.spec,
+            icon = entry.icon
+        }) or none, 140)
+    end
+
+    if not self.twitchBox:HasFocus() then self.twitchBox:SetText(Specs:GetTwitch()) end
+end
+
+function Settings:CreateTwitchRow(parent, y)
+    local box
+    if Theme:IsNative() then
+        box = CreateFrame("EditBox", nil, parent, "InputBoxTemplate")
+        box:SetSize(206, 24)
+        box:SetPoint("TOPRIGHT", parent, "TOPRIGHT", -18, y - 2)
+    else
+        box = CreateFrame("EditBox", nil, parent)
+        box:SetSize(212, 28)
+        box:SetPoint("TOPRIGHT", parent, "TOPRIGHT", -18, y)
+        box:SetTextInsets(10, 10, 0, 0)
+        box.fill, box.border = Theme:Panel(box, "control", "border", 7)
+        Theme:Track(box, "text", "text", 12.5)
+    end
+
+    box:SetAutoFocus(false)
+    box:SetMaxLetters(25)
+    box:SetScript("OnEnterPressed", function(sel) sel:ClearFocus() end)
+    box:SetScript("OnEscapePressed", function(sel)
+        sel:SetText(GuildHelper.Specs:GetTwitch())
+        sel:ClearFocus()
+    end)
+
+    box:SetScript("OnEditFocusGained", function(sel) if sel.border then Theme:SetKey(sel.border, "accent") end end)
+    box:SetScript("OnEditFocusLost", function(sel)
+        if sel.border then Theme:SetKey(sel.border, "border") end
+        if (sel:GetText() or "") ~= GuildHelper.Specs:GetTwitch() then GuildHelper.Specs:SetTwitch(sel:GetText()) end
+        sel:SetText(GuildHelper.Specs:GetTwitch())
+    end)
+
+    local title = Theme:Text(parent, 14, "text")
+    title:SetPoint("LEFT", parent, "TOPLEFT", 18, y - 14)
+    title:SetPoint("RIGHT", box, "LEFT", -12, 0)
+    Theme:SetTrans(title, "LID_TWITCHNAME")
+    self.twitchBox = box
 end
 
 function Settings:Update()
     if self.langPill == nil then return end
     self:SetPill(self.langPill, Members:GetOptionLabel(self:GetLanguageOptions(), GuildHelper:GetConfig("LANGUAGE", "auto")))
     self:SetPill(self.designPill, Members:GetOptionLabel(self:GetDesignOptions(), GuildHelper:GetDesign()))
+    self:UpdateCharacter()
 end
 
 function Settings:Build(content)
@@ -82,6 +226,7 @@ function Settings:Build(content)
         Members:OpenMenu(sel, Settings:GetDesignOptions(), GuildHelper:GetDesign(), function(value) GuildHelper:SetDesign(value) end)
     end)
 
+    self:CreateCharacterPanel(content, panel)
     if not self.hooked then
         self.hooked = true
         Theme:OnRefresh(function() Settings:Update() end)

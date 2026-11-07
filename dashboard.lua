@@ -6,7 +6,6 @@ local Dashboard = {}
 GuildHelper.Dashboard = Dashboard
 Dashboard.SIDE = 260
 Dashboard.LINE = 22
-Dashboard.MOTDLENGTH = 255
 Dashboard.TOP = 70
 Dashboard.STATSTOP = 176
 Dashboard.LISTTOP = 256
@@ -19,17 +18,6 @@ end
 
 function Dashboard:CanEditMOTD()
     return CanEditMOTD ~= nil and CanEditMOTD() == true
-end
-
-function Dashboard:SetMOTD(text)
-    if not self:CanEditMOTD() then return end
-    if C_GuildInfo and C_GuildInfo.SetMOTD then
-        C_GuildInfo.SetMOTD(text)
-    elseif GuildSetMOTD then
-        GuildSetMOTD(text)
-    end
-
-    self:Update()
 end
 
 function Dashboard:CreateCard(parent, label)
@@ -137,7 +125,7 @@ function Dashboard:CreateMOTD(content)
     card.text:SetPoint("RIGHT", card, "RIGHT", -16, 0)
     card.text:SetWordWrap(true)
     card.text:SetJustifyV("TOP")
-    card.hit = Members:CreateInlineEditor(card, card.title, card.text, self.MOTDLENGTH, function() return Dashboard:GetMOTD() end, function(value) Dashboard:SetMOTD(value) end)
+    card.hit = Members:CreateEditLink(card, card.title, card.text)
 
     self.motd = card
 end
@@ -181,9 +169,8 @@ function Dashboard:CreateMyCard(side)
     card.officerText = Theme:Text(card, 12.5, "text")
     card.officerText:SetPoint("TOPLEFT", card.officerHeader, "BOTTOMLEFT", 0, -6)
     card.officerText:SetPoint("RIGHT", card, "RIGHT", -16, 0)
-    local function GetSelf() return Members:GetSelf() end
-    card.noteHit = Members:CreateNoteEditor(card, card.noteHeader, card.noteText, true, GetSelf)
-    card.officerHit = Members:CreateNoteEditor(card, card.officerHeader, card.officerText, false, GetSelf)
+    card.noteHit = Members:CreateEditLink(card, card.noteHeader, card.noteText)
+    card.officerHit = Members:CreateEditLink(card, card.officerHeader, card.officerText)
     self.myCard = card
 end
 

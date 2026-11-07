@@ -23,6 +23,21 @@ Members.COLUMNS = {
         width = 40
     },
     {
+        key = "isMain",
+        label = "LID_MAINQ",
+        width = 50
+    },
+    {
+        key = "mainSpec",
+        label = "LID_MAINSPECSHORT",
+        width = 120
+    },
+    {
+        key = "secondSpec",
+        label = "LID_SECONDSPECSHORT",
+        width = 120
+    },
+    {
         key = "zone",
         label = "LID_ZONE",
         width = 122
@@ -56,9 +71,9 @@ Members.COLUMNS = {
 
 Members.COLUMNX = {}
 Members.COLUMNW = {}
+Members.COLUMNSHOWN = {}
 Members.nameWidth = Members.MINNAME
 
-Members.NOTELENGTH = 31
 
 Members.list = {}
 Members.view = {}
@@ -127,6 +142,16 @@ function Members:FindMainInNote(member, note, byName)
     return nil
 end
 
+function Members:GetDeclaredMain(member, byName)
+    local data = GuildHelper.Sync:GetData(member.short)
+    local main = data and data.main
+    if main == nil or main == "" then return nil end
+    local key = strlower(self:ShortName(main))
+    if key == member.key then return member end
+
+    return byName[key]
+end
+
 function Members:LinkMains()
     local byName = {}
     for _, member in ipairs(self.list) do
@@ -136,7 +161,13 @@ function Members:LinkMains()
     end
 
     for _, member in ipairs(self.list) do
-        member.main = self:FindMainInNote(member, member.note, byName) or self:FindMainInNote(member, member.officerNote, byName)
+        local declared = self:GetDeclaredMain(member, byName)
+        member.declaredMain = declared == member
+        if declared then
+            member.main = declared ~= member and declared or nil
+        else
+            member.main = self:FindMainInNote(member, member.note, byName) or self:FindMainInNote(member, member.officerNote, byName)
+        end
     end
 
     for _, member in ipairs(self.list) do
@@ -219,6 +250,9 @@ function Members:GetSortValue(member, key)
     if key == "level" then return member.level end
     if key == "rank" then return member.rankIndex end
     if key == "zone" then return member.zone == "" and "\255" or strlower(member.zone) end
+    if key == "isMain" then return member.declaredMain and 0 or (member.main and 1 or 2) end
+    if key == "mainSpec" then return self:GetSpecSortValue(member, 1) end
+    if key == "secondSpec" then return self:GetSpecSortValue(member, 2) end
     if key == "ilvl" then return self:GetItemLevel(member) or -1 end
     if key == "lastOnline" then return member.lastOnline or 999999 end
     if key == "note" then return member.note == "" and "\255" or strlower(member.note) end
@@ -620,6 +654,9 @@ function Members:CreateRow(parent, index)
     row.tag = Theme:Text(row, 10.5, "muted")
     row.tag:SetPoint("LEFT", row.name, "RIGHT", 6, 0)
     row.level = Theme:Text(row, 13, "text")
+    row.isMain = Theme:Text(row, 12.5, "text")
+    row.mainSpec = Theme:Text(row, 12, "navText")
+    row.secondSpec = Theme:Text(row, 12, "navText")
     row.zone = Theme:Text(row, 12.5, "navText")
     row.rank = Theme:Text(row, 13, "text")
     row.ilvl = Theme:Text(row, 13, "text")
@@ -646,6 +683,21 @@ function Members:CreateRow(parent, index)
     return row
 end
 
+function Members:GetMainLabel(member)
+    if member.declaredMain then return GuildHelper:Trans("LID_YES") end
+    if member.main then return GuildHelper:Trans("LID_NO") end
+
+    return "–"
+end
+
+function Members:GetSpecSortValue(member, slot)
+    local data = GuildHelper.Sync:GetData(member.short)
+    local entry = data and data.specs and data.specs[slot]
+    if entry == nil or (entry.spec == "" and entry.role == "") then return "\255" end
+
+    return strlower((entry.role or "") .. (entry.spec or ""))
+end
+
 function Members:FillRow(row, member)
     row.member = member
     local r, g, b = self:GetClassColor(member)
@@ -656,12 +708,20 @@ function Members:FillRow(row, member)
         row.tag:SetText(GuildHelper:Trans("LID_MAINTAG", nil, #member.alts))
     elseif member.main then
         row.tag:SetText(GuildHelper:Trans("LID_ALTTAG"))
+    elseif member.declaredMain then
+        row.tag:SetText(GuildHelper:Trans("LID_MAIN"))
     else
         row.tag:SetText("")
     end
 
     self:FitName(row)
     row.level:SetText(member.level)
+    local data = GuildHelper.Sync:GetData(member.short)
+    local specs = data and data.specs or {}
+    row.isMain:SetText(self:GetMainLabel(member))
+    Theme:SetKey(row.isMain, member.declaredMain and "accent" or "muted")
+    row.mainSpec:SetText(GuildHelper.Specs:Format(specs[1], true) or "–")
+    row.secondSpec:SetText(GuildHelper.Specs:Format(specs[2], true) or "–")
     row.zone:SetText(member.zone)
     row.rank:SetText(member.rank)
     row.ilvl:SetText(self:GetItemLevel(member) or "–")
@@ -768,12 +828,14 @@ function Members:LayoutColumns()
     local noteWidth = max(self.MINNOTE, min(self.NOTEWIDTH, (free - self.MINNAME) / max(1, notes)))
     local nameWidth = max(self.MINNAME, free - noteWidth * notes)
     local x = self.NAMEX
+    local limit = panel:GetWidth() - 6
     for _, column in ipairs(self.COLUMNS) do
         local width = column.width or (column.note and noteWidth) or nameWidth
-        local shown = self:IsColumnShown(column)
+        local shown = self:IsColumnShown(column) and x + width <= limit
         local header = self.headerByKey[column.key]
         self.COLUMNX[column.key] = x
         self.COLUMNW[column.key] = width
+        self.COLUMNSHOWN[column.key] = shown
         header:ClearAllPoints()
         header:SetPoint("TOPLEFT", panel, "TOPLEFT", x, 0)
         header:SetSize(max(1, width - 6), self.HEADERHEIGHT)
@@ -788,14 +850,18 @@ function Members:LayoutColumns()
 end
 
 function Members:LayoutRow(row)
-    local pos, width = self.COLUMNX, self.COLUMNW
+    local pos, width, shown = self.COLUMNX, self.COLUMNW, self.COLUMNSHOWN
     local function Place(region, key, offset, size)
         region:ClearAllPoints()
         region:SetPoint("LEFT", row, "LEFT", pos[key] + (offset or 0), 0)
         if size then region:SetWidth(max(1, width[key] - size)) end
+        region:SetAlpha(shown[key] and 1 or 0)
     end
 
     Place(row.level, "level")
+    Place(row.isMain, "isMain")
+    Place(row.mainSpec, "mainSpec", 0, 8)
+    Place(row.secondSpec, "secondSpec", 0, 8)
     Place(row.zone, "zone", 0, 8)
     Place(row.rank, "rank", 0, 8)
     Place(row.ilvl, "ilvl")
@@ -803,7 +869,6 @@ function Members:LayoutRow(row)
     Place(row.badge, "lastOnline", -2)
     Place(row.note, "note", 0, 10)
     Place(row.officer, "officerNote", 0, 10)
-    row.officer:SetShown(self:CanViewOfficerNote())
 end
 
 function Members:FitName(row)
@@ -965,6 +1030,11 @@ function Members:CreateDetail(content)
     detail.ilvl:SetPoint("TOPLEFT", body, "TOPLEFT", 16, -68)
     detail.rank = self:CreateStatCard(body, "LID_RANK")
     detail.rank:SetPoint("TOPLEFT", detail.ilvl, "TOPRIGHT", 8, 0)
+    detail.specHeader = Theme:Text(body, 11, "muted")
+    Theme:SetTrans(detail.specHeader, "LID_SPECS", true)
+    detail.specText = Theme:Text(body, 12.5, "text")
+    detail.specText:SetWidth(188)
+    detail.specText:SetWordWrap(true)
     detail.noteHeader = Theme:Text(body, 11, "muted")
     Theme:SetTrans(detail.noteHeader, "LID_NOTE", true)
     detail.noteText = Theme:Text(body, 12.5, "text")
@@ -990,9 +1060,9 @@ function Members:CreateDetail(content)
     detail.invite:SetScript("OnClick", function() Members:Invite(Members:GetSelected()) end)
     detail.empty = Theme:Text(detail, 13, "muted")
     detail.empty:SetPoint("CENTER", detail, "CENTER", 0, 0)
-    detail.noteHit = self:CreateNoteEditor(body, detail.noteHeader, detail.noteText, true)
-    detail.officerHit = self:CreateNoteEditor(body, detail.officerHeader, detail.officerText, false)
-    detail.content = {avatar, detail.name, detail.sub, detail.ilvl, detail.rank, detail.noteHeader, detail.noteText, detail.officerHeader, detail.officerText, detail.profHeader, detail.profEmpty, detail.altHeader, detail.altText, detail.whisper, detail.invite}
+    detail.noteHit = self:CreateEditLink(body, detail.noteHeader, detail.noteText)
+    detail.officerHit = self:CreateEditLink(body, detail.officerHeader, detail.officerText)
+    detail.content = {avatar, detail.name, detail.sub, detail.ilvl, detail.rank, detail.specHeader, detail.specText, detail.noteHeader, detail.noteText, detail.officerHeader, detail.officerText, detail.profHeader, detail.profEmpty, detail.altHeader, detail.altText, detail.whisper, detail.invite}
 end
 
 function Members:PlaceSection(header, text, y, value, empty)
@@ -1007,7 +1077,12 @@ function Members:PlaceSection(header, text, y, value, empty)
 end
 
 function Members:IsSelf(member)
-    return member and member.short == UnitName("player")
+    if member == nil then return false end
+    local guid = UnitGUID and UnitGUID("player")
+    if guid and member.guid then return member.guid == guid end
+    local name = UnitName("player") or ""
+
+    return strlower(member.short) == strlower(self:ShortName(name))
 end
 
 function Members:CanViewOfficerNote()
@@ -1032,55 +1107,14 @@ function Members:CanEditPublicNote(member)
     return false
 end
 
-function Members:FindRosterIndex(member)
-    for index = 1, GetNumGuildMembers() or 0 do
-        if GetGuildRosterInfo(index) == member.name then return index end
-    end
+function Members:GetEditMessage(hit)
+    if hit.canEdit == false then return "LID_NOEDITRIGHT" end
+    if InCombatLockdown() then return "LID_NOTINCOMBAT" end
 
-    return nil
+    return "LID_OPENGUILDHINT"
 end
 
-function Members:SetNote(member, text, isPublic)
-    if member == nil then return end
-    text = text or ""
-    if isPublic and not self:CanEditPublicNote(member) then return end
-    if not isPublic and not self:CanEditOfficerNote() then return end
-    if C_GuildInfo and C_GuildInfo.SetNote and member.guid then
-        C_GuildInfo.SetNote(member.guid, text, isPublic)
-    else
-        local index = self:FindRosterIndex(member)
-        if index == nil then return end
-        if isPublic and GuildRosterSetPublicNote then
-            GuildRosterSetPublicNote(index, text)
-        elseif not isPublic and GuildRosterSetOfficerNote then
-            GuildRosterSetOfficerNote(index, text)
-        else
-            return
-        end
-    end
-
-    if isPublic then
-        member.note = text
-    else
-        member.officerNote = text
-    end
-
-    self:RequestRoster()
-    self:Update()
-end
-
-function Members:CreateNoteEditor(parent, header, text, isPublic, getMember)
-    getMember = getMember or function() return Members:GetSelected() end
-
-    return self:CreateInlineEditor(parent, header, text, self.NOTELENGTH, function()
-        local member = getMember()
-        if member == nil then return nil end
-
-        return isPublic and member.note or member.officerNote, member
-    end, function(value, member) Members:SetNote(member, value, isPublic) end)
-end
-
-function Members:CreateInlineEditor(parent, header, text, maxLetters, getValue, save)
+function Members:CreateEditLink(parent, header, text)
     local hit = CreateFrame("Button", nil, parent)
     hit:SetPoint("TOPLEFT", header, "TOPLEFT", -6, 5)
     hit:SetPoint("BOTTOMRIGHT", text, "BOTTOMRIGHT", 6, -5)
@@ -1088,14 +1122,10 @@ function Members:CreateInlineEditor(parent, header, text, maxLetters, getValue, 
     hit.bg:SetShown(false)
     hit:SetFrameLevel(parent:GetFrameLevel() + 3)
     hit:SetScript("OnEnter", function(sel)
+        if sel.canEdit ~= false and Window:ShowGuildOverlay(sel) then return end
         sel.bg:SetShown(true)
         GameTooltip:SetOwner(sel, "ANCHOR_RIGHT")
-        if sel.canEdit == false then
-            GameTooltip:AddLine(GuildHelper:Trans("LID_NOEDITRIGHT"), 1, 0.3, 0.3)
-        else
-            GameTooltip:AddLine(GuildHelper:Trans("LID_CLICKTOEDIT"), 1, 1, 1)
-        end
-
+        GameTooltip:AddLine(GuildHelper:Trans(Members:GetEditMessage(sel)), 1, sel.canEdit == false and 0.3 or 1, sel.canEdit == false and 0.3 or 1, true)
         GameTooltip:Show()
     end)
 
@@ -1104,55 +1134,10 @@ function Members:CreateInlineEditor(parent, header, text, maxLetters, getValue, 
         GameTooltip:Hide()
     end)
 
-    local box
-    if Theme:IsNative() then
-        box = CreateFrame("EditBox", nil, parent, "InputBoxTemplate")
-        box:SetPoint("TOPLEFT", text, "TOPLEFT", 2, 5)
-        box:SetPoint("TOPRIGHT", text, "TOPRIGHT", 0, 5)
-        box:SetHeight(24)
-    else
-        box = CreateFrame("EditBox", nil, parent)
-        box:SetPoint("TOPLEFT", text, "TOPLEFT", -6, 7)
-        box:SetPoint("TOPRIGHT", text, "TOPRIGHT", 6, 7)
-        box:SetHeight(28)
-        box:SetTextInsets(6, 6, 0, 0)
-        Theme:Panel(box, "control", "accent", 6)
-        Theme:Track(box, "text", "text", 12.5)
-    end
-
-    box:SetFrameLevel(hit:GetFrameLevel() + 2)
-    box:SetAutoFocus(false)
-    box:SetMaxLetters(maxLetters)
-    box:Hide()
-    box:SetScript("OnEnterPressed", function(sel)
-        save(strtrim(sel:GetText() or ""), sel.target)
-        sel:ClearFocus()
-    end)
-
-    box:SetScript("OnEscapePressed", function(sel) sel:ClearFocus() end)
-    box:SetScript("OnEditFocusLost", function(sel)
-        sel.target = nil
-        sel:Hide()
-    end)
-
     hit:SetScript("OnClick", function(sel)
         GameTooltip:Hide()
-        if sel.canEdit == false then
-            if UIErrorsFrame then UIErrorsFrame:AddMessage(GuildHelper:Trans("LID_NOEDITRIGHT"), 1, 0.1, 0.1) end
-
-            return
-        end
-
-        local value, target = getValue()
-        if value == nil then return end
-        box.target = target or true
-        box:SetText(value)
-        box:Show()
-        box:SetFocus()
-        box:HighlightText()
+        if UIErrorsFrame then UIErrorsFrame:AddMessage(GuildHelper:Trans(Members:GetEditMessage(sel)), 1, 0.1, 0.1) end
     end)
-
-    hit.box = box
 
     return hit
 end
@@ -1160,8 +1145,6 @@ end
 function Members:UpdateNoteEditor(hit, member, canEdit)
     hit:SetShown(member ~= nil)
     hit.canEdit = canEdit == true
-    local target = hit.box.target
-    if target and (member == nil or type(target) ~= "table" or target.key ~= member.key) then hit.box:ClearFocus() end
 end
 
 function Members:FindByKey(key)
@@ -1173,7 +1156,11 @@ function Members:FindByKey(key)
 end
 
 function Members:GetSelf()
-    return self:FindByKey(strlower(UnitName("player") or ""))
+    for _, member in ipairs(self.list) do
+        if self:IsSelf(member) then return member end
+    end
+
+    return nil
 end
 
 function Members:Focus(member)
@@ -1273,7 +1260,16 @@ function Members:UpdateDetail()
     detail.rank.value:SetText(member.rank)
     local data = GuildHelper.Sync:GetData(member.short)
     local professions = data and data.professions or {}
-    local y = self:PlaceSection(detail.noteHeader, detail.noteText, -136, member.note, "–")
+    local y = -136
+    local hasSpecs = data ~= nil and data.specs ~= nil
+    detail.specHeader:SetShown(hasSpecs)
+    detail.specText:SetShown(hasSpecs)
+    if hasSpecs then
+        local text = GuildHelper.Specs:Describe(data.specs)
+        if data.twitch and data.twitch ~= "" then text = text .. "\n" .. GuildHelper:Trans("LID_TWITCHNAME") .. ": " .. data.twitch end
+        y = self:PlaceSection(detail.specHeader, detail.specText, y, text, "–")
+    end
+    y = self:PlaceSection(detail.noteHeader, detail.noteText, y, member.note, "–")
     local hasOfficer = viewOfficer or member.officerNote ~= ""
     detail.officerHeader:SetShown(hasOfficer)
     detail.officerText:SetShown(hasOfficer)
@@ -1405,7 +1401,11 @@ function Members:Init()
     Window:OnRebuild(function() Members:Reset() end)
     self:LoadFilter()
     Theme:OnRefresh(function() Members:Update() end)
-    GuildHelper.Sync:OnUpdate(function() Members:Update() end)
+    GuildHelper.Sync:OnUpdate(function()
+        if Members.content == nil or not Members.content:IsVisible() then return end
+        Members:LinkMains()
+        Members:ApplyFilter()
+    end)
     local events = CreateFrame("Frame")
     events:RegisterEvent("GUILD_ROSTER_UPDATE")
     events:RegisterEvent("PLAYER_GUILD_UPDATE")
