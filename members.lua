@@ -8,6 +8,7 @@ Members.HEADERHEIGHT = 36
 Members.DETAILWIDTH = 220
 Members.TABLETOP = 108
 Members.BOTTOM = 21
+Members.MENUROWS = 16
 Members.NAMEX = 15
 Members.MINNAME = 140
 Members.NOTEWIDTH = 170
@@ -390,6 +391,7 @@ function Members:GetMenu()
     menu:SetClampedToScreen(true)
     menu:EnableMouse(true)
     menu:Hide()
+    menu.ghNoInside = true
     Theme:Panel(menu, "card", "border", 7)
     menu.buttons = {}
     self.menu = menu
@@ -406,50 +408,99 @@ function Members:OpenMenu(anchor, options, current, onSelect)
     end
 
     menu.anchor = anchor
-    local width = 140
+    menu.options = options
+    menu.current = current
+    menu.onSelect = onSelect
+    menu.visible = min(#options, self.MENUROWS)
+    menu.offset = 0
     for i, option in ipairs(options) do
+        if not option.header and option.value == current then menu.offset = max(0, min(i - floor(menu.visible / 2), #options - menu.visible)) end
+    end
+
+    if not menu.measure then
+        menu.measure = Theme:Text(menu, 12.5)
+        menu.measure:Hide()
+        menu.thumb = menu:CreateTexture(nil, "OVERLAY")
+        menu.thumb:SetWidth(3)
+        menu:EnableMouseWheel(true)
+        menu:SetScript("OnMouseWheel", function(sel, delta)
+            local offset = max(0, min(sel.offset - delta * 3, #sel.options - sel.visible))
+            if offset ~= sel.offset then
+                sel.offset = offset
+                Members:RenderMenu()
+            end
+        end)
+    end
+
+    local width = 140
+    for _, option in ipairs(options) do
+        menu.measure:SetText(option.label)
+        width = max(width, menu.measure:GetStringWidth() + 36)
+    end
+
+    menu:SetSize(min(width, 420), menu.visible * 24 + 10)
+    menu:ClearAllPoints()
+    menu:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -4)
+    self:RenderMenu()
+    menu:Show()
+end
+
+function Members:RenderMenu()
+    local menu = self.menu
+    for i = 1, menu.visible do
+        local option = menu.options[menu.offset + i]
         local button = menu.buttons[i]
         if button == nil then
             button = CreateFrame("Button", nil, menu)
             button:SetHeight(24)
+            button:SetPoint("TOPLEFT", menu, "TOPLEFT", 5, -5 - (i - 1) * 24)
+            button:SetPoint("TOPRIGHT", menu, "TOPRIGHT", -9, -5 - (i - 1) * 24)
             button.bg = Theme:Round(button, "hover", 5)
             button.text = Theme:Text(button, 12.5)
             button.text:SetPoint("LEFT", button, "LEFT", 10, 0)
-            button:SetScript("OnEnter", function(sel) sel.bg:SetShown(true) end)
+            button.text:SetPoint("RIGHT", button, "RIGHT", -4, 0)
+            button.text:SetJustifyH("LEFT")
+            button.text:SetWordWrap(false)
+            button:SetScript("OnEnter", function(sel) sel.bg:SetShown(not sel.header) end)
             button:SetScript("OnLeave", function(sel) sel.bg:SetShown(sel.selected == true) end)
+            button:SetScript("OnClick", function(sel)
+                if sel.header then return end
+                menu:Hide()
+                menu.onSelect(sel.value)
+            end)
+
             menu.buttons[i] = button
         end
 
-        button:ClearAllPoints()
-        button:SetPoint("TOPLEFT", menu, "TOPLEFT", 5, -5 - (i - 1) * 24)
-        button:SetPoint("TOPRIGHT", menu, "TOPRIGHT", -5, -5 - (i - 1) * 24)
+        button.header = option.header == true
+        button.value = option.value
         button.text:SetText(option.label)
         if option.color then
             button.text:SetTextColor(option.color.r, option.color.g, option.color.b)
         else
-            button.text:SetTextColor(Theme:GetColor("text"))
+            button.text:SetTextColor(Theme:GetColor(button.header and "muted" or "text"))
         end
 
-        button.selected = option.value == current
+        button.selected = not button.header and option.value == menu.current
         Theme:SetKey(button.bg, button.selected and "pillActive" or "hover")
         button.bg:SetShown(button.selected)
-        button:SetScript("OnClick", function()
-            menu:Hide()
-            onSelect(option.value)
-        end)
-
         button:Show()
-        width = max(width, button.text:GetStringWidth() + 30)
     end
 
-    for i = #options + 1, #menu.buttons do
+    for i = menu.visible + 1, #menu.buttons do
         menu.buttons[i]:Hide()
     end
 
-    menu:SetSize(width, #options * 24 + 10)
-    menu:ClearAllPoints()
-    menu:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -4)
-    menu:Show()
+    local total = #menu.options
+    menu.thumb:SetShown(total > menu.visible)
+    if total > menu.visible then
+        local track = menu.visible * 24
+        local size = max(16, track * menu.visible / total)
+        menu.thumb:SetColorTexture(Theme:GetColor("muted"))
+        menu.thumb:SetHeight(size)
+        menu.thumb:ClearAllPoints()
+        menu.thumb:SetPoint("TOPRIGHT", menu, "TOPRIGHT", -4, -5 - (track - size) * menu.offset / (total - menu.visible))
+    end
 end
 
 function Members:GetClassOptions()

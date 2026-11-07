@@ -202,6 +202,11 @@ end
 function Sync:OnMessage(message, channel, sender)
     if channel ~= "GUILD" or type(message) ~= "string" or type(sender) ~= "string" then return end
     if not GuildHelper:CanAccessValues(message, sender) then return end
+    if strsub(message, 1, 2) == "F~" and GuildHelper.Groups then
+        GuildHelper.Groups:OnMessage(message, sender)
+
+        return
+    end
     local shortName = strsplit("-", sender)
     if shortName == UnitName("player") then return end
     local kind = strsub(message, 1, 1)

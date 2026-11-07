@@ -220,7 +220,53 @@ function Theme:Reset()
     wipe(self.texts)
 end
 
+function Theme:HasAtlas(atlas)
+    if C_Texture and C_Texture.GetAtlasInfo then return C_Texture.GetAtlasInfo(atlas) ~= nil end
+    if GetAtlasInfo then return GetAtlasInfo(atlas) ~= nil end
+
+    return false
+end
+
+function Theme:InsideFrame(frame)
+    local border = frame:CreateTexture(nil, "BORDER", nil, -7)
+    if self:HasAtlas("common-insideframe") then
+        border:SetAtlas("common-insideframe")
+    elseif border.SetTextureSliceMargins then
+        border:SetTexture(self.MEDIA .. "insideframe")
+        border:SetTexCoord(1 / 128, 108 / 128, 1 / 128, 108 / 128)
+        border:SetTextureSliceMargins(53, 53, 53, 53)
+        if border.SetTextureSliceMode then border:SetTextureSliceMode(0) end
+    else
+        border:Hide()
+
+        return false
+    end
+
+    border:SetPoint("TOPLEFT", frame, "TOPLEFT", -4, 4)
+    border:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 4, -4)
+    local background = frame:CreateTexture(nil, "BACKGROUND", nil, -8)
+    background:SetAllPoints(frame)
+    if self:HasAtlas("collections-background-tile") then
+        background:SetAtlas("collections-background-tile")
+        background:SetHorizTile(true)
+        background:SetVertTile(true)
+    else
+        background:SetColorTexture(0.05, 0.04, 0.03, 0.92)
+    end
+
+    return true
+end
+
 function Theme:NativePanel(frame, fillKey, borderKey)
+    if (fillKey == "panel" or (fillKey == "card" and not frame.ghNoInside)) and self:InsideFrame(frame) then
+        local static = {
+            SetColor = function() end,
+            SetShown = function() end
+        }
+
+        return static, static
+    end
+
     if frame.SetBackdrop == nil and BackdropTemplateMixin then
         Mixin(frame, BackdropTemplateMixin)
         frame:HookScript("OnSizeChanged", frame.OnBackdropSizeChanged)

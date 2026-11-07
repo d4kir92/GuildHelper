@@ -230,9 +230,26 @@ Settings.MAPOPTIONS = {
     }
 }
 
+Settings.INVITEOPTIONS = {
+    {
+        key = "GUILDINVITELINKS",
+        default = true,
+        label = "LID_GUILDINVITELINKS",
+        desc = "LID_GUILDINVITELINKSDESC"
+    },
+    {
+        key = "GUILDINVITEKEYWORD",
+        default = false,
+        label = "LID_GUILDINVITEKEYWORD",
+        desc = "LID_GUILDINVITEKEYWORDDESC"
+    }
+}
+
 function Settings:GetMapOption(key)
-    for _, option in ipairs(self.MAPOPTIONS) do
-        if option.key == key then return GuildHelper:GetConfig(key, option.default) == true end
+    for _, list in ipairs({self.MAPOPTIONS, self.INVITEOPTIONS}) do
+        for _, option in ipairs(list) do
+            if option.key == key then return GuildHelper:GetConfig(key, option.default) == true end
+        end
     end
 
     return false
@@ -245,7 +262,7 @@ end
 function Settings:ToggleMapOption(option)
     if self:IsMapOptionEnabled(option) then
         GuildHelper:SetConfig(option.key, not self:GetMapOption(option.key))
-        GuildHelper.GuildMap.Refresh()
+        if GuildHelper.GuildMap and not option.invite then GuildHelper.GuildMap.Refresh() end
     end
 
     self:Update()
@@ -291,17 +308,70 @@ function Settings:CreateMapPanel(content, anchor)
     local header = Theme:Text(panel, 11, "muted")
     header:SetPoint("TOPLEFT", panel, "TOPLEFT", 18, -16)
     Theme:SetTrans(header, "LID_WORLDMAP", true)
+    self.mapPanel = panel
     self.mapRows = {}
     for index, option in ipairs(self.MAPOPTIONS) do
         self.mapRows[index] = self:CreateMapRow(panel, index, option)
     end
 end
 
+function Settings:CreateInvitePanel(content, anchor)
+    if GuildHelper.GuildInvite == nil then return end
+    local panel = CreateFrame("Frame", nil, content)
+    if self.mapPanel then
+        panel:SetPoint("TOPLEFT", self.mapPanel, "BOTTOMLEFT", 0, -16)
+    else
+        panel:SetPoint("TOPLEFT", anchor, "TOPRIGHT", 16, 0)
+    end
+
+    panel:SetSize(self.MAPWIDTH, 48 + (#self.INVITEOPTIONS + 1) * self.MAPROW)
+    Theme:Panel(panel, "panel", "border", 9)
+    local header = Theme:Text(panel, 11, "muted")
+    header:SetPoint("TOPLEFT", panel, "TOPLEFT", 18, -16)
+    Theme:SetTrans(header, "LID_GUILDINVITES", true)
+    self.inviteRows = {}
+    for index, option in ipairs(self.INVITEOPTIONS) do
+        option.invite = true
+        self.inviteRows[index] = self:CreateMapRow(panel, index, option)
+    end
+
+    local y = -36 - #self.INVITEOPTIONS * self.MAPROW
+    local box = CreateFrame("EditBox", nil, panel, Theme:IsNative() and "InputBoxTemplate" or nil)
+    box:SetSize(130, 26)
+    box:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -18, y - 7)
+    if not Theme:IsNative() then
+        box:SetTextInsets(10, 10, 0, 0)
+        box.fill, box.border = Theme:Panel(box, "control", "border", 7)
+        Theme:Track(box, "text", "text", 12.5)
+    end
+
+    box:SetAutoFocus(false)
+    box:SetMaxLetters(30)
+    box:SetScript("OnEnterPressed", function(sel) sel:ClearFocus() end)
+    box:SetScript("OnEscapePressed", function(sel)
+        sel:SetText(GuildHelper:GetConfig("GUILDINVITEWORD", ""))
+        sel:ClearFocus()
+    end)
+
+    box:SetScript("OnEditFocusLost", function(sel) GuildHelper:SetConfig("GUILDINVITEWORD", strtrim(sel:GetText() or "")) end)
+    local title = Theme:Text(panel, 13, "text")
+    title:SetPoint("LEFT", panel, "TOPLEFT", 54, y - 20)
+    title:SetPoint("RIGHT", box, "LEFT", -10, 0)
+    Theme:SetTrans(title, "LID_GUILDINVITEWORD")
+    self.inviteWord = box
+end
+
 function Settings:UpdateMap()
-    if self.mapRows == nil then return end
-    for _, entry in ipairs(self.mapRows) do
-        entry.check:SetChecked(self:GetMapOption(entry.option.key))
-        entry.row:SetAlpha(self:IsMapOptionEnabled(entry.option) and 1 or 0.45)
+    for _, rows in ipairs({self.mapRows or {}, self.inviteRows or {}}) do
+        for _, entry in ipairs(rows) do
+            entry.check:SetChecked(self:GetMapOption(entry.option.key))
+            entry.row:SetAlpha(self:IsMapOptionEnabled(entry.option) and 1 or 0.45)
+        end
+    end
+
+    if self.inviteWord and not self.inviteWord:HasFocus() then
+        self.inviteWord:SetText(GuildHelper:GetConfig("GUILDINVITEWORD", ""))
+        self.inviteWord:SetAlpha(self:GetMapOption("GUILDINVITEKEYWORD") and 1 or 0.45)
     end
 end
 
@@ -335,6 +405,7 @@ function Settings:Build(content)
 
     self:CreateCharacterPanel(content, panel)
     self:CreateMapPanel(content, panel)
+    self:CreateInvitePanel(content, panel)
     if not self.hooked then
         self.hooked = true
         Theme:OnRefresh(function() Settings:Update() end)

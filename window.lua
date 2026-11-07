@@ -9,6 +9,73 @@ Window.MINHEIGHT = 480
 Window.MINSCALE = 0.5
 Window.MAXSCALE = 2
 Window.TEMPLATES = {"ButtonFrameTemplate", "PortraitFrameTemplate", "BasicFrameTemplateWithInset"}
+Window.FLIPCORNERS = {
+    {"TopLeftCorner", "UI-Frame-Metal-CornerBottomLeft", "TOPLEFT", -8, 3},
+    {"TopRightCorner", "UI-Frame-Metal-CornerBottomRight", "TOPRIGHT", 4, 3}
+}
+
+Window.FLIPEDGE = "_UI-Frame-Metal-EdgeBottom"
+function Window:GetAtlas(name)
+    local info = C_Texture and C_Texture.GetAtlasInfo and C_Texture.GetAtlasInfo(name)
+    if info == nil or info.file == nil and info.filename == nil or not info.width or info.width <= 0 then return nil end
+
+    return info
+end
+
+function Window:SetFlipped(texture, info, width)
+    local right = info.leftTexCoord + (info.rightTexCoord - info.leftTexCoord) * (width or info.width) / info.width
+    texture:SetTexture(info.file or info.filename)
+    texture:SetTexCoord(info.leftTexCoord, right, info.bottomTexCoord, info.topTexCoord)
+    texture:SetSize(width or info.width, info.height)
+end
+
+function Window:FlipTopBorder(frame)
+    local slice = frame.NineSlice
+    if slice == nil or slice.TopEdge == nil or C_Texture == nil then return end
+    local edge = self:GetAtlas(self.FLIPEDGE)
+    if edge == nil then return end
+    for _, entry in ipairs(self.FLIPCORNERS) do
+        if slice[entry[1]] == nil or self:GetAtlas(entry[2]) == nil then return end
+    end
+
+    for _, entry in ipairs(self.FLIPCORNERS) do
+        local corner = slice[entry[1]]
+        corner:ClearAllPoints()
+        corner:SetPoint(entry[3], slice, entry[3], entry[4], entry[5])
+        self:SetFlipped(corner, self:GetAtlas(entry[2]))
+    end
+
+    slice.TopEdge:Hide()
+    slice.ghEdges = {}
+    local function layout()
+        local left, right = slice.TopLeftCorner:GetRight(), slice.TopRightCorner:GetLeft()
+        if not left or not right then return end
+        local scale = slice.TopLeftCorner:GetEffectiveScale() / slice:GetEffectiveScale()
+        local total = max(0, (right - left) * scale)
+        local count = ceil(total / edge.width)
+        for index = 1, count do
+            local piece = slice.ghEdges[index]
+            if piece == nil then
+                piece = slice:CreateTexture(nil, "OVERLAY")
+                slice.ghEdges[index] = piece
+            end
+
+            local offset = (index - 1) * edge.width
+            piece:ClearAllPoints()
+            piece:SetPoint("TOPLEFT", slice.TopLeftCorner, "TOPRIGHT", offset, 0)
+            self:SetFlipped(piece, edge, min(edge.width, total - offset))
+            piece:Show()
+        end
+
+        for index = count + 1, #slice.ghEdges do
+            slice.ghEdges[index]:Hide()
+        end
+    end
+
+    frame:HookScript("OnSizeChanged", layout)
+    frame:HookScript("OnShow", layout)
+    C_Timer.After(0, layout)
+end
 Window.SIDEBAR = 181
 Window.PADDING = 18
 Window.MARGIN = 24
@@ -295,6 +362,14 @@ function Window:SetupMainFrame(frame)
     if frame.ghTemplate == "ButtonFrameTemplate" and ButtonFrameTemplate_HidePortrait then ButtonFrameTemplate_HidePortrait(frame) end
     for _, key in ipairs({"Inset", "InsetBg", "PortraitContainer", "portrait", "TitleBg", "TitleContainer", "TitleText", "TopTileStreaks"}) do
         if frame[key] and frame[key].Hide then frame[key]:Hide() end
+    end
+
+    self:FlipTopBorder(frame)
+
+    if frame.CloseButton then
+        frame.CloseButton:ClearAllPoints()
+        frame.CloseButton:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -5, -9)
+        frame.CloseButton:SetFrameLevel(max(frame:GetFrameLevel(), frame.NineSlice and frame.NineSlice:GetFrameLevel() or 0) + 10)
     end
 
     if frame.Bg then
