@@ -23,12 +23,39 @@ Specs.ROLES = {
 Specs.SLOTS = {"LID_MAINSPEC", "LID_SECONDSPEC"}
 function Specs:GetOwnSpecs()
     local list = {}
-    if GetNumTalentTabs and GetTalentTabInfo then
-        for index = 1, GetNumTalentTabs() or 0 do
-            local first, second, _, fourth = GetTalentTabInfo(index)
+    if GuildHelper:IsForever() then
+        local specIndex = C_SpecializationInfo.GetSpecialization()
+        if not specIndex then return list end
+        local specID = C_SpecializationInfo.GetSpecializationInfo(specIndex)
+        if not specID then return list end
+        local treeID = C_ClassTalents.GetTraitTreeForSpec(specID)
+        if not treeID then return list end
+        for _, tree in ipairs(C_Traits.GetGroupDisplayInfoByTreeID(treeID) or {}) do
+            if type(tree.displayName) == "string" and tree.displayName ~= "" then
+                tinsert(list, {
+                    name = tree.displayName,
+                    icon = tree.icon
+                })
+            end
+        end
+
+        return list
+    end
+    local getTalentInfo = GetTalentTabInfo or (C_SpecializationInfo and C_SpecializationInfo.GetSpecializationInfo)
+    if GetNumTalentTabs and getTalentInfo then
+        for index = 1, GetNumTalentTabs(false, false) or 0 do
+            local ok, first, second, _, fourth = pcall(getTalentInfo, index, false, false)
+            if not ok then
+                ok, first, second, _, fourth = pcall(getTalentInfo, {
+                    specializationIndex = index,
+                    isInspect = false,
+                    isPet = false
+                })
+            end
+
             local classic = type(first) == "string"
             local name = classic and first or second
-            if type(name) == "string" and name ~= "" then
+            if ok and type(name) == "string" and name ~= "" then
                 tinsert(list, {
                     name = name,
                     icon = classic and second or fourth
@@ -41,6 +68,37 @@ function Specs:GetOwnSpecs()
         for index = 1, GetNumSpecializations() or 0 do
             local _, name, _, icon = GetSpecializationInfo(index)
             if name and name ~= "" then
+                tinsert(list, {
+                    name = name,
+                    icon = icon
+                })
+            end
+        end
+    end
+
+    if #list == 0 and C_SpecializationInfo and C_SpecializationInfo.GetSpecializationInfo then
+        local api = C_SpecializationInfo
+        local count = 0
+        if api.GetNumSpecializations then
+            count = api.GetNumSpecializations() or 0
+        elseif GetNumSpecializations then
+            count = GetNumSpecializations() or 0
+        end
+
+        if count == 0 and api.GetNumSpecializationsForClassID then
+            local _, _, classID = UnitClass("player")
+            if classID then count = api.GetNumSpecializationsForClassID(classID) or 0 end
+        end
+
+        for index = 1, count do
+            local ok, _, name, _, icon = pcall(api.GetSpecializationInfo, index)
+            if not ok then
+                ok, _, name, _, icon = pcall(api.GetSpecializationInfo, {
+                    specializationIndex = index
+                })
+            end
+
+            if ok and type(name) == "string" and name ~= "" then
                 tinsert(list, {
                     name = name,
                     icon = icon
@@ -117,7 +175,7 @@ function Specs:GetIconString(icon, coords, size)
     return format("|T%s:%d:%d:0:0:64:64:4:60:4:60|t ", icon, size, size)
 end
 
-function Specs:Format(entry, short)
+function Specs:Format(entry, short, separator)
     if entry == nil then return nil end
     local role = self:GetRole(entry.role)
     local parts = {}
@@ -125,7 +183,7 @@ function Specs:Format(entry, short)
     if entry.spec and entry.spec ~= "" then tinsert(parts, self:GetIconString(entry.icon) .. entry.spec) end
     if #parts == 0 then return nil end
 
-    return table.concat(parts, short and "" or "  ")
+    return table.concat(parts, separator or (short and "" or "  "))
 end
 
 function Specs:GetOwn()
@@ -199,8 +257,8 @@ function Specs:Describe(specs)
     if specs == nil then return "" end
     local lines = {}
     for slot, label in ipairs(self.SLOTS) do
-        tinsert(lines, format("%s: %s", GuildHelper:Trans(label), self:Format(specs[slot]) or GuildHelper:Trans("LID_NONE")))
+        tinsert(lines, format("%s\n%s", GuildHelper:Trans(label), self:Format(specs[slot], false, "\n") or GuildHelper:Trans("LID_NONE")))
     end
 
-    return table.concat(lines, "\n")
+    return table.concat(lines, "\n\n")
 end
