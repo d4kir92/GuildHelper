@@ -199,11 +199,118 @@ function Settings:CreateTwitchRow(parent, y)
     self.twitchBox = box
 end
 
+Settings.MAPWIDTH = 340
+Settings.MAPROW = 40
+Settings.MAPOPTIONS = {
+    {
+        key = "GUILDMEMBERPINS",
+        default = true,
+        label = "LID_GUILDMEMBERPINS",
+        desc = "LID_GUILDMEMBERPINSDESC"
+    },
+    {
+        key = "GUILDMEMBERLEVEL",
+        default = false,
+        label = "LID_GUILDMEMBERLEVEL",
+        desc = "LID_GUILDMEMBERLEVELDESC",
+        requires = "GUILDMEMBERPINS"
+    },
+    {
+        key = "GUILDMEMBERNAME",
+        default = false,
+        label = "LID_GUILDMEMBERNAME",
+        desc = "LID_GUILDMEMBERNAMEDESC",
+        requires = "GUILDMEMBERPINS"
+    },
+    {
+        key = "GUILDMEMBERSHARE",
+        default = true,
+        label = "LID_GUILDMEMBERSHARE",
+        desc = "LID_GUILDMEMBERSHAREDESC"
+    }
+}
+
+function Settings:GetMapOption(key)
+    for _, option in ipairs(self.MAPOPTIONS) do
+        if option.key == key then return GuildHelper:GetConfig(key, option.default) == true end
+    end
+
+    return false
+end
+
+function Settings:IsMapOptionEnabled(option)
+    return option.requires == nil or self:GetMapOption(option.requires)
+end
+
+function Settings:ToggleMapOption(option)
+    if self:IsMapOptionEnabled(option) then
+        GuildHelper:SetConfig(option.key, not self:GetMapOption(option.key))
+        GuildHelper.GuildMap.Refresh()
+    end
+
+    self:Update()
+end
+
+function Settings:ShowMapTooltip(owner, option)
+    GameTooltip:SetOwner(owner, "ANCHOR_RIGHT")
+    GameTooltip:SetText(GuildHelper:Trans(option.label), 1, 1, 1)
+    GameTooltip:AddLine(GuildHelper:Trans(option.desc), 0.8, 0.8, 0.8, true)
+    GameTooltip:Show()
+end
+
+function Settings:CreateMapRow(panel, index, option)
+    local row = CreateFrame("Button", nil, panel)
+    row:SetPoint("TOPLEFT", panel, "TOPLEFT", 10, -36 - (index - 1) * self.MAPROW)
+    row:SetPoint("RIGHT", panel, "RIGHT", -10, 0)
+    row:SetHeight(self.MAPROW)
+    local check = self:CreateCheck(row)
+    check:SetPoint("LEFT", row, "LEFT", 6, 0)
+    local title = Theme:Text(row, 13, "text")
+    title:SetPoint("LEFT", row, "LEFT", 38, 0)
+    title:SetPoint("RIGHT", row, "RIGHT", -8, 0)
+    Theme:SetTrans(title, option.label)
+    for _, frame in ipairs({row, check}) do
+        frame:SetScript("OnClick", function() Settings:ToggleMapOption(option) end)
+        frame:SetScript("OnEnter", function() Settings:ShowMapTooltip(row, option) end)
+        frame:SetScript("OnLeave", function() if GameTooltip:IsOwned(row) then GameTooltip:Hide() end end)
+    end
+
+    return {
+        option = option,
+        row = row,
+        check = check
+    }
+end
+
+function Settings:CreateMapPanel(content, anchor)
+    if GuildHelper.GuildMap == nil then return end
+    local panel = CreateFrame("Frame", nil, content)
+    panel:SetPoint("TOPLEFT", anchor, "TOPRIGHT", 16, 0)
+    panel:SetSize(self.MAPWIDTH, 48 + #self.MAPOPTIONS * self.MAPROW)
+    Theme:Panel(panel, "panel", "border", 9)
+    local header = Theme:Text(panel, 11, "muted")
+    header:SetPoint("TOPLEFT", panel, "TOPLEFT", 18, -16)
+    Theme:SetTrans(header, "LID_WORLDMAP", true)
+    self.mapRows = {}
+    for index, option in ipairs(self.MAPOPTIONS) do
+        self.mapRows[index] = self:CreateMapRow(panel, index, option)
+    end
+end
+
+function Settings:UpdateMap()
+    if self.mapRows == nil then return end
+    for _, entry in ipairs(self.mapRows) do
+        entry.check:SetChecked(self:GetMapOption(entry.option.key))
+        entry.row:SetAlpha(self:IsMapOptionEnabled(entry.option) and 1 or 0.45)
+    end
+end
+
 function Settings:Update()
     if self.langPill == nil then return end
     self:SetPill(self.langPill, Members:GetOptionLabel(self:GetLanguageOptions(), GuildHelper:GetConfig("LANGUAGE", "auto")))
     self:SetPill(self.designPill, Members:GetOptionLabel(self:GetDesignOptions(), GuildHelper:GetDesign()))
     self:UpdateCharacter()
+    self:UpdateMap()
 end
 
 function Settings:Build(content)
@@ -227,6 +334,7 @@ function Settings:Build(content)
     end)
 
     self:CreateCharacterPanel(content, panel)
+    self:CreateMapPanel(content, panel)
     if not self.hooked then
         self.hooked = true
         Theme:OnRefresh(function() Settings:Update() end)

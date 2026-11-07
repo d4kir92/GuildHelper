@@ -53,4 +53,5 @@ sync.lua
 specs.lua
 members.lua
 dashboard.lua
+map.lua
 settings.lua

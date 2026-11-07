@@ -222,7 +222,7 @@ end
 function Dashboard:UpdateStats()
     local total, online, users, sum, count = #Members.list, 0, 0, 0, 0
     for _, member in ipairs(Members.list) do
-        local data = GuildHelper.Sync:GetData(member.short)
+        local data = Members:GetData(member)
         if data then users = users + 1 end
         if member.online then
             online = online + 1
@@ -276,7 +276,7 @@ end
 function Dashboard:UpdateProfessions()
     local counts, best, order = {}, {}, {}
     for _, member in ipairs(Members.list) do
-        local data = GuildHelper.Sync:GetData(member.short)
+        local data = Members:GetData(member)
         for _, prof in ipairs(data and data.professions or {}) do
             local name = prof[1]
             if counts[name] == nil then

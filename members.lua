@@ -142,8 +142,16 @@ function Members:FindMainInNote(member, note, byName)
     return nil
 end
 
+function Members:GetData(member)
+    if member == nil then return nil end
+    if self:IsSelf(member) then return GuildHelper.Sync:GetData(UnitName("player")) or GuildHelper.Sync:GetData(member.short) end
+
+    return GuildHelper.Sync:GetData(member.short)
+end
+
 function Members:GetDeclaredMain(member, byName)
-    local data = GuildHelper.Sync:GetData(member.short)
+    if self:IsSelf(member) and GuildHelper.Specs:IsMain() then return member end
+    local data = self:GetData(member)
     local main = data and data.main
     if main == nil or main == "" then return nil end
     local key = strlower(self:ShortName(main))
@@ -230,7 +238,7 @@ function Members:Scan()
 end
 
 function Members:GetItemLevel(member)
-    local data = GuildHelper.Sync:GetData(member.short)
+    local data = self:GetData(member)
 
     return data and data.ilvl
 end
@@ -238,7 +246,7 @@ end
 function Members:Matches(member)
     local filter = self.filter
     if filter.onlineOnly and not member.online then return false end
-    if filter.hideAlts and member.main then return false end
+    if filter.hideAlts and not member.declaredMain and member.alts == nil then return false end
     if filter.class and member.classFile ~= filter.class then return false end
     if filter.rank and member.rankIndex ~= filter.rank then return false end
     if filter.text ~= "" and not strfind(member.search, filter.text, 1, true) then return false end
@@ -691,7 +699,7 @@ function Members:GetMainLabel(member)
 end
 
 function Members:GetSpecSortValue(member, slot)
-    local data = GuildHelper.Sync:GetData(member.short)
+    local data = self:GetData(member)
     local entry = data and data.specs and data.specs[slot]
     if entry == nil or (entry.spec == "" and entry.role == "") then return "\255" end
 
@@ -716,7 +724,7 @@ function Members:FillRow(row, member)
 
     self:FitName(row)
     row.level:SetText(member.level)
-    local data = GuildHelper.Sync:GetData(member.short)
+    local data = self:GetData(member)
     local specs = data and data.specs or {}
     row.isMain:SetText(self:GetMainLabel(member))
     Theme:SetKey(row.isMain, member.declaredMain and "accent" or "muted")
@@ -1035,6 +1043,10 @@ function Members:CreateDetail(content)
     detail.specText = Theme:Text(body, 12.5, "text")
     detail.specText:SetWidth(188)
     detail.specText:SetWordWrap(true)
+    detail.twitchHeader = Theme:Text(body, 11, "muted")
+    Theme:SetTrans(detail.twitchHeader, "LID_TWITCH", true)
+    detail.twitchText = Theme:Text(body, 12.5, "text")
+    detail.twitchText:SetWidth(188)
     detail.noteHeader = Theme:Text(body, 11, "muted")
     Theme:SetTrans(detail.noteHeader, "LID_NOTE", true)
     detail.noteText = Theme:Text(body, 12.5, "text")
@@ -1062,7 +1074,7 @@ function Members:CreateDetail(content)
     detail.empty:SetPoint("CENTER", detail, "CENTER", 0, 0)
     detail.noteHit = self:CreateEditLink(body, detail.noteHeader, detail.noteText)
     detail.officerHit = self:CreateEditLink(body, detail.officerHeader, detail.officerText)
-    detail.content = {avatar, detail.name, detail.sub, detail.ilvl, detail.rank, detail.specHeader, detail.specText, detail.noteHeader, detail.noteText, detail.officerHeader, detail.officerText, detail.profHeader, detail.profEmpty, detail.altHeader, detail.altText, detail.whisper, detail.invite}
+    detail.content = {avatar, detail.name, detail.sub, detail.ilvl, detail.rank, detail.specHeader, detail.specText, detail.twitchHeader, detail.twitchText, detail.noteHeader, detail.noteText, detail.officerHeader, detail.officerText, detail.profHeader, detail.profEmpty, detail.altHeader, detail.altText, detail.whisper, detail.invite}
 end
 
 function Members:PlaceSection(header, text, y, value, empty)
@@ -1258,17 +1270,17 @@ function Members:UpdateDetail()
     detail.sub:SetText(GuildHelper:Trans("LID_CLASSLEVEL", nil, member.className, member.level))
     detail.ilvl.value:SetText(self:GetItemLevel(member) or "–")
     detail.rank.value:SetText(member.rank)
-    local data = GuildHelper.Sync:GetData(member.short)
+    local data = self:GetData(member)
     local professions = data and data.professions or {}
     local y = -136
     local hasSpecs = data ~= nil and data.specs ~= nil
     detail.specHeader:SetShown(hasSpecs)
     detail.specText:SetShown(hasSpecs)
-    if hasSpecs then
-        local text = GuildHelper.Specs:Describe(data.specs)
-        if data.twitch and data.twitch ~= "" then text = text .. "\n" .. GuildHelper:Trans("LID_TWITCHNAME") .. ": " .. data.twitch end
-        y = self:PlaceSection(detail.specHeader, detail.specText, y, text, "–")
-    end
+    if hasSpecs then y = self:PlaceSection(detail.specHeader, detail.specText, y, GuildHelper.Specs:Describe(data.specs), "–") end
+    local hasTwitch = data ~= nil and type(data.twitch) == "string" and data.twitch ~= ""
+    detail.twitchHeader:SetShown(hasTwitch)
+    detail.twitchText:SetShown(hasTwitch)
+    if hasTwitch then y = self:PlaceSection(detail.twitchHeader, detail.twitchText, y, data.twitch, "–") end
     y = self:PlaceSection(detail.noteHeader, detail.noteText, y, member.note, "–")
     local hasOfficer = viewOfficer or member.officerNote ~= ""
     detail.officerHeader:SetShown(hasOfficer)
