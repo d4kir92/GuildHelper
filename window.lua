@@ -15,6 +15,7 @@ Window.FLIPCORNERS = {
 }
 
 Window.FLIPEDGE = "_UI-Frame-Metal-EdgeBottom"
+Window.FLIPCROP = 3
 function Window:GetAtlas(name)
     local info = C_Texture and C_Texture.GetAtlasInfo and C_Texture.GetAtlasInfo(name)
     if info == nil or info.file == nil and info.filename == nil or not info.width or info.width <= 0 then return nil end
@@ -25,8 +26,10 @@ end
 function Window:SetFlipped(texture, info, width)
     local right = info.leftTexCoord + (info.rightTexCoord - info.leftTexCoord) * (width or info.width) / info.width
     texture:SetTexture(info.file or info.filename)
-    texture:SetTexCoord(info.leftTexCoord, right, info.bottomTexCoord, info.topTexCoord)
-    texture:SetSize(width or info.width, info.height)
+    local crop = min(self.FLIPCROP, info.height - 1)
+    local bottom = info.bottomTexCoord - (info.bottomTexCoord - info.topTexCoord) * crop / info.height
+    texture:SetTexCoord(info.leftTexCoord, right, bottom, info.topTexCoord)
+    texture:SetSize(width or info.width, info.height - crop)
 end
 
 function Window:FlipTopBorder(frame)
@@ -48,7 +51,7 @@ function Window:FlipTopBorder(frame)
         end
 
         corner:ClearAllPoints()
-        corner:SetPoint(entry[3], slice, entry[3], x, entry[5])
+        corner:SetPoint(entry[3], slice, entry[3], x, entry[5] - self.FLIPCROP)
         self:SetFlipped(corner, self:GetAtlas(entry[2]))
     end
 
@@ -225,9 +228,60 @@ function Window:SelectPage(key)
         end
     end
 
-    content:Show()
-    if content.OnPageShow then content:OnPageShow() end
+    self.inGuild = IsInGuild() and true or false
+    local blocked = not self.inGuild and not self.GUILDFREE[entry.key]
+    content:SetShown(not blocked)
+    if blocked and self.noGuild == nil then self:CreateNoGuild() end
+    if self.noGuild then
+        self.noGuild:SetShown(blocked)
+        Theme:SetTrans(self.noGuild.title, entry.label)
+    end
+
+    if not blocked and content.OnPageShow then content:OnPageShow() end
     self:UpdateNav()
+end
+
+Window.GUILDFREE = {
+    settings = true
+}
+
+function Window:CreateNoGuild()
+    local view = CreateFrame("Frame", nil, self.frame)
+    view:SetPoint("TOPLEFT", self.frame, "TOPLEFT", self.SIDEBAR + 1, 0)
+    view:SetPoint("BOTTOMRIGHT", self.frame, "BOTTOMRIGHT", 0, 0)
+    view.title = self:CreatePageTitle(view, "LID_DASHBOARD")
+    local box = CreateFrame("Frame", nil, view)
+    box:SetSize(440, 230)
+    box:SetPoint("CENTER", view, "CENTER", 0, 10)
+    local icon = Theme:Icon(box, "shield", 40, "accent")
+    icon:SetPoint("TOP", box, "TOP", 0, 0)
+    local heading = Theme:Text(box, 18, "text")
+    heading:SetPoint("TOP", icon, "BOTTOM", 0, -14)
+    Theme:SetTrans(heading, "LID_NOGUILD")
+    local hint = Theme:Text(box, 13.5, "muted")
+    hint:SetPoint("TOP", heading, "BOTTOM", 0, -10)
+    hint:SetWidth(440)
+    hint:SetJustifyH("CENTER")
+    hint:SetWordWrap(true)
+    Theme:SetTrans(hint, "LID_NOGUILDHINT")
+    local find = GuildHelper.Members:CreateButton(box, "LID_FINDGUILD", true)
+    find:SetWidth(170)
+    find:SetPoint("TOP", hint, "BOTTOM", 0, -20)
+    find:SetScript("OnEnter", function(sel) Window:ShowGuildOverlay(sel, "LID_FINDGUILDTIP") end)
+    find:SetScript("OnClick", function()
+        if InCombatLockdown() and UIErrorsFrame and ERR_NOT_IN_COMBAT then UIErrorsFrame:AddMessage(ERR_NOT_IN_COMBAT, 1, 0.1, 0.1) end
+    end)
+
+    find:SetShown(self:GetGuildButton() ~= nil)
+    view:Hide()
+    self.noGuild = view
+end
+
+function Window:UpdateGuildState()
+    local inGuild = IsInGuild() and true or false
+    if inGuild == self.inGuild then return end
+    self.inGuild = inGuild
+    if self.frame and self.frame:IsShown() and self.current then self:SelectPage(self.current) end
 end
 
 function Window:GetTabardInfo()
@@ -344,11 +398,11 @@ function Window:CreateCloseButton()
     close:SetScript("OnClick", function() frame:Hide() end)
 end
 
-function Window:CreateMainFrame()
+function Window:CreateStyledFrame(name, parent)
     if Theme:IsNative() and DoesTemplateExist then
         for _, template in ipairs(self.TEMPLATES) do
             if DoesTemplateExist(template) then
-                local frame = CreateFrame("Frame", "GuildHelperFrame", UIParent, template)
+                local frame = CreateFrame("Frame", name, parent, template)
                 frame.ghTemplate = template
 
                 return frame
@@ -356,7 +410,11 @@ function Window:CreateMainFrame()
         end
     end
 
-    return CreateFrame("Frame", "GuildHelperFrame", UIParent)
+    return CreateFrame("Frame", name, parent)
+end
+
+function Window:CreateMainFrame()
+    return self:CreateStyledFrame("GuildHelperFrame", UIParent)
 end
 
 function Window:SetupMainFrame(frame)
@@ -430,7 +488,7 @@ function Window:GetGuildOverlay()
     return overlay
 end
 
-function Window:ShowGuildOverlay(region)
+function Window:ShowGuildOverlay(region, tooltip)
     if InCombatLockdown() then return false end
     local overlay = self:GetGuildOverlay()
     local left, top = region:GetLeft(), region:GetTop()
@@ -441,7 +499,7 @@ function Window:ShowGuildOverlay(region)
     overlay:SetSize(region:GetWidth() * scale, region:GetHeight() * scale)
     overlay:Show()
     GameTooltip:SetOwner(overlay, "ANCHOR_RIGHT")
-    GameTooltip:AddLine(GuildHelper:Trans("LID_EDITINBLIZZARD"), 1, 1, 1, true)
+    GameTooltip:AddLine(GuildHelper:Trans(tooltip or "LID_EDITINBLIZZARD"), 1, 1, 1, true)
     GameTooltip:Show()
 
     return true
@@ -615,6 +673,7 @@ function Window:Create()
         Window:UpdateLogo()
         Window:UpdateGuildName()
         Window:SelectPage(Window.current or GuildHelper:GetConfig("PAGE", "dashboard"))
+        if GuildHelper.Settings then GuildHelper.Settings:ShowSetup() end
     end)
 
     frame:SetScript("OnHide", function()
@@ -638,6 +697,7 @@ function Window:Create()
     self.events:SetScript("OnEvent", function(_, event)
         if event ~= "GUILD_ROSTER_UPDATE" then Window:UpdateLogo() end
         Window:UpdateGuildName()
+        Window:UpdateGuildState()
     end)
 end
 
@@ -656,6 +716,7 @@ function Window:Rebuild()
     old:SetScript("OnHide", nil)
     wipe(self.pageFrames)
     wipe(self.navButtons)
+    self.noGuild = nil
     for _, callback in ipairs(self.rebuildCallbacks) do
         callback()
     end

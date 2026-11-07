@@ -417,4 +417,93 @@ function Settings:Build(content)
     end
 end
 
+Settings.SETUPWIDTH = 520
+Settings.SETUPHEIGHT = 290
+function Settings:CreateSetup()
+    local frame = Window.frame
+    local popup = CreateFrame("Frame", nil, frame)
+    popup:SetAllPoints(frame)
+    popup:SetFrameLevel(frame:GetFrameLevel() + 50)
+    popup:EnableMouse(true)
+    local dim = popup:CreateTexture(nil, "BACKGROUND")
+    dim:SetAllPoints(popup)
+    dim:SetColorTexture(0, 0, 0, 0.55)
+    local box = Window:CreateStyledFrame(nil, popup)
+    box:SetSize(self.SETUPWIDTH, self.SETUPHEIGHT)
+    box:SetPoint("CENTER", popup, "CENTER", 0, 0)
+    box:SetFrameLevel(popup:GetFrameLevel() + 1)
+    box:EnableMouse(true)
+    box:SetMovable(true)
+    box:SetClampedToScreen(true)
+    box:RegisterForDrag("LeftButton")
+    box:SetScript("OnDragStart", box.StartMoving)
+    box:SetScript("OnDragStop", box.StopMovingOrSizing)
+    Window:SetupMainFrame(box)
+    if box.CloseButton then box.CloseButton:Hide() end
+    local title = Theme:Text(box, 18, "text")
+    title:SetPoint("TOPLEFT", box, "TOPLEFT", 24, -24)
+    title:SetPoint("RIGHT", box, "RIGHT", -24, 0)
+    title:SetJustifyH("LEFT")
+    Theme:SetTrans(title, "LID_SETUPTITLE")
+    local desc = Theme:Text(box, 12.5, "muted")
+    desc:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -8)
+    desc:SetPoint("RIGHT", box, "RIGHT", -24, 0)
+    desc:SetJustifyH("LEFT")
+    desc:SetWordWrap(true)
+    Theme:SetTrans(desc, "LID_SETUPDESC")
+    local panel = CreateFrame("Frame", nil, box)
+    panel:SetPoint("TOPLEFT", box, "TOPLEFT", 16, -94)
+    panel:SetPoint("TOPRIGHT", box, "TOPRIGHT", -16, -94)
+    panel:SetHeight(132)
+    Theme:Panel(panel, "panel", "border", 9)
+    popup.langPill = self:CreateRow(panel, -20, "LID_LANGUAGE", "LID_LANGUAGEDESC")
+    popup.langPill:SetScript("OnClick", function(sel)
+        Members:OpenMenu(sel, Settings:GetLanguageOptions(), GuildHelper:GetConfig("LANGUAGE", "auto"), function(value) GuildHelper:SetLanguage(value) end)
+    end)
+
+    local line = Theme:Line(panel, "divider")
+    line:SetHeight(1)
+    line:SetPoint("TOPLEFT", panel, "TOPLEFT", 1, -66)
+    line:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -1, -66)
+    popup.designPill = self:CreateRow(panel, -86, "LID_DESIGN", "LID_DESIGNDESC")
+    popup.designPill:SetScript("OnClick", function(sel)
+        Members:OpenMenu(sel, Settings:GetDesignOptions(), GuildHelper:GetDesign(), function(value) GuildHelper:SetDesign(value) end)
+    end)
+
+    local done = Members:CreateButton(box, "LID_SETUPDONE", true)
+    done:SetWidth(150)
+    done:SetPoint("BOTTOMRIGHT", box, "BOTTOMRIGHT", -16, 16)
+    done:SetScript("OnClick", function() Settings:FinishSetup() end)
+    popup:Hide()
+    self.setup = popup
+
+    return popup
+end
+
+function Settings:UpdateSetup()
+    local popup = self.setup
+    if popup == nil then return end
+    self:SetPill(popup.langPill, Members:GetOptionLabel(self:GetLanguageOptions(), GuildHelper:GetConfig("LANGUAGE", "auto")))
+    self:SetPill(popup.designPill, Members:GetOptionLabel(self:GetDesignOptions(), GuildHelper:GetDesign()))
+end
+
+function Settings:ShowSetup()
+    if GuildHelper:GetConfig("SETUPDONE", false) or Window.frame == nil then return end
+    if not self.setupHooked then
+        self.setupHooked = true
+        Theme:OnRefresh(function() Settings:UpdateSetup() end)
+    end
+
+    local popup = self.setup or self:CreateSetup()
+    popup:Show()
+    self:UpdateSetup()
+end
+
+function Settings:FinishSetup()
+    GuildHelper:SetConfig("SETUPDONE", true)
+    if Members.menu then Members.menu:Hide() end
+    if self.setup then self.setup:Hide() end
+end
+
+Window:OnRebuild(function() Settings.setup = nil end)
 Window:SetPageBuilder("settings", function(content) Settings:Build(content) end)
