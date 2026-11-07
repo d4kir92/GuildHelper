@@ -85,8 +85,14 @@ end
 function Window:BuildPlaceholder(content, entry)
     Window:CreatePageTitle(content, entry.label)
     local text = Theme:Text(content, 14, "muted")
-    text:SetPoint("CENTER", content, "CENTER", 0, 0)
+    text:SetPoint("TOPLEFT", content, "TOPLEFT", self.PADDING, -76)
     Theme:SetTrans(text, "LID_COMINGSOON")
+    local description = Theme:Text(content, 14, "text")
+    description:SetPoint("TOPLEFT", text, "BOTTOMLEFT", 0, -18)
+    description:SetPoint("RIGHT", content, "RIGHT", -self.PADDING, 0)
+    description:SetJustifyH("LEFT")
+    description:SetWordWrap(true)
+    Theme:SetTrans(description, "LID_PLANNED_" .. string.upper(entry.key))
 end
 
 function Window:UpdateNav()
