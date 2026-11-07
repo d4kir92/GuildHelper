@@ -10,8 +10,8 @@ Window.MINSCALE = 0.5
 Window.MAXSCALE = 2
 Window.TEMPLATES = {"ButtonFrameTemplate", "PortraitFrameTemplate", "BasicFrameTemplateWithInset"}
 Window.FLIPCORNERS = {
-    {"TopLeftCorner", "UI-Frame-Metal-CornerBottomLeft", "TOPLEFT", -8, 3},
-    {"TopRightCorner", "UI-Frame-Metal-CornerBottomRight", "TOPRIGHT", 4, 3}
+    {"TopLeftCorner", "UI-Frame-Metal-CornerBottomLeft", "TOPLEFT", -8, 3, "BottomLeftCorner"},
+    {"TopRightCorner", "UI-Frame-Metal-CornerBottomRight", "TOPRIGHT", 4, 3, "BottomRightCorner"}
 }
 
 Window.FLIPEDGE = "_UI-Frame-Metal-EdgeBottom"
@@ -40,8 +40,15 @@ function Window:FlipTopBorder(frame)
 
     for _, entry in ipairs(self.FLIPCORNERS) do
         local corner = slice[entry[1]]
+        local x = entry[4]
+        local source = slice[entry[6]]
+        if source and source:GetNumPoints() > 0 then
+            local _, _, _, sourceX = source:GetPoint(1)
+            if sourceX then x = sourceX end
+        end
+
         corner:ClearAllPoints()
-        corner:SetPoint(entry[3], slice, entry[3], entry[4], entry[5])
+        corner:SetPoint(entry[3], slice, entry[3], x, entry[5])
         self:SetFlipped(corner, self:GetAtlas(entry[2]))
     end
 
