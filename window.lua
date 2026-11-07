@@ -368,7 +368,7 @@ function Window:SetupMainFrame(frame)
 
     if frame.CloseButton then
         frame.CloseButton:ClearAllPoints()
-        frame.CloseButton:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -5, -9)
+        frame.CloseButton:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -3, -8)
         frame.CloseButton:SetFrameLevel(max(frame:GetFrameLevel(), frame.NineSlice and frame.NineSlice:GetFrameLevel() or 0) + 10)
     end
 
