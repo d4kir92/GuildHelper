@@ -509,6 +509,10 @@ function Settings:Build(content)
     notifications:SetScript("OnClick", function()
         GuildHelper.Notifications:SetEditing(not GuildHelper.Notifications.editing)
     end)
+    local test = Members:CreateButton(body, "LID_NOTIFICATIONTEST")
+    test:SetPoint("TOPLEFT", notifications, "BOTTOMLEFT", 0, -12)
+    test:SetWidth(self.MAPWIDTH)
+    test:SetScript("OnClick", function() GuildHelper.Notifications:Test() end)
     if not self.hooked then
         self.hooked = true
         Theme:OnRefresh(function() Settings:Update() end)

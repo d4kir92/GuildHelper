@@ -434,12 +434,12 @@ function Window:CreateSidebar()
     self:ApplyNavigation()
 end
 
-function Window:CreateCloseButton()
-    local frame = self.frame
+function Window:CreateCloseButton(frame)
+    frame = frame or self.frame
     if frame.CloseButton then
         frame.CloseButton:SetScript("OnClick", function() frame:Hide() end)
 
-        return
+        return frame.CloseButton
     end
 
     if Theme:IsNative() then
@@ -448,7 +448,7 @@ function Window:CreateCloseButton()
         native:SetFrameLevel(frame:GetFrameLevel() + 10)
         native:SetScript("OnClick", function() frame:Hide() end)
 
-        return
+        return native
     end
 
     local close = CreateFrame("Button", nil, frame)
@@ -469,6 +469,7 @@ function Window:CreateCloseButton()
     end)
 
     close:SetScript("OnClick", function() frame:Hide() end)
+    return close
 end
 
 function Window:CreateStyledFrame(name, parent)
@@ -748,6 +749,7 @@ function Window:Create()
     self:CreateResizeGrip()
     self:ApplySize()
     frame:SetScript("OnShow", function()
+        if GuildHelper.Notifications then GuildHelper.Notifications:Suppress() end
         Window:UpdateLogo()
         Window:UpdateGuildName()
         Window:SelectPage(Window.current or GuildHelper:GetConfig("PAGE", "dashboard"))

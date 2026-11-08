@@ -609,11 +609,15 @@ function Groups:ReadApplication(owner, sender, parts)
     if parts[2] == "W" and #parts == 4 then
         entry.applicants[owner] = nil
     elseif parts[2] == "A" and #parts == 5 and GuildHelper.Specs:GetRole(parts[5]) and (entry[parts[5]] or 0) > 0 then
+        local isNew = entry.applicants[owner] == nil
         entry.applicants[owner] = {
             name = sender,
             role = parts[5],
             expires = entry.kind == "L" and GetTime() + self.TTL or nil
         }
+        if isNew and self:IsOwn(entry) and GuildHelper.Notifications then
+            GuildHelper.Notifications:Application(entry.key, owner, sender)
+        end
     else
         return false
     end

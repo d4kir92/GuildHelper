@@ -40,7 +40,8 @@ function Notifications:Create()
     frame.text:SetJustifyH("LEFT")
     frame.text:SetJustifyV("TOP")
     frame.text:SetWordWrap(true)
-    frame.close = GuildHelper.Members:CreatePill(frame, "×")
+    frame.close = GuildHelper.Window:CreateCloseButton(frame)
+    frame.close:ClearAllPoints()
     frame.close:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -5, -5)
     frame.close:SetScript("OnClick", function()
         if self.editing then self:SetEditing(false) else self:Dismiss() end
@@ -57,7 +58,16 @@ function Notifications:Create()
         if self.editing or not self.current then return end
         local notice = self.current
         local feedback = GuildHelper.Feedback
-        if notice.guild == GuildHelper.Sync:GetGuildKey() and feedback:Find(notice.id) then
+        if notice.applicant and notice.guild == GuildHelper.Sync:GetGuildKey() then
+            local groups = GuildHelper.Groups
+            local entry = groups:Find(notice.id)
+            if entry and entry.applicants and entry.applicants[notice.applicant] then
+                GuildHelper.Window:SelectPage("groups")
+                GuildHelper.Window.frame:Show()
+                groups:SetMode(entry.kind)
+                groups:Select(entry)
+            end
+        elseif not notice.test and not notice.applicant and notice.guild == GuildHelper.Sync:GetGuildKey() and feedback:Find(notice.id) then
             feedback:StopEditing()
             feedback.composing = false
             feedback.filter = "A"
@@ -68,6 +78,11 @@ function Notifications:Create()
         end
         self:Dismiss()
     end)
+    frame.openGroups = GuildHelper.Members:CreateButton(frame, "LID_GROUPFINDER")
+    frame.openGroups:SetWidth(160)
+    frame.openGroups:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -14, 10)
+    frame.openGroups:SetScript("OnClick", frame:GetScript("OnClick"))
+    frame.openGroups:Hide()
     self:RestorePosition()
     frame:Hide()
 end
@@ -78,12 +93,21 @@ function Notifications:Dismiss()
     if self.frame and not self.editing then self.frame:Hide() end
 end
 
+function Notifications:ShowGroupAction(shown)
+    local frame = self.frame
+    if frame.openGroups:IsShown() == shown then return end
+    frame.openGroups:SetShown(shown)
+    frame:SetHeight(shown and 142 or 100)
+    frame.text:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -14, shown and 50 or 12)
+end
+
 function Notifications:SetEditing(active)
     self:Create()
     if self.editing and not active then self:SavePosition() end
     self.editing = active == true
     self.dragged = nil
     if self.editing then
+        self:ShowGroupAction(false)
         self.frame.title:SetText(GuildHelper:Trans("LID_NOTIFICATIONS"))
         self.frame.text:SetText(GuildHelper:Trans("LID_NOTIFICATIONMOVE"))
         self.frame:Show()
@@ -93,6 +117,24 @@ function Notifications:SetEditing(active)
     end
 end
 
+function Notifications:Suppress()
+    wipe(self.queue)
+    if self.current and not self.current.test then self:Dismiss() end
+end
+
+function Notifications:Enqueue(notice)
+    local window = GuildHelper.Window.frame
+    if window and window:IsShown() then return end
+    if #self.queue >= 20 then table.remove(self.queue, 1) end
+    tinsert(self.queue, notice)
+end
+
+function Notifications:Application(id, applicant, author)
+    local guild = GuildHelper.Sync:GetGuildKey()
+    if not guild then return end
+    self:Enqueue({id = id, guild = guild, applicant = applicant, author = author, queued = GetTime()})
+end
+
 function Notifications:Comment(id, comment)
     if not comment or comment.created < self.started or comment.created > time() + 60 or GuildHelper.Groups:IsSelfName(comment.owner) then return end
     local guild = GuildHelper.Sync:GetGuildKey()
@@ -100,8 +142,14 @@ function Notifications:Comment(id, comment)
     local key = guild .. ":" .. id .. ":" .. comment.id
     if self.seen[key] then return end
     self.seen[key] = true
-    if #self.queue >= 20 then table.remove(self.queue, 1) end
-    tinsert(self.queue, {id = id, guild = guild, author = comment.author or comment.owner, queued = GetTime()})
+    self:Enqueue({id = id, guild = guild, author = comment.author or comment.owner, queued = GetTime()})
+end
+
+function Notifications:Test()
+    self:SetEditing(false)
+    self.current = {test = true, guild = GuildHelper.Sync:GetGuildKey()}
+    self.expires = GetTime() + 8
+    self:Render()
 end
 
 function Notifications:Render()
@@ -110,9 +158,32 @@ function Notifications:Render()
         if self.frame then self.frame:Hide() end
         return
     end
+    if self.current.test then
+        self:Create()
+        self:ShowGroupAction(false)
+        self.frame.title:SetText(GuildHelper:Trans("LID_NOTIFICATIONS"))
+        self.frame.text:SetText(GuildHelper:Trans("LID_NOTIFICATIONTEST"))
+        self.frame:Show()
+        return
+    end
+    if self.current.applicant then
+        local groups = GuildHelper.Groups
+        local entry = groups:Find(self.current.id)
+        if not entry or not entry.applicants or not entry.applicants[self.current.applicant] then
+            self:Dismiss()
+            return
+        end
+        self:Create()
+        self:ShowGroupAction(true)
+        self.frame.title:SetText(GuildHelper:Trans("LID_NOTIFICATIONAPPLICATION"))
+        self.frame.text:SetText(self.current.author .. "\n" .. groups:GetActivityName(entry))
+        self.frame:Show()
+        return
+    end
     local entry = GuildHelper.Feedback:Find(self.current.id)
     if not entry then self:Dismiss() return end
     self:Create()
+    self:ShowGroupAction(false)
     self.frame.title:SetText(GuildHelper:Trans("LID_NOTIFICATIONCOMMENT"))
     self.frame.text:SetText(format(GuildHelper:Trans("LID_NOTIFICATIONCOMMENTTEXT"), self.current.author, entry.title))
     self.frame:Show()
@@ -131,7 +202,7 @@ function Notifications:Tick()
             local notice = self.queue[1]
             if notice.guild ~= guild or GetTime() - notice.queued > 180 then
                 table.remove(self.queue, 1)
-            elseif not GuildHelper.Feedback:Find(notice.id) then
+            elseif not notice.applicant and not GuildHelper.Feedback:Find(notice.id) then
                 if GetTime() - notice.queued < 30 then return end
                 table.remove(self.queue, 1)
             else
