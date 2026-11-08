@@ -315,6 +315,7 @@ function Window:UpdateLogo()
         logo.border:SetColor(Theme:GetColor("accent"))
         logo.fill:SetShown(false)
         logo.emblem:Hide()
+        logo.emblemShadow:Hide()
         logo.shield:Show()
 
         return
@@ -335,7 +336,11 @@ function Window:UpdateLogo()
     end
 
     logo.emblem:SetVertexColor(info.emblemColor:GetRGB())
-    logo.emblem:SetSize(22 * 7 / 8, 22)
+    logo.emblem:SetSize(31.68 * 7 / 8, 31.68)
+    logo.emblemShadow:SetTexture(logo.emblem:GetTexture())
+    logo.emblemShadow:SetTexCoord(logo.emblem:GetTexCoord())
+    logo.emblemShadow:SetSize(31.68 * 7 / 8, 31.68)
+    logo.emblemShadow:Show()
     logo.emblem:Show()
     logo.shield:Hide()
 end
@@ -353,7 +358,10 @@ function Window:CreateSidebar()
     logo.fill = Theme:CreateShape(logo, 5, "BACKGROUND", 1, 2)
     logo.shield = Theme:Icon(logo, "shield", 18, "accentText")
     logo.shield:SetPoint("CENTER", logo, "CENTER", 0, 0)
-    logo.emblem = logo:CreateTexture(nil, "ARTWORK")
+    logo.emblemShadow = logo:CreateTexture(nil, "ARTWORK", nil, 0)
+    logo.emblemShadow:SetPoint("CENTER", logo, "CENTER", 1, -1)
+    logo.emblemShadow:SetVertexColor(0, 0, 0, 0.65)
+    logo.emblem = logo:CreateTexture(nil, "ARTWORK", nil, 1)
     logo.emblem:SetPoint("CENTER", logo, "CENTER", 0, 0)
     self.logo = logo
     self:UpdateLogo()
