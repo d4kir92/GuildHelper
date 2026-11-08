@@ -274,8 +274,8 @@ function Sync:OnMessage(message, channel, sender)
         self:Parse(shortName, message)
     elseif kind == "S" then
         self:ParseSpecs(shortName, message)
-    elseif kind == "Q" and GetTime() - self.lastSend > self.ANSWER_THROTTLE then
-        self:ScheduleInfo(random(2, 12))
+    elseif kind == "Q" then
+        self:ScheduleInfo(max(0, self.ANSWER_THROTTLE - (GetTime() - self.lastSend)) + random(2, 12))
     end
 end
 
