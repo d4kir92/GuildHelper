@@ -107,6 +107,7 @@ function Feedback:CheckGuild()
         self.queued = {}
         self.selected = nil
         self.composing = false
+        self.editing = nil
         self.lastRequest = nil
         self.handledIndex = nil
         if guild then self:Prune() end
@@ -159,6 +160,7 @@ function Feedback:Rev(id)
         tinsert(parts, "#" .. cid .. (comment.deleted and "x" or ""))
     end
 
+    if entry.edited then tinsert(parts, "!" .. entry.edited) end
     if #parts == 0 then return "0" end
     table.sort(parts)
 
@@ -265,7 +267,10 @@ function Feedback:SendEntry(id)
     end
 
     local chunks = self:Chunks(entry.text or "")
-    local header = table.concat({"E", id, entry.kind, tostring(entry.created), tostring(#chunks), entry.owner, entry.version or "", entry.author or "", ""}, "~")
+    local fields = {entry.edited and "U" or "E", id, entry.kind, tostring(entry.created), tostring(#chunks), entry.owner, entry.version or "", entry.author or ""}
+    if entry.edited then tinsert(fields, tostring(entry.edited)) end
+    tinsert(fields, "")
+    local header = table.concat(fields, "~")
     self:Queue(header .. self:Cut(entry.title, 254 - #header))
     for index, chunk in ipairs(chunks) do
         self:Queue("T~" .. id .. "~" .. index .. "~" .. self:Encode(chunk))
@@ -390,7 +395,13 @@ function Feedback:Compare(senderKey, theirs)
                 self:SendEntry(id)
             else
                 tinsert(wanted, id)
-                if mine and rev ~= "x" then self:SendExtras(id) end
+                if mine and rev ~= "x" then
+                    if store.entries[id].edited then
+                        self:SendEntry(id)
+                    else
+                        self:SendExtras(id)
+                    end
+                end
             end
         end
     end
@@ -424,14 +435,22 @@ function Feedback:OnGet(senderKey, indexer, list)
     end
 end
 
-function Feedback:ReadHeader(parts)
+function Feedback:Accepts(entry)
+    local current = self:GetStore().entries[entry.id]
+    if not current then return true end
+    if current.deleted or current.owner ~= entry.owner then return false end
+
+    return (entry.edited or 0) > (current.edited or 0)
+end
+
+function Feedback:ReadHeader(parts, edit)
     local id, kind, created, count, owner = parts[2], parts[3], tonumber(parts[4]), tonumber(parts[5]), parts[6]
     if not id or #id > 16 or id:find("[^%w]") or (kind ~= "I" and kind ~= "B") or not created or not count or count > 40 then return end
+    local edited = edit and tonumber(parts[9])
+    if edit and not edited then return end
     owner = GuildHelper.Groups:Name(owner)
-    local title = self:CleanTitle(table.concat(parts, "~", 9))
+    local title = self:CleanTitle(table.concat(parts, "~", edit and 10 or 9))
     if not owner or title == "" then return end
-    local store = self:GetStore()
-    if store.entries[id] then return end
     local entry = {
         id = id,
         kind = kind,
@@ -439,9 +458,13 @@ function Feedback:ReadHeader(parts)
         owner = owner,
         version = GuildHelper.Groups:CleanText(parts[7], 20),
         author = GuildHelper.Groups:CleanText(parts[8], 48),
-        title = title
+        title = title,
+        edited = edited and floor(edited) or nil
     }
 
+    if not self:Accepts(entry) then return end
+    local pending = self.pending[id]
+    if pending and (pending.entry.edited or 0) > (entry.edited or 0) and time() - pending.time < 60 then return end
     if count == 0 then
         entry.text = ""
         self:Commit(entry)
@@ -473,7 +496,7 @@ end
 
 function Feedback:Commit(entry)
     local store = self:GetStore()
-    if not store or store.entries[entry.id] then return end
+    if not store or not self:Accepts(entry) then return end
     store.entries[entry.id] = entry
     self:Changed()
 end
@@ -586,6 +609,8 @@ function Feedback:OnMessage(message, channel, sender)
         if not own then self:OnGet(senderKey, parts[2] or "", parts[3]) end
     elseif kind == "E~" then
         if not own then self:ReadHeader(parts) end
+    elseif kind == "U~" then
+        if not own then self:ReadHeader(parts, true) end
     elseif kind == "V~" then
         self:ReadVotes(parts[2], parts[3])
     elseif kind == "D~" then
@@ -616,8 +641,56 @@ function Feedback:GetAuthor()
     return name and (realm and realm ~= "" and (name .. "-" .. realm) or name) or ""
 end
 
+function Feedback:GetDraft()
+    return self.editing and self.editDraft or self.draft
+end
+
+function Feedback:Edit(id)
+    local entry = self:Find(id)
+    if not self:IsOwn(entry) then return end
+    self.editing = id
+    self.editDraft = {
+        kind = entry.kind,
+        title = entry.title,
+        text = entry.text or ""
+    }
+
+    self.composing = true
+    self.confirm = nil
+    self:Refresh()
+    if self.titleBox then self.titleBox:SetFocus() end
+end
+
+function Feedback:StopEditing()
+    self.editing = nil
+    self.editDraft = nil
+end
+
+function Feedback:Save()
+    local entry = self:Find(self.editing)
+    local draft = self.editDraft
+    if not self:IsOwn(entry) or not draft then return end
+    local title = self:CleanTitle(draft.title)
+    if title == "" then return end
+    local text = self:CleanBody(draft.text)
+    self.composing = false
+    self.selected = entry.id
+    self:StopEditing()
+    if title ~= entry.title or text ~= (entry.text or "") or draft.kind ~= entry.kind then
+        entry.kind = draft.kind
+        entry.title = title
+        entry.text = text
+        entry.edited = max(time(), (entry.edited or entry.created or 0) + 1)
+        self.pending[entry.id] = nil
+        self:SendEntry(entry.id)
+    end
+
+    self:Changed()
+end
+
 function Feedback:Submit()
     if not self:CheckGuild() then return end
+    if self.editing then return self:Save() end
     local title = self:CleanTitle(self.draft.title)
     local owner = self:Self()
     if title == "" or not owner then return end
@@ -873,14 +946,14 @@ function Feedback:BuildForm(side)
     self.ideaPill = Members:CreatePill(form, "")
     self.ideaPill:SetPoint("TOPLEFT", form, "TOPLEFT", 120, -39)
     self.ideaPill:SetScript("OnClick", function()
-        self.draft.kind = "I"
+        self:GetDraft().kind = "I"
         self:Refresh()
     end)
 
     self.bugPill = Members:CreatePill(form, "")
     self.bugPill:SetPoint("LEFT", self.ideaPill, "RIGHT", 8, 0)
     self.bugPill:SetScript("OnClick", function()
-        self.draft.kind = "B"
+        self:GetDraft().kind = "B"
         self:Refresh()
     end)
 
@@ -889,7 +962,7 @@ function Feedback:BuildForm(side)
     self.titleBox:SetPoint("TOPLEFT", form, "TOPLEFT", 16, -100)
     self.titleBox:SetPoint("TOPRIGHT", form, "TOPRIGHT", -16, -100)
     self.titleBox:SetScript("OnTextChanged", function(box)
-        self.draft.title = box:GetText()
+        self:GetDraft().title = box:GetText()
         self:RefreshForm()
     end)
 
@@ -931,7 +1004,7 @@ function Feedback:BuildForm(side)
     end)
 
     box:SetScript("OnTextChanged", function(sel)
-        self.draft.text = sel:GetText()
+        self:GetDraft().text = sel:GetText()
         self:RefreshForm()
     end)
 
@@ -947,6 +1020,7 @@ function Feedback:BuildForm(side)
     self.cancel:SetWidth(110)
     self.cancel:SetScript("OnClick", function()
         self.composing = false
+        self:StopEditing()
         self:ClearFocus()
         self:Refresh()
     end)
@@ -1013,7 +1087,11 @@ function Feedback:BuildDetail(side)
     self.bug:SetPoint("BOTTOMLEFT", detail, "BOTTOMLEFT", 16, 16)
     self.delete = Members:CreateButton(detail, "LID_FBDELETE")
     self.delete:SetPoint("BOTTOMRIGHT", detail, "BOTTOMRIGHT", -16, 14)
-    self.delete:SetWidth(150)
+    self.delete:SetWidth(130)
+    self.edit = Members:CreateButton(detail, "LID_FBEDIT")
+    self.edit:SetPoint("RIGHT", self.delete, "LEFT", -8, 0)
+    self.edit:SetWidth(100)
+    self.edit:SetScript("OnClick", function() self:Edit(self.selected) end)
     self.delete:SetScript("OnClick", function()
         if self.confirm == self.selected then
             self.confirm = nil
@@ -1030,6 +1108,7 @@ function Feedback:BuildDetail(side)
 end
 
 function Feedback:Compose()
+    self:StopEditing()
     self.composing = true
     self.confirm = nil
     self:Refresh()
@@ -1199,6 +1278,7 @@ function Feedback:GetRow(index)
     row:SetScript("OnClick", function(sel)
         self.selected = sel.id
         self.composing = false
+        self:StopEditing()
         self.confirm = nil
         self:ClearFocus()
         self:Refresh()
@@ -1264,15 +1344,18 @@ end
 function Feedback:RefreshForm()
     if not self.form or not self.form:IsShown() then return end
     local Members = GuildHelper.Members
+    local draft = self:GetDraft()
+    local entry = self.editing and self:Find(self.editing)
     Members:SetPillText(self.ideaPill, GuildHelper:Trans("LID_FBIDEA"))
     Members:SetPillText(self.bugPill, GuildHelper:Trans("LID_FBBUG"))
-    Members:SetPillActive(self.ideaPill, self.draft.kind == "I")
-    Members:SetPillActive(self.bugPill, self.draft.kind == "B")
-    if self.titleBox:GetText() ~= self.draft.title then self.titleBox:SetText(self.draft.title) end
-    if self.textBox:GetText() ~= self.draft.text then self.textBox:SetText(self.draft.text) end
-    self.counter:SetText(format("%d / %d", self.textBox.GetNumLetters and self.textBox:GetNumLetters() or #self.draft.text, self.MAXLETTERS))
-    self.version:SetText(format(GuildHelper:Trans("LID_FBVERSION"), GuildHelper:GetVersion() or "?"))
-    self.submit:SetEnabled(IsInGuild() and self:CleanTitle(self.draft.title) ~= "")
+    Members:SetPillActive(self.ideaPill, draft.kind == "I")
+    Members:SetPillActive(self.bugPill, draft.kind == "B")
+    if self.titleBox:GetText() ~= draft.title then self.titleBox:SetText(draft.title) end
+    if self.textBox:GetText() ~= draft.text then self.textBox:SetText(draft.text) end
+    self.counter:SetText(format("%d / %d", self.textBox.GetNumLetters and self.textBox:GetNumLetters() or #draft.text, self.MAXLETTERS))
+    self.version:SetText(format(GuildHelper:Trans("LID_FBVERSION"), (entry and entry.version) or GuildHelper:GetVersion() or "?"))
+    GuildHelper.Theme:SetTrans(self.submit.text, self.editing and "LID_FBSAVE" or "LID_FBSUBMIT")
+    self.submit:SetEnabled(IsInGuild() and self:CleanTitle(draft.title) ~= "")
 end
 
 function Feedback:RefreshDetail()
@@ -1287,13 +1370,16 @@ function Feedback:RefreshDetail()
     self.down:SetShown(shown and entry.kind ~= "B")
     self.bug:SetShown(shown and entry.kind == "B")
     self.delete:SetShown(self:IsOwn(entry))
+    self.edit:SetShown(self:IsOwn(entry))
     if not shown then return end
     local up, down = self:Count(entry.id)
     local vote = self:GetVote(entry.id)
     self.detailKind:SetText(GuildHelper:Trans(entry.kind == "B" and "LID_FBBUG" or "LID_FBIDEA"))
     self.detailDate:SetText(self:FormatDate(entry.created))
     self.detailTitle:SetText(entry.title)
-    self.detailMeta:SetText(format(GuildHelper:Trans("LID_FBBY"), entry.author or "?") .. " · " .. format(GuildHelper:Trans("LID_FBVERSION"), entry.version or "?"))
+    local meta = format(GuildHelper:Trans("LID_FBBY"), entry.author or "?") .. " · " .. format(GuildHelper:Trans("LID_FBVERSION"), entry.version or "?")
+    if entry.edited then meta = meta .. " · " .. format(GuildHelper:Trans("LID_FBEDITED"), self:FormatDate(entry.edited)) end
+    self.detailMeta:SetText(meta)
     self.body.text:SetText(entry.text ~= "" and entry.text or "-")
     self.body:ResizeText()
     self:SetVote(self.up, up, vote > 0)
@@ -1308,10 +1394,15 @@ end
 function Feedback:Refresh()
     if not self.content or not self.content:IsVisible() or not self.list then return end
     self:CheckGuild()
+    if self.editing and not self:IsOwn(self:Find(self.editing)) then
+        self:StopEditing()
+        self.composing = false
+    end
+
     self:RefreshList()
     self.form:SetShown(self.composing)
     self.detail:SetShown(not self.composing)
-    GuildHelper.Theme:SetTrans(self.side.title, self.composing and "LID_FBNEW" or "LID_FBDETAIL", true)
+    GuildHelper.Theme:SetTrans(self.side.title, self.editing and "LID_FBEDITENTRY" or (self.composing and "LID_FBNEW" or "LID_FBDETAIL"), true)
     self.newButton:SetEnabled(not self.composing)
     if self.composing then
         self:RefreshForm()

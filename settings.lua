@@ -247,6 +247,13 @@ Settings.INVITEOPTIONS = {
 
 Settings.DISPLAYOPTIONS = {
     {
+        key = "MMBTN",
+        default = true,
+        label = "LID_SHOWMINIMAP",
+        desc = "LID_SHOWMINIMAPDESC",
+        display = true
+    },
+    {
         key = "SHOWILVL",
         default = false,
         label = "LID_SHOWILVL",
@@ -272,6 +279,7 @@ end
 function Settings:ToggleMapOption(option)
     if self:IsMapOptionEnabled(option) then
         GuildHelper:SetConfig(option.key, not self:GetMapOption(option.key))
+        if option.key == "MMBTN" then GuildHelper:SetMinimapVisible(self:GetMapOption("MMBTN")) end
         if GuildHelper.GuildMap and not option.invite and not option.display then GuildHelper.GuildMap.Refresh() end
     end
 
@@ -385,19 +393,83 @@ function Settings:UpdateMap()
     end
 end
 
+function Settings:UpdateWindowKey()
+    if not self.keyPill then return end
+    local key = GuildHelper:GetConfig("WINDOWKEY", "SHIFT-J")
+    self:SetPill(self.keyPill, self.capturingKey and GuildHelper:Trans("LID_PRESSKEY") or (key == "" and NOT_BOUND or GetBindingText(key, "KEY_")))
+end
+
+function Settings:StopKeyCapture()
+    self.capturingKey = false
+    if self.keyPill then self.keyPill:EnableKeyboard(false) end
+    self:UpdateWindowKey()
+end
+
+function Settings:CreateWindowKey(panel)
+    self.keyPill = self:CreateRow(panel, -218, "LID_WINDOWKEY", "LID_WINDOWKEYDESC")
+    self.keyPill:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    self.keyPill:SetScript("OnClick", function(sel, button)
+        if button == "RightButton" then
+            GuildHelper:SetConfig("WINDOWKEY", "")
+            GuildHelper:ApplyWindowKey()
+            Settings:StopKeyCapture()
+            return
+        end
+
+        Settings.capturingKey = true
+        sel:EnableKeyboard(true)
+        sel:SetPropagateKeyboardInput(false)
+        Settings:UpdateWindowKey()
+    end)
+
+    self.keyPill:SetScript("OnKeyDown", function(_, key)
+        if key == "ESCAPE" then
+            Settings:StopKeyCapture()
+            return
+        end
+
+        if key == "LSHIFT" or key == "RSHIFT" or key == "LCTRL" or key == "RCTRL" or key == "LALT" or key == "RALT" then return end
+        if IsShiftKeyDown() then key = "SHIFT-" .. key end
+        if IsControlKeyDown() then key = "CTRL-" .. key end
+        if IsAltKeyDown() then key = "ALT-" .. key end
+        GuildHelper:SetConfig("WINDOWKEY", key)
+        GuildHelper:ApplyWindowKey()
+        Settings:StopKeyCapture()
+    end)
+
+    self.keyPill:SetScript("OnHide", function() Settings:StopKeyCapture() end)
+    self.keyPill:EnableKeyboard(false)
+end
+
 function Settings:Update()
     if self.langPill == nil then return end
     self:SetPill(self.langPill, Members:GetOptionLabel(self:GetLanguageOptions(), GuildHelper:GetConfig("LANGUAGE", "auto")))
     self:SetPill(self.designPill, Members:GetOptionLabel(self:GetDesignOptions(), GuildHelper:GetDesign()))
+    self:UpdateWindowKey()
     self:UpdateCharacter()
     self:UpdateMap()
 end
 
 function Settings:Build(content)
     Window:CreatePageTitle(content, "LID_SETTINGS")
-    local panel = CreateFrame("Frame", nil, content)
-    panel:SetPoint("TOPLEFT", content, "TOPLEFT", Window.PADDING, -80)
-    panel:SetSize(self.WIDTH, 170)
+    local scroll = CreateFrame("ScrollFrame", nil, content)
+    scroll:SetPoint("TOPLEFT", content, "TOPLEFT", Window.PADDING, -80)
+    scroll:SetPoint("BOTTOMRIGHT", content, "BOTTOMRIGHT", -Window.PADDING, Window.PADDING)
+    local body = CreateFrame("Frame", nil, scroll)
+    body:SetSize(self.WIDTH + 16 + self.MAPWIDTH, 546)
+    scroll:SetScrollChild(body)
+    scroll:EnableMouseWheel(true)
+    scroll:SetScript("OnMouseWheel", function(sel, delta)
+        sel:SetVerticalScroll(min(max(sel:GetVerticalScroll() - delta * 40, 0), sel:GetVerticalScrollRange()))
+    end)
+
+    scroll:SetScript("OnScrollRangeChanged", function(sel)
+        sel:SetVerticalScroll(min(sel:GetVerticalScroll(), sel:GetVerticalScrollRange()))
+    end)
+
+    local panel = CreateFrame("Frame", nil, body)
+    panel:SetPoint("TOPLEFT", body, "TOPLEFT", 0, 0)
+    panel:SetSize(self.WIDTH, 294)
     Theme:Panel(panel, "panel", "border", 9)
     self.langPill = self:CreateRow(panel, -20, "LID_LANGUAGE", "LID_LANGUAGEDESC")
     self.langPill:SetScript("OnClick", function(sel)
@@ -427,9 +499,10 @@ function Settings:Build(content)
         self.displayRows[index] = entry
     end
 
-    self:CreateCharacterPanel(content, panel)
-    self:CreateMapPanel(content, panel)
-    self:CreateInvitePanel(content, panel)
+    self:CreateWindowKey(panel)
+    self:CreateCharacterPanel(body, panel)
+    self:CreateMapPanel(body, panel)
+    self:CreateInvitePanel(body, panel)
     if not self.hooked then
         self.hooked = true
         Theme:OnRefresh(function() Settings:Update() end)
@@ -437,6 +510,7 @@ function Settings:Build(content)
 
     content.OnPageShow = function() Settings:Update() end
     content.OnPageHide = function()
+        Settings:StopKeyCapture()
         if Members.menu then Members.menu:Hide() end
     end
 end

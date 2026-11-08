@@ -38,6 +38,37 @@ function GuildHelper:GetMinimapTooltip(icon)
     return {{format("|T%s:16:16:0:0|t GuildHelper", icon), "v" .. (GuildHelper:GetVersion() or "")}, {GuildHelper:Trans("LID_LEFTCLICK"), GuildHelper:Trans("LID_OPENWINDOW")}, {GuildHelper:Trans("LID_RIGHTCLICK"), GuildHelper:Trans("LID_HIDEMINIMAPBUTTON")}}
 end
 
+function GuildHelper:SetMinimapVisible(visible)
+    GuildHelper:SetConfig("MMBTN", visible)
+    if visible then
+        GuildHelper:ShowMMBtn("GuildHelper")
+    else
+        GuildHelper:HideMMBtn("GuildHelper")
+    end
+
+    if GuildHelper.Settings then GuildHelper.Settings:Update() end
+end
+
+function GuildHelper:ApplyWindowKey()
+    if InCombatLockdown() then
+        GuildHelper.keyButton:RegisterEvent("PLAYER_REGEN_ENABLED")
+        return
+    end
+
+    GuildHelper.keyButton:UnregisterEvent("PLAYER_REGEN_ENABLED")
+    ClearOverrideBindings(GuildHelper.keyButton)
+    local key = GuildHelper:GetConfig("WINDOWKEY", "SHIFT-J")
+    if key ~= "" then SetOverrideBindingClick(GuildHelper.keyButton, false, key, "GuildHelperKeyButton", "LeftButton") end
+end
+
+function GuildHelper:InitWindowKey()
+    self.keyButton = CreateFrame("Button", "GuildHelperKeyButton", UIParent)
+    self.keyButton:RegisterForClicks("AnyUp")
+    self.keyButton:SetScript("OnClick", function() GuildHelper:ToggleWindow() end)
+    self.keyButton:SetScript("OnEvent", function() GuildHelper:ApplyWindowKey() end)
+    self:ApplyWindowKey()
+end
+
 function GuildHelper:InitMinimapButton()
     local icon = GuildHelper:GetAddonIcon()
     GuildHelper:GetConfig("MMBTN", true)
@@ -48,8 +79,7 @@ function GuildHelper:InitMinimapButton()
         ["vTT"] = GuildHelper:GetMinimapTooltip(icon),
         ["funcL"] = function() GuildHelper:ToggleWindow() end,
         ["funcR"] = function()
-            GuildHelper:SetConfig("MMBTN", false)
-            GuildHelper:HideMMBtn("GuildHelper")
+            GuildHelper:SetMinimapVisible(false)
         end,
         ["dbkey"] = "MMBTN"
     }
@@ -69,6 +99,7 @@ loader:SetScript("OnEvent", function(self, event)
     GuildHelper.Sync:Init()
     GuildHelper.Members:Init()
     GuildHelper:InitMinimapButton()
+    GuildHelper:InitWindowKey()
     GuildHelper:AddSlash("guildhelper", GuildHelper.ToggleWindow)
     GuildHelper:AddSlash("guhe", GuildHelper.ToggleWindow)
 end)
