@@ -191,47 +191,11 @@ function Feedback:GetSum()
 end
 
 function Feedback:Queue(message)
-    if not self.guild or #message > 255 or self.queued[message] then return end
-    self.queued[message] = true
-    tinsert(self.queue, message)
-end
-
-function Feedback:SendNext()
-    local message = self.queue[1]
-    if not message then return end
-    local ok, result = false, nil
-    if C_ChatInfo and C_ChatInfo.SendAddonMessage then
-        ok, result = pcall(C_ChatInfo.SendAddonMessage, self.PREFIX, message, "GUILD")
-    elseif SendAddonMessage then
-        ok, result = pcall(SendAddonMessage, self.PREFIX, message, "GUILD")
-    end
-
-    local codes = Enum and Enum.SendAddonMessageResult
-    if ok and codes and codes.AddonMessageThrottle and result == codes.AddonMessageThrottle then return false end
-    tremove(self.queue, 1)
-    self.queued[message] = nil
-
-    return true
+    if not self.guild then return end
+    GuildHelper.Sync:Send(message, nil, self.PREFIX)
 end
 
 function Feedback:Pump(elapsed)
-    self.tokens = min(self.BURST, self.tokens + elapsed)
-    if not IsInGuild() then
-        self.queue = {}
-        self.queued = {}
-
-        return
-    end
-
-    while self.tokens >= 1 and #self.queue > 0 do
-        if not self:SendNext() then
-            self.tokens = 0
-
-            return
-        end
-
-        self.tokens = self.tokens - 1
-    end
 end
 
 function Feedback:SendVotes(id)

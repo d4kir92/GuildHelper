@@ -6,7 +6,7 @@ Sync.SEND_THROTTLE = 15
 Sync.ANSWER_THROTTLE = 120
 Sync.lastSend = 0
 Sync.listeners = {}
-Sync.BURST = 8
+Sync.BURST = 1
 Sync.MAXTRIES = 20
 Sync.tokens = Sync.BURST
 Sync.queue = {}
@@ -174,10 +174,10 @@ function Sync:Parse(shortName, message)
     self:Store(shortName, tonumber(parts[2]), professions)
 end
 
-function Sync:Send(message, key)
+function Sync:Send(message, key, prefix)
     if not IsInGuild() or type(message) ~= "string" or #message > 255 then return end
     for _, item in ipairs(self.queue) do
-        if (key and item.key == key) or item.message == message then
+        if item.prefix == (prefix or self.PREFIX) and ((key and item.key == key) or item.message == message) then
             item.message = message
             item.tries = 0
 
@@ -187,6 +187,7 @@ function Sync:Send(message, key)
 
     tinsert(self.queue, {
         message = message,
+        prefix = prefix or self.PREFIX,
         key = key,
         tries = 0
     })
@@ -202,12 +203,12 @@ function Sync:IsThrottled(result)
     return result == codes.AddonMessageThrottle or result == codes.ChannelThrottle
 end
 
-function Sync:Transmit(message)
+function Sync:Transmit(message, prefix)
     local ok, result = false, nil
     if C_ChatInfo and C_ChatInfo.SendAddonMessage then
-        ok, result = pcall(C_ChatInfo.SendAddonMessage, self.PREFIX, message, "GUILD")
+        ok, result = pcall(C_ChatInfo.SendAddonMessage, prefix or self.PREFIX, message, "GUILD")
     elseif SendAddonMessage then
-        ok, result = pcall(SendAddonMessage, self.PREFIX, message, "GUILD")
+        ok, result = pcall(SendAddonMessage, prefix or self.PREFIX, message, "GUILD")
     end
 
     return not ok or not self:IsThrottled(result)
@@ -224,7 +225,7 @@ function Sync:Pump(elapsed)
 
     while self.tokens >= 1 and #self.queue > 0 do
         local item = self.queue[1]
-        if not self:Transmit(item.message) then
+        if not self:Transmit(item.message, item.prefix) then
             item.tries = item.tries + 1
             if item.tries >= self.MAXTRIES then tremove(self.queue, 1) end
             self.tokens = 0
