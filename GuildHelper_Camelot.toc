@@ -54,6 +54,7 @@ specs.lua
 members.lua
 dashboard.lua
 groups.lua
+feedback.lua
 map.lua
 invite.lua
 settings.lua

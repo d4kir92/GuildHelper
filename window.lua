@@ -5,7 +5,7 @@ GuildHelper.Window = Window
 Window.WIDTH = 1200
 Window.HEIGHT = 570
 Window.MINWIDTH = 1060
-Window.MINHEIGHT = 480
+Window.MINHEIGHT = 510
 Window.MINSCALE = 0.5
 Window.MAXSCALE = 2
 Window.TEMPLATES = {"ButtonFrameTemplate", "PortraitFrameTemplate", "BasicFrameTemplateWithInset"}
@@ -128,6 +128,10 @@ Window.NAV = {
     {
         key = "management",
         label = "LID_MANAGEMENT"
+    },
+    {
+        key = "feedback",
+        label = "LID_FEEDBACK"
     },
     {
         key = "settings",
