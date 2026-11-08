@@ -5,6 +5,7 @@ Feedback.PREFIX = "GuildHelperFB"
 Feedback.MAXTITLE = 60
 Feedback.MAXLETTERS = 1000
 Feedback.MAXBYTES = 2000
+Feedback.MAXCOMMENT = 150
 Feedback.CHUNK = 100
 Feedback.MAXMESSAGE = 240
 Feedback.KEEPDELETED = 120 * 86400
@@ -122,6 +123,7 @@ function Feedback:GetStore()
     local store = GHTAB.FEEDBACK[self.guild]
     store.entries = store.entries or {}
     store.votes = store.votes or {}
+    store.comments = store.comments or {}
 
     return store
 end
@@ -148,20 +150,23 @@ function Feedback:Rev(id)
     local entry = store and store.entries[id]
     if not entry then return nil end
     if entry.deleted then return "x" end
-    local votes = store.votes[id]
-    if not votes or next(votes) == nil then return "0" end
-    local voters = {}
-    for voter in pairs(votes) do
-        tinsert(voters, voter)
+    local parts = {}
+    for voter, vote in pairs(store.votes[id] or {}) do
+        tinsert(parts, voter .. "," .. vote[1] .. "," .. vote[2])
     end
 
-    table.sort(voters)
-    local parts = {}
-    for _, voter in ipairs(voters) do
-        tinsert(parts, voter .. "," .. votes[voter][1] .. "," .. votes[voter][2])
+    for cid, comment in pairs(store.comments[id] or {}) do
+        tinsert(parts, "#" .. cid .. (comment.deleted and "x" or ""))
     end
+
+    if #parts == 0 then return "0" end
+    table.sort(parts)
 
     return self:Base36(self:Hash(table.concat(parts, ";")))
+end
+
+function Feedback:ValidId(id)
+    return type(id) == "string" and id ~= "" and #id <= 16 and not id:find("[^%w]")
 end
 
 function Feedback:GetIndex()
@@ -266,7 +271,29 @@ function Feedback:SendEntry(id)
         self:Queue("T~" .. id .. "~" .. index .. "~" .. self:Encode(chunk))
     end
 
+    self:SendExtras(id)
+end
+
+function Feedback:SendComment(id, cid)
+    local store = self:GetStore()
+    local comment = store and store.comments[id] and store.comments[id][cid]
+    if not comment then return end
+    if comment.deleted then
+        self:Queue(table.concat({"K", id, cid, tostring(comment.deleted), comment.owner or ""}, "~"))
+
+        return
+    end
+
+    local header = table.concat({"C", id, cid, tostring(comment.created), comment.owner, comment.author or "", ""}, "~")
+    self:Queue(header .. self:Cut(comment.text, 254 - #header))
+end
+
+function Feedback:SendExtras(id)
     self:SendVotes(id)
+    local store = self:GetStore()
+    for cid in pairs(store and store.comments[id] or {}) do
+        self:SendComment(id, cid)
+    end
 end
 
 function Feedback:Request(force)
@@ -363,7 +390,7 @@ function Feedback:Compare(senderKey, theirs)
                 self:SendEntry(id)
             else
                 tinsert(wanted, id)
-                if mine and rev ~= "x" then self:SendVotes(id) end
+                if mine and rev ~= "x" then self:SendExtras(id) end
             end
         end
     end
@@ -490,7 +517,50 @@ function Feedback:ReadDelete(id, stamp, owner)
     }
 
     store.votes[id] = nil
+    store.comments[id] = nil
     self.pending[id] = nil
+    self:Changed()
+end
+
+function Feedback:ReadComment(parts)
+    local store = self:GetStore()
+    local id, cid, created = parts[2], parts[3], tonumber(parts[4])
+    if not store or not self:ValidId(id) or not self:ValidId(cid) or not created then return end
+    local entry = store.entries[id]
+    if entry and entry.deleted then return end
+    local owner = GuildHelper.Groups:Name(parts[5])
+    local text = GuildHelper.Groups:CleanText(table.concat(parts, "~", 7), 254)
+    if not owner or text == "" then return end
+    store.comments[id] = store.comments[id] or {}
+    if store.comments[id][cid] then return end
+    store.comments[id][cid] = {
+        id = cid,
+        created = created,
+        owner = owner,
+        author = GuildHelper.Groups:CleanText(parts[6], 48),
+        text = text
+    }
+
+    self:Changed()
+end
+
+function Feedback:ReadCommentDelete(id, cid, stamp, owner)
+    local store = self:GetStore()
+    stamp = tonumber(stamp)
+    if not store or not self:ValidId(id) or not self:ValidId(cid) or not stamp then return end
+    local entry = store.entries[id]
+    if entry and entry.deleted then return end
+    store.comments[id] = store.comments[id] or {}
+    local comment = store.comments[id][cid]
+    if comment and comment.deleted then return end
+    owner = GuildHelper.Groups:Name(owner)
+    if comment and owner and comment.owner ~= owner then return end
+    store.comments[id][cid] = {
+        id = cid,
+        owner = owner or (comment and comment.owner),
+        deleted = stamp
+    }
+
     self:Changed()
 end
 
@@ -520,16 +590,20 @@ function Feedback:OnMessage(message, channel, sender)
         self:ReadVotes(parts[2], parts[3])
     elseif kind == "D~" then
         self:ReadDelete(parts[2], parts[3], parts[4])
+    elseif kind == "C~" then
+        if not own then self:ReadComment(parts) end
+    elseif kind == "K~" then
+        self:ReadCommentDelete(parts[2], parts[3], parts[4], parts[5])
     end
 end
 
-function Feedback:NewId()
-    local store = self:GetStore()
+function Feedback:NewId(used)
+    used = used or self:GetStore().entries
     local id
     repeat
         local suffix = self:Base36(random(0, 46655))
         id = self:Base36(time()) .. strrep("0", 3 - #suffix) .. suffix
-    until not store.entries[id]
+    until not used[id]
 
     return id
 end
@@ -583,9 +657,66 @@ function Feedback:Delete(id)
     }
 
     store.votes[id] = nil
+    store.comments[id] = nil
     self:SendEntry(id)
     self.selected = nil
     self:Changed()
+end
+
+function Feedback:AddComment(id, value)
+    local store = self:GetStore()
+    local owner = self:Self()
+    local text = GuildHelper.Groups:CleanText(value, 254)
+    if not self:Find(id) or not owner or text == "" then return false end
+    store.comments[id] = store.comments[id] or {}
+    local comment = {
+        id = self:NewId(store.comments[id]),
+        created = time(),
+        owner = owner,
+        author = GuildHelper.Groups:CleanText(self:GetAuthor(), 48),
+        text = text
+    }
+
+    store.comments[id][comment.id] = comment
+    self:SendComment(id, comment.id)
+    self.scrollComments = true
+    self:Changed()
+
+    return true
+end
+
+function Feedback:IsOwnComment(comment)
+    return comment ~= nil and not comment.deleted and GuildHelper.Groups:IsSelfName(comment.owner)
+end
+
+function Feedback:DeleteComment(id, cid)
+    local store = self:GetStore()
+    local comment = store and store.comments[id] and store.comments[id][cid]
+    if not self:IsOwnComment(comment) then return end
+    store.comments[id][cid] = {
+        id = cid,
+        owner = comment.owner,
+        deleted = time()
+    }
+
+    self:SendComment(id, cid)
+    self:Changed()
+end
+
+function Feedback:GetComments(id)
+    local list = {}
+    local store = self:GetStore()
+    for _, comment in pairs(store and store.comments[id] or {}) do
+        if not comment.deleted then tinsert(list, comment) end
+    end
+
+    table.sort(list, function(a, b)
+        if a.created ~= b.created then return a.created < b.created end
+
+        return a.id < b.id
+    end)
+
+    return list
 end
 
 function Feedback:GetVote(id, voter)
@@ -657,6 +788,52 @@ end
 
 function Feedback:Text(parent, key, x, y, size, color)
     return GuildHelper.Groups:Text(parent, key, x, y, size, color)
+end
+
+function Feedback:UpdateThumb(scroll)
+    local thumb = scroll.ghThumb
+    local range = scroll:GetVerticalScrollRange()
+    local view = scroll:GetHeight()
+    if range <= 0 or view <= 0 then
+        thumb:Hide()
+
+        return
+    end
+
+    local track = view - 4
+    local height = max(20, track * view / (view + range))
+    thumb:SetHeight(height)
+    thumb:ClearAllPoints()
+    thumb:SetPoint("TOPLEFT", scroll, "TOPRIGHT", thumb.gap, -2 - (track - height) * min(1, scroll:GetVerticalScroll() / range))
+    thumb:Show()
+end
+
+function Feedback:AddThumb(scroll, gap)
+    local thumb = CreateFrame("Button", nil, scroll:GetParent())
+    thumb:SetWidth(4)
+    thumb:SetFrameLevel(scroll:GetFrameLevel() + 5)
+    thumb.gap = gap or 1
+    GuildHelper.Theme:Round(thumb, "thumb", 2)
+    thumb:Hide()
+    thumb:SetScript("OnMouseDown", function(sel)
+        sel.startY = select(2, GetCursorPosition()) / sel:GetEffectiveScale()
+        sel.startScroll = scroll:GetVerticalScroll()
+        sel:SetScript("OnUpdate", function()
+            local y = select(2, GetCursorPosition()) / sel:GetEffectiveScale()
+            local free = scroll:GetHeight() - 4 - sel:GetHeight()
+            local range = scroll:GetVerticalScrollRange()
+            if free <= 0 or range <= 0 then return end
+            scroll:SetVerticalScroll(min(max(sel.startScroll + (sel.startY - y) / free * range, 0), range))
+        end)
+    end)
+
+    thumb:SetScript("OnMouseUp", function(sel) sel:SetScript("OnUpdate", nil) end)
+    thumb:SetScript("OnHide", function(sel) sel:SetScript("OnUpdate", nil) end)
+    scroll.ghThumb = thumb
+    scroll:HookScript("OnScrollRangeChanged", function() self:UpdateThumb(scroll) end)
+    scroll:HookScript("OnVerticalScroll", function() self:UpdateThumb(scroll) end)
+    scroll:HookScript("OnSizeChanged", function() self:UpdateThumb(scroll) end)
+    scroll:HookScript("OnShow", function() self:UpdateThumb(scroll) end)
 end
 
 function Feedback:CreateVote(parent, icon, tooltip, value)
@@ -741,6 +918,7 @@ function Feedback:BuildForm(side)
     scroll:SetScript("OnSizeChanged", function(_, width) box:SetWidth(max(1, width or 1)) end)
     scroll:EnableMouseWheel(true)
     scroll:SetScript("OnMouseWheel", function(sel, delta) sel:SetVerticalScroll(min(max(sel:GetVerticalScroll() - delta * 26, 0), sel:GetVerticalScrollRange())) end)
+    self:AddThumb(scroll, 3)
     box:SetScript("OnCursorChanged", function(_, _, y, _, height)
         local top = -y
         local view = scroll:GetVerticalScroll()
@@ -801,7 +979,32 @@ function Feedback:BuildDetail(side)
     self.detailMeta:SetPoint("RIGHT", detail, "RIGHT", -16, 0)
     self.body = Dashboard:CreateTextCard(detail, "LID_FBTEXT")
     self.body:SetPoint("TOPLEFT", detail, "TOPLEFT", 8, -124)
-    self.body:SetPoint("BOTTOMRIGHT", detail, "BOTTOMRIGHT", -8, 58)
+    self.body:SetPoint("TOPRIGHT", detail, "TOPRIGHT", -8, -124)
+    self.body:SetHeight(110)
+    self:AddThumb(self.body.scroll)
+    self.comments = Dashboard:CreateList(Dashboard:CreateCard(detail, "LID_FBCOMMENTS"))
+    self.comments:SetPoint("TOPLEFT", self.body, "BOTTOMLEFT", 0, -8)
+    self.comments:SetPoint("BOTTOMRIGHT", detail, "BOTTOMRIGHT", -8, 98)
+    self.comments.rows = {}
+    self:AddThumb(self.comments.scroll)
+    self.comments.body:SetScript("OnSizeChanged", function(body, width)
+        if width and width ~= self.commentWidth then
+            self.commentWidth = width
+            self:Refresh()
+        end
+    end)
+
+    self.noComments = self:Text(self.comments, "LID_FBNOCOMMENTS", 16, -36)
+    self.send = Members:CreateButton(detail, "LID_FBSEND")
+    self.send:SetPoint("BOTTOMRIGHT", detail, "BOTTOMRIGHT", -16, 58)
+    self.send:SetWidth(100)
+    self.send:SetScript("OnClick", function() self:PostComment() end)
+    self.commentBox = GuildHelper.Groups:CreateBox(detail, self.MAXCOMMENT)
+    self.commentBox:SetPoint("LEFT", detail, "LEFT", 16, 0)
+    self.commentBox:SetPoint("RIGHT", self.send, "LEFT", -8, 0)
+    self.commentBox:SetPoint("TOP", self.send, "TOP", 0, -2)
+    self.commentBox:SetScript("OnEnterPressed", function() self:PostComment() end)
+    self.commentBox:SetScript("OnTextChanged", function(box) self.send:SetEnabled(GuildHelper.Groups:CleanText(box:GetText(), 254) ~= "") end)
     self.up = self:CreateVote(detail, "thumbup", "LID_FBUPVOTE", 1)
     self.up:SetPoint("BOTTOMLEFT", detail, "BOTTOMLEFT", 16, 16)
     self.down = self:CreateVote(detail, "thumbdown", "LID_FBDOWNVOTE", -1)
@@ -837,6 +1040,81 @@ function Feedback:ClearFocus()
     if self.titleBox then
         self.titleBox:ClearFocus()
         self.textBox:ClearFocus()
+        self.commentBox:ClearFocus()
+    end
+end
+
+function Feedback:PostComment()
+    if not self.commentBox or not self.selected then return end
+    if self:AddComment(self.selected, self.commentBox:GetText()) then self.commentBox:SetText("") end
+end
+
+function Feedback:GetCommentRow(index)
+    local Theme = GuildHelper.Theme
+    local rows = self.comments.rows
+    if rows[index] then return rows[index] end
+    local row = CreateFrame("Frame", nil, self.comments.body)
+    row.remove = CreateFrame("Button", nil, row)
+    row.remove:SetSize(18, 18)
+    row.remove:SetPoint("TOPRIGHT", row, "TOPRIGHT", -6, -2)
+    row.remove.icon = Theme:Icon(row.remove, "close", 8, "muted")
+    row.remove.icon:SetPoint("CENTER", row.remove, "CENTER", 0, 0)
+    row.remove:SetScript("OnEnter", function(sel)
+        Theme:SetKey(sel.icon, "text")
+        GameTooltip:SetOwner(sel, "ANCHOR_TOP")
+        GameTooltip:SetText(GuildHelper:Trans("LID_FBDELETECOMMENT"))
+        GameTooltip:Show()
+    end)
+
+    row.remove:SetScript("OnLeave", function(sel)
+        Theme:SetKey(sel.icon, "muted")
+        GameTooltip:Hide()
+    end)
+
+    row.remove:SetScript("OnClick", function() self:DeleteComment(self.selected, row.cid) end)
+    row.head = self:Text(row, nil, 10, -4, 11)
+    row.head:SetPoint("RIGHT", row.remove, "LEFT", -6, 0)
+    row.text = self:Text(row, nil, 10, -20, 12.5, "text")
+    row.text:SetWordWrap(true)
+    row.text:SetJustifyV("TOP")
+    rows[index] = row
+
+    return row
+end
+
+function Feedback:RefreshComments(entry)
+    local body = self.comments.body
+    local list = self:GetComments(entry.id)
+    local width = max(1, body:GetWidth() - 20)
+    local y = 0
+    for index, comment in ipairs(list) do
+        local row = self:GetCommentRow(index)
+        row.cid = comment.id
+        row:ClearAllPoints()
+        row:SetPoint("TOPLEFT", body, "TOPLEFT", 0, -y)
+        row:SetPoint("TOPRIGHT", body, "TOPRIGHT", 0, -y)
+        row.head:SetText((Ambiguate and Ambiguate(comment.author or "", "guild") or comment.author or "") .. " · " .. self:FormatDate(comment.created))
+        row.text:SetWidth(width)
+        row.text:SetText(comment.text)
+        row.remove:SetShown(self:IsOwnComment(comment))
+        local height = 26 + row.text:GetStringHeight()
+        row:SetHeight(height)
+        row:Show()
+        y = y + height
+    end
+
+    for index = #list + 1, #self.comments.rows do
+        self.comments.rows[index]:Hide()
+    end
+
+    body:SetHeight(max(1, y))
+    self.noComments:SetShown(#list == 0)
+    if self.scrollComments then
+        self.scrollComments = nil
+        C_Timer.After(0, function()
+            local scroll = self.comments.scroll
+            scroll:SetVerticalScroll(scroll:GetVerticalScrollRange())
+        end)
     end
 end
 
@@ -871,6 +1149,7 @@ function Feedback:Build(content)
     self.list = Dashboard:CreateList(Dashboard:CreateCard(content, "LID_FBLIST"))
     self.list:SetPoint("TOPLEFT", content, "TOPLEFT", Window.PADDING, -84)
     self.list:SetPoint("BOTTOMRIGHT", self.side, "BOTTOMLEFT", -12, 0)
+    self:AddThumb(self.list.scroll)
     self.empty = self:Text(self.list, "LID_FBNONE", 16, -42)
     self.empty:SetPoint("RIGHT", self.list, "RIGHT", -16, 0)
     self.empty:SetWordWrap(true)
@@ -936,7 +1215,10 @@ function Feedback:FillRow(row, entry)
     row.id = entry.id
     row.title:SetText(entry.title)
     row.tag:SetText(GuildHelper:Trans(bug and "LID_FBBUG" or "LID_FBIDEA"))
-    row.info:SetText(table.concat({Ambiguate and Ambiguate(entry.author or "", "guild") or entry.author or "", "v" .. (entry.version or "?"), self:FormatDate(entry.created)}, " · "))
+    local info = {Ambiguate and Ambiguate(entry.author or "", "guild") or entry.author or "", "v" .. (entry.version or "?"), self:FormatDate(entry.created)}
+    local comments = #self:GetComments(entry.id)
+    if comments > 0 then tinsert(info, format(GuildHelper:Trans("LID_FBCOMMENTCOUNT"), comments)) end
+    row.info:SetText(table.concat(info, " · "))
     row.upIcon:SetTexture(GuildHelper.Theme.MEDIA .. (bug and "bug" or "thumbup"))
     row.upCount:SetText(tostring(up))
     row.downIcon:SetShown(not bug)
@@ -997,7 +1279,7 @@ function Feedback:RefreshDetail()
     local entry = self:Find(self.selected)
     local shown = entry ~= nil
     self.noSelection:SetShown(not shown)
-    for _, region in ipairs({self.detailKind, self.detailDate, self.detailTitle, self.detailMeta, self.body}) do
+    for _, region in ipairs({self.detailKind, self.detailDate, self.detailTitle, self.detailMeta, self.body, self.comments, self.commentBox, self.send}) do
         region:SetShown(shown)
     end
 
@@ -1019,6 +1301,8 @@ function Feedback:RefreshDetail()
     self:SetVote(self.bug, up, vote > 0)
     if self.confirm ~= entry.id then self.confirm = nil end
     GuildHelper.Theme:SetTrans(self.delete.text, self.confirm and "LID_FBCONFIRM" or "LID_FBDELETE")
+    self.send:SetEnabled(IsInGuild() and GuildHelper.Groups:CleanText(self.commentBox:GetText(), 254) ~= "")
+    self:RefreshComments(entry)
 end
 
 function Feedback:Refresh()
@@ -1040,6 +1324,8 @@ GuildHelper.Window:SetPageBuilder("feedback", function(content) Feedback:Build(c
 GuildHelper.Window:OnRebuild(function()
     Feedback.content = nil
     Feedback.titleBox = nil
+    Feedback.commentBox = nil
+    Feedback.commentWidth = nil
 end)
 
 GuildHelper.Theme:OnRefresh(function() Feedback:Refresh() end)
