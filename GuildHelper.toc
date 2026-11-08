@@ -7,7 +7,7 @@
 ## Interface-Cata: 40402
 ## Interface-Mists: 50504
 
-## Version: 0.0.2
+## Version: 0.1.0
 ## Title: GuildHelper by |cff55d2ffD4KiR |T132115:16:16:0:0|t
 ## Notes:
 ## Notes-deDE:
