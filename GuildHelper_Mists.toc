@@ -1,5 +1,5 @@
 ## Interface: 50504
-## Version: 0.1.3
+## Version: 0.1.4
 ## Title: GuildHelper by |cff55d2ffD4KiR |T132115:16:16:0:0|t
 ## Notes:
 ## Notes-deDE:

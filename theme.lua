@@ -341,11 +341,7 @@ function Theme:FlatNative(widget)
         end
     end
 
-    if widget:GetObjectType() == "EditBox" and widget.GetFontObject then
-        local base = widget:GetFontObject()
-        if base then widget:SetFontObject(self:FlatFont(base)) end
-        self:NoShadow(widget)
-    end
+    if widget:GetObjectType() == "EditBox" then self:NoShadow(widget) end
 
     self:NoShadow(widget.GetFontString and widget:GetFontString() or nil)
 
