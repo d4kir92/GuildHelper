@@ -42,7 +42,7 @@ end
 function Groups:TickAnnouncements()
     if not self.guild then return end
     local now = time()
-    local last = 0 or GuildHelper:GetConfig("GROUPCHATLAST", 0)
+    local last = GuildHelper:GetConfig("GROUPCHATLAST", 0)
     if now - last < 120 then return end
     if C_GuildInfo and C_GuildInfo.CanSpeakInGuildChat and not C_GuildInfo.CanSpeakInGuildChat() then return end
     local live = self:GetOwnLive()
