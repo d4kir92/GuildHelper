@@ -22,7 +22,6 @@ Groups.draft = {
 }
 
 Groups.TTL = 95
-Groups.LIFETIME = 1800
 Groups.INTERVAL = 30
 Groups.PLANINTERVAL = 60
 Groups.KEEP = 3600
@@ -79,6 +78,7 @@ function Groups:CheckGuild()
         self.selected = nil
         self.editing = nil
         self.lastQuery = nil
+        self.announcements = {}
     end
 
     return guild ~= nil
@@ -484,9 +484,12 @@ function Groups:Publish()
     entry.activityName = self:CleanText(activity.label, 64)
     entry.note = self:CleanText(draft.note, 110)
     entry.when = self.mode == "P" and self:GetDraftTime() or 0
-    if self.mode == "L" then entry.untilTime = GetTime() + self.LIFETIME end
     self.selected = entry.key
+    entry.chatLanguage = draft.chatLanguage or GuildHelper:GetLanguage()
+    entry.chatInterval = draft.chatInterval or 15
     self:Broadcast(entry)
+    self:QueueAnnouncement(entry)
+    self:TickAnnouncements()
     self:Refresh()
 end
 
@@ -495,6 +498,7 @@ function Groups:Close(entry)
     self:Send("D~" .. entry.id, "G" .. entry.id)
     local store = self:GetStore(entry.kind)
     if store then store[entry.key] = nil end
+    if self.announcements then self.announcements[entry.key] = nil end
     if self.editing == entry.key then self.editing = nil end
     self:Refresh()
 end
@@ -520,6 +524,12 @@ end
 
 function Groups:SendApplication(entry)
     self.applySent[entry.key] = GetTime()
+    entry.applicants = entry.applicants or {}
+    entry.applicants[self:Self()] = {
+        name = UnitName("player"),
+        role = entry.applied,
+        expires = entry.kind == "L" and GetTime() + self.TTL or nil
+    }
     self:Send(table.concat({"A", entry.owner, entry.id, entry.applied}, "~"), "A" .. entry.key)
 end
 
@@ -527,6 +537,7 @@ function Groups:Withdraw(entry)
     if not entry or not entry.applied then return end
     self:Send("W~" .. entry.owner .. "~" .. entry.id, "A" .. entry.key)
     entry.applied = nil
+    if entry.applicants then entry.applicants[self:Self()] = nil end
 end
 
 function Groups:Apply()
@@ -590,9 +601,10 @@ function Groups:ReadListing(owner, sender, parts)
 end
 
 function Groups:ReadApplication(owner, sender, parts)
-    if not self:IsSelfName(parts[3]) then return false end
-    local entry = self:Find(self:Self() .. "#" .. parts[4])
-    if not entry or not self:IsOwn(entry) then return false end
+    local target = self:IsSelfName(parts[3]) and self:Self() or self:Name(parts[3])
+    if not target or not parts[4] then return false end
+    local entry = self:Find(target .. "#" .. parts[4])
+    if not entry or self:IsSelfName(sender) then return false end
     entry.applicants = entry.applicants or {}
     if parts[2] == "W" and #parts == 4 then
         entry.applicants[owner] = nil
@@ -645,11 +657,6 @@ end
 function Groups:TickOwnLive(now)
     local own = self:GetOwnLive()
     if not own then return end
-    if now >= own.untilTime then
-        self:Close(own)
-
-        return
-    end
 
     if self.dirty then
         local needs = self:GetLiveNeeds((self:GetActivity(own.activity) or {}).size)
@@ -667,7 +674,10 @@ function Groups:TickOwnLive(now)
             end
         end
 
-        if changed then self:Broadcast(own) end
+        if changed then
+            self:Broadcast(own)
+            self:QueueAnnouncement(own)
+        end
     end
 
     if now - (self.sent[own.key] or 0) >= self.INTERVAL then self:Broadcast(own) end
@@ -677,11 +687,12 @@ function Groups:Tick()
     if not self:CheckGuild() then return end
     local now, stamp = GetTime(), time()
     self:TickOwnLive(now)
+    self:TickAnnouncements()
     self.dirty = nil
     for key, entry in pairs(self.live) do
         if not self:IsOwn(entry) and (entry.expires or 0) <= now then
             self.live[key] = nil
-        elseif self:IsOwn(entry) then
+        else
             for name, applicant in pairs(entry.applicants or {}) do
                 if (applicant.expires or 0) <= now or (entry[applicant.role] or 0) == 0 then entry.applicants[name] = nil end
             end
@@ -774,6 +785,8 @@ function Groups:LoadDraft(entry)
     local draft = self.draft.P
     draft.activity = entry.activity
     draft.note = entry.note or ""
+    draft.chatLanguage = entry.chatLanguage or GuildHelper:GetLanguage()
+    draft.chatInterval = entry.chatInterval or 15
     local stamp = date("*t", entry.when)
     draft.day = max(0, min(self.DAYS - 1, self:GetDayOffset(entry.when)))
     draft.hour = stamp.hour
@@ -858,10 +871,10 @@ function Groups:GetNumberOptions(last, step)
 end
 
 function Groups:BuildForm(content)
-    local Members, Window = GuildHelper.Members, GuildHelper.Window
+    local Members = GuildHelper.Members
     self.form = CreateFrame("Frame", nil, content)
-    self.form:SetPoint("TOPLEFT", content, "TOPLEFT", Window.PADDING, -84)
-    self.form:SetPoint("TOPRIGHT", content, "TOPRIGHT", -Window.MARGIN, -84)
+    self.form:SetPoint("TOPLEFT", content, "TOPLEFT", 0, 0)
+    self.form:SetPoint("TOPRIGHT", content, "TOPRIGHT", 0, 0)
     GuildHelper.Theme:Panel(self.form, "panel", "border", 9)
     self:Text(self.form, "LID_GROUPACTIVITY", 14, -17)
     self.activityPill = Members:CreatePill(self.form, "")
@@ -929,6 +942,7 @@ function Groups:BuildForm(content)
         end)
     end)
 
+    self:BuildAnnouncementOptions(self.form)
     self.publish = Members:CreateButton(self.form, "LID_GROUPPUBLISH", true)
     self.publish:SetPoint("BOTTOMLEFT", self.form, "BOTTOMLEFT", 14, 12)
     self.publish:SetWidth(170)
@@ -951,10 +965,10 @@ function Groups:BuildForm(content)
 end
 
 function Groups:BuildDetail(content)
-    local Members, Window, Dashboard = GuildHelper.Members, GuildHelper.Window, GuildHelper.Dashboard
+    local Members, Dashboard = GuildHelper.Members, GuildHelper.Dashboard
     self.detail = Dashboard:CreateCard(content, "LID_GROUPDETAIL")
     self.detail:SetPoint("TOPRIGHT", self.form, "BOTTOMRIGHT", 0, -12)
-    self.detail:SetPoint("BOTTOMRIGHT", content, "BOTTOMRIGHT", -Window.MARGIN, Members.BOTTOM)
+    self.detail:SetPoint("BOTTOMRIGHT", content, "BOTTOMRIGHT", 0, Members.BOTTOM)
     self.detail:SetWidth(320)
     self.detailTitle = self:Text(self.detail, nil, 14, -34, 14, "text")
     self.detailTitle:SetPoint("RIGHT", self.detail, "RIGHT", -14, 0)
@@ -976,6 +990,11 @@ function Groups:BuildDetail(content)
         table.remove(options, 1)
         Members:OpenMenu(button, options, self.role, function(value)
             self.role = value
+            local entry = self:Find(self.selected)
+            if entry and entry.applied and (entry[value] or 0) > 0 then
+                entry.applied = value
+                self:SendApplication(entry)
+            end
             self:Refresh()
         end)
     end)
@@ -1015,9 +1034,30 @@ function Groups:Build(content)
     self.plannedPill:SetScript("OnClick", function() self:SetMode("P") end)
     self.hint = self:Text(content, nil, Window.PADDING, -62, 11)
     self.hint:SetPoint("RIGHT", content, "RIGHT", -Window.MARGIN, 0)
-    self:BuildForm(content)
-    self:BuildDetail(content)
-    self.list = Dashboard:CreateList(Dashboard:CreateCard(content, "LID_GROUPLIST"))
+    local scroll = CreateFrame("ScrollFrame", nil, content)
+    scroll:SetPoint("TOPLEFT", content, "TOPLEFT", Window.PADDING, -84)
+    scroll:SetPoint("BOTTOMRIGHT", content, "BOTTOMRIGHT", -Window.MARGIN, 8)
+    local body = CreateFrame("Frame", nil, scroll)
+    body:SetSize(max(1, content:GetWidth() - Window.PADDING - Window.MARGIN), 700)
+    scroll:SetScrollChild(body)
+    scroll:EnableMouseWheel(true)
+    scroll:SetScript("OnMouseWheel", function(_, delta) self:ScrollPage(delta) end)
+    scroll:SetScript("OnSizeChanged", function(_, width, height)
+        body:SetWidth(max(1, width))
+        body:SetHeight(max(700, height))
+    end)
+    scroll:SetScript("OnScrollRangeChanged", function(sel)
+        sel:SetVerticalScroll(min(sel:GetVerticalScroll(), sel:GetVerticalScrollRange()))
+    end)
+    self.pageScroll = scroll
+    GuildHelper.Feedback:AddThumb(scroll, 2)
+    self:BuildForm(body)
+    self:BuildDetail(body)
+    self.list = Dashboard:CreateList(Dashboard:CreateCard(body, "LID_GROUPLIST"))
+    self.list.scrollPage = function(delta) self:ScrollPage(delta) end
+    self.requests.scrollPage = self.list.scrollPage
+    GuildHelper.Feedback:AddThumb(self.list.scroll, -4)
+    GuildHelper.Feedback:AddThumb(self.requests.scroll, -4)
     self.list:SetPoint("TOPLEFT", self.form, "BOTTOMLEFT", 0, -12)
     self.list:SetPoint("BOTTOMRIGHT", self.detail, "BOTTOMLEFT", -12, 0)
     self.empty = self:Text(self.list, "LID_GROUPNONE", 14, -42)
@@ -1043,6 +1083,11 @@ function Groups:Build(content)
     self:Refresh()
 end
 
+function Groups:ScrollPage(delta)
+    local scroll = self.pageScroll
+    if scroll then scroll:SetVerticalScroll(min(max(scroll:GetVerticalScroll() - delta * 40, 0), scroll:GetVerticalScrollRange())) end
+end
+
 function Groups:RefreshRequests(entry)
     local names = {}
     for name in pairs(entry.applicants or {}) do
@@ -1050,7 +1095,7 @@ function Groups:RefreshRequests(entry)
     end
 
     table.sort(names)
-    local canInvite = self:CanInvite()
+    local canInvite = self:IsOwn(entry) and self:CanInvite()
     for index, name in ipairs(names) do
         local row = self.requestRows[index]
         if not row then
@@ -1082,7 +1127,12 @@ function Groups:RefreshRequests(entry)
         self.requestRows[index]:Hide()
     end
 
-    self.requests.body:SetHeight(max(1, #names * 52))
+    if not self.requests.empty then
+        self.requests.empty = self:Text(self.requests.body, "LID_GROUPNOAPPLICANTS", 8, -5)
+        self.requests.empty:SetPoint("RIGHT", self.requests.body, "RIGHT", -8, 0)
+    end
+    self.requests.empty:SetShown(#names == 0)
+    self.requests.body:SetHeight(max(30, #names * 52))
 end
 
 function Groups:RefreshForm()
@@ -1095,7 +1145,8 @@ function Groups:RefreshForm()
     Members:SetPillText(self.livePill, GuildHelper:Trans("LID_GROUPLIVE") .. " (" .. #self:GetList("L") .. ")")
     Members:SetPillText(self.plannedPill, GuildHelper:Trans("LID_GROUPPLANNED") .. " (" .. #self:GetList("P") .. ")")
     self.hint:SetText(GuildHelper:Trans(planned and "LID_GROUPHINTPLANNED" or "LID_GROUPHINTLIVE"))
-    self.form:SetHeight(planned and 196 or 162)
+    self.form:SetHeight(planned and 230 or 196)
+    self:RefreshAnnouncementOptions(planned)
     local activities = self:GetActivities()
     local activity = self:GetActivity(draft.activity)
     Members:SetPillText(self.activityPill, activity and activity.label or GuildHelper:Trans(activities.count > 0 and "LID_GROUPCHOOSE" or "LID_GROUPNOACTIVITIES"))
@@ -1201,18 +1252,21 @@ function Groups:RefreshDetail()
     self.detailInfo:SetText(entry and ((entry.name or "") .. " · " .. (entry.kind == "P" and self:FormatWhen(entry.when) or GuildHelper:Trans("LID_GROUPLIVE"))) or "")
     self.detailNeeds:SetText(entry and self:Needs(entry) or "")
     self.detailNote:SetText(entry and entry.note or "")
-    self.requests:SetShown(own)
+    self.requests:SetShown(entry ~= nil)
+    self.requests:ClearAllPoints()
+    self.requests:SetPoint("TOPLEFT", self.detail, "TOPLEFT", 6, own and -156 or -236)
+    self.requests:SetPoint("BOTTOMRIGHT", self.detail, "BOTTOMRIGHT", -6, 6)
     self.rolePill:SetShown(foreign)
     self.apply:SetShown(foreign)
     self.whisper:SetShown(foreign)
-    if own then self:RefreshRequests(entry) end
+    if entry then self:RefreshRequests(entry) end
     if not foreign then return end
     local applied = entry.applied
     GuildHelper.Members:SetPillText(self.rolePill, GuildHelper.Specs:Format({
         role = applied or self.role
     }))
 
-    self.rolePill:SetEnabled(not applied)
+    self.rolePill:SetEnabled(true)
     GuildHelper.Theme:SetTrans(self.apply.text, applied and "LID_GROUPWITHDRAW" or "LID_GROUPAPPLY")
     self.apply:SetEnabled(self:IsReady() and (applied ~= nil or (entry[self.role] or 0) > 0))
 end
@@ -1229,22 +1283,30 @@ GuildHelper.Window:OnRebuild(function() Groups.content = nil end)
 GuildHelper.Theme:OnRefresh(function() Groups:Refresh() end)
 Groups.events = CreateFrame("Frame")
 Groups.events:RegisterEvent("PLAYER_LOGIN")
+Groups.events:RegisterEvent("PLAYER_ENTERING_WORLD")
 Groups.events:RegisterEvent("PLAYER_GUILD_UPDATE")
 Groups.events:RegisterEvent("PLAYER_LOGOUT")
 Groups.events:RegisterEvent("GROUP_ROSTER_UPDATE")
+if not C_EventUtils or not C_EventUtils.IsEventValid or C_EventUtils.IsEventValid("ROLE_CHANGED_INFORM") then Groups.events:RegisterEvent("ROLE_CHANGED_INFORM") end
 if C_EventUtils == nil or C_EventUtils.IsEventValid == nil or C_EventUtils.IsEventValid("PLAYER_ROLES_ASSIGNED") then Groups.events:RegisterEvent("PLAYER_ROLES_ASSIGNED") end
 Groups.events:SetScript("OnEvent", function(_, event)
+    if event == "PLAYER_LOGIN" or event == "PLAYER_ENTERING_WORLD" then
+        C_Timer.After(1, function() Groups:InstallChatRoleDisplay() end)
+    end
     if event == "PLAYER_LOGOUT" then
         for _, entry in pairs(Groups.live) do
             Groups:Withdraw(entry)
         end
 
         Groups:Close(Groups:GetOwnLive())
-    elseif event == "GROUP_ROSTER_UPDATE" or event == "PLAYER_ROLES_ASSIGNED" then
+    elseif event == "GROUP_ROSTER_UPDATE" or event == "PLAYER_ROLES_ASSIGNED" or event == "ROLE_CHANGED_INFORM" then
         Groups.dirty = true
     else
         Groups:CheckGuild()
-        if event == "PLAYER_LOGIN" then C_Timer.After(10, function() Groups:Request() end) end
+        if event == "PLAYER_LOGIN" then
+            Groups:RegisterChatRoleIcons()
+            C_Timer.After(10, function() Groups:Request() end)
+        end
         Groups:Refresh()
     end
 end)

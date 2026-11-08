@@ -12,11 +12,101 @@ Dashboard.LISTTOP = 266
 Dashboard.SCROLLTOP = 66
 Dashboard.SCROLLPAD = 4
 Dashboard.MINLOWER = 278
-function Dashboard:GetMOTD()
-    if C_GuildInfo and C_GuildInfo.GetMOTD then return C_GuildInfo.GetMOTD() or "" end
-    if GetGuildRosterMOTD then return GetGuildRosterMOTD() or "" end
+function Dashboard:CheckGuild()
+    local guild = GuildHelper.Sync:GetGuildKey()
+    if guild ~= self.guild then
+        self.guild = guild
+        self.cachedMOTD = nil
+        self.lastRequest = nil
+    end
 
-    return ""
+    return guild ~= nil
+end
+
+function Dashboard:GetMOTD()
+    if not self:CheckGuild() then return "" end
+    local text
+    if C_GuildInfo and C_GuildInfo.GetMOTD then text = C_GuildInfo.GetMOTD() end
+    if not GuildHelper:CanAccessValues(text) then text = nil end
+    if (not text or text == "") and GetGuildRosterMOTD then text = GetGuildRosterMOTD() end
+    if not GuildHelper:CanAccessValues(text) then text = nil end
+    if (not text or text == "") and C_Club and C_Club.GetGuildClubId and C_Club.GetClubInfo then
+        local id = C_Club.GetGuildClubId()
+        local info = id and C_Club.GetClubInfo(id)
+        text = info and info.broadcast
+    end
+
+    if type(text) == "string" and GuildHelper:CanAccessValues(text) and text ~= "" then self.cachedMOTD = text end
+
+    return self.cachedMOTD or ""
+end
+
+function Dashboard:RequestData()
+    if not self:CheckGuild() then return end
+    local now = GetTime()
+    if self.lastRequest and now - self.lastRequest < 5 then return end
+    self.lastRequest = now
+    Members:RequestRoster()
+    if self:HasNews() then
+        if QueryGuildNews then QueryGuildNews() end
+        if GuildNewsSort then GuildNewsSort(0) end
+    end
+end
+
+Dashboard.NEWSFILTERS = {
+    {id = 2, label = "LID_NEWSACHIEVEMENTS"},
+    {id = 4, label = "LID_NEWSLOOTED"},
+    {id = 6, label = "LID_NEWSCRAFTED"},
+    {id = 5, label = "LID_NEWSPURCHASED"},
+    {id = 9, label = "LID_NEWSLEGENDARY"}
+}
+function Dashboard:UpdateNewsFilters()
+    if not self.newsFilters then return end
+    local filters = GetGuildNewsFilters and {GetGuildNewsFilters()} or {}
+    for index, option in ipairs(self.NEWSFILTERS) do
+        self.newsFilters.rows[index]:SetChecked(filters[option.id] ~= false and filters[option.id] ~= 0)
+    end
+end
+
+function Dashboard:ToggleNewsFilters()
+    if self.newsFilters then
+        self.newsFilters:SetShown(not self.newsFilters:IsShown())
+        self:UpdateNewsFilters()
+        return
+    end
+
+    local panel = CreateFrame("Frame", nil, Window.frame)
+    panel:SetFrameStrata("DIALOG")
+    panel:SetClampedToScreen(true)
+    panel:SetSize(300, 44 + #self.NEWSFILTERS * 30)
+    panel:SetPoint("TOPLEFT", self.newsFilterButton, "BOTTOMLEFT", 0, -6)
+    panel.ghNoInside = true
+    Theme:Panel(panel, "card", "border", 8)
+    local title = Theme:Text(panel, 13, "text")
+    title:SetPoint("TOPLEFT", panel, "TOPLEFT", 12, -12)
+    Theme:SetTrans(title, "LID_NEWSFILTERS")
+    local close = Members:CreatePill(panel, "×")
+    close:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -6, -5)
+    close:SetScript("OnClick", function() panel:Hide() end)
+    panel.rows = {}
+    for index, option in ipairs(self.NEWSFILTERS) do
+        local check = GuildHelper.Settings:CreateCheck(panel)
+        check:SetPoint("TOPLEFT", panel, "TOPLEFT", 12, -38 - (index - 1) * 30)
+        local label = Theme:Text(panel, 12, "text")
+        label:SetPoint("LEFT", check, "RIGHT", 8, 0)
+        Theme:SetTrans(label, option.label)
+        check:SetScript("OnClick", function()
+            local filters = GetGuildNewsFilters and {GetGuildNewsFilters()} or {}
+            local enabled = filters[option.id] == false or filters[option.id] == 0
+            if SetGuildNewsFilter then SetGuildNewsFilter(option.id, enabled and 1 or 0) end
+            self:UpdateNewsFilters()
+            if self.news then self:UpdateNews() end
+        end)
+        panel.rows[index] = check
+    end
+
+    self.newsFilters = panel
+    self:UpdateNewsFilters()
 end
 
 function Dashboard:CanEditMOTD()
@@ -54,6 +144,8 @@ function Dashboard:UpdateNews()
         self.news.text:SetText(GuildHelper:Trans("LID_NEWSUNAVAILABLE"))
     else
         local entries = {}
+        local motd = self:GetMOTD()
+        if motd ~= "" then tinsert(entries, GuildHelper:Trans("LID_MOTD") .. ": " .. motd) end
         for index = 1, GetNumGuildNews() do
             local info = C_GuildInfo.GetGuildNewsInfo(index)
             if info then tinsert(entries, self:FormatNews(info)) end
@@ -99,7 +191,7 @@ function Dashboard:CreateList(card)
     scroll:SetScript("OnMouseWheel", function(sel, delta)
         local current = sel:GetVerticalScroll()
         local target = min(max(current - delta * self.LINE * 2, 0), sel:GetVerticalScrollRange())
-        if target == current then return Dashboard:ScrollPage(delta) end
+        if target == current then return (card.scrollPage or function(value) Dashboard:ScrollPage(value) end)(delta) end
         sel:SetVerticalScroll(target)
     end)
     scroll:SetScript("OnSizeChanged", function(sel, width) body:SetWidth(max(1, width or sel:GetWidth())) end)
@@ -313,6 +405,11 @@ function Dashboard:Build(content)
     self.professions:SetPoint("BOTTOMRIGHT", side, "BOTTOMRIGHT", 0, 0)
     self.zones = self:CreateList(self:CreateCard(body, "LID_WHOISWHERE"))
     self.news = self:CreateTextCard(body, "LID_GUILDNEWS")
+    self.newsFilterButton = Members:CreatePill(self.news, GuildHelper:Trans("LID_NEWSFILTERS"))
+    self.newsFilterButton:SetPoint("TOPRIGHT", self.news, "TOPRIGHT", -10, -5)
+    self.newsFilterButton:SetScript("OnClick", function() Dashboard:ToggleNewsFilters() end)
+    self.newsFilterButton:SetEnabled(GetGuildNewsFilters ~= nil and SetGuildNewsFilter ~= nil)
+    self.news.title:SetPoint("RIGHT", self.newsFilterButton, "LEFT", -8, 0)
     self.news:SetPoint("TOPLEFT", body, "TOPLEFT", Window.PADDING, top)
     self.news:SetPoint("BOTTOMLEFT", body, "BOTTOMLEFT", Window.PADDING, self.SCROLLPAD)
     self.zones:SetPoint("TOPLEFT", self.news, "TOPRIGHT", 12, 0)
@@ -328,9 +425,11 @@ function Dashboard:Build(content)
     self.noGuild:SetPoint("CENTER", content, "CENTER", 0, 0)
     Theme:SetTrans(self.noGuild, "LID_NOGUILD")
     content.OnPageShow = function()
-        Members:RequestRoster()
+        Dashboard:RequestData()
         Dashboard:Refresh()
-        if IsInGuild() and Dashboard:HasNews() and QueryGuildNews then QueryGuildNews() end
+    end
+    content.OnPageHide = function()
+        if Dashboard.newsFilters then Dashboard.newsFilters:Hide() end
     end
 end
 
@@ -470,6 +569,7 @@ function Dashboard:Update()
     end
 
     self.noGuild:SetShown(not inGuild)
+    if self.newsFilterButton then Members:SetPillText(self.newsFilterButton, GuildHelper:Trans("LID_NEWSFILTERS")) end
     if not inGuild then
         self.guildName:SetText("")
 
@@ -486,6 +586,8 @@ function Dashboard:Update()
 end
 
 function Dashboard:Reset()
+    if self.newsFilters then self.newsFilters:Hide() end
+    self.newsFilters = nil
     self.content = nil
     self.motd = nil
     self.information = nil
@@ -500,20 +602,36 @@ end
 Window:OnRebuild(function() Dashboard:Reset() end)
 Theme:OnRefresh(function() Dashboard:Update() end)
 Dashboard.events = CreateFrame("Frame")
-for _, event in ipairs({"GUILD_ROSTER_UPDATE", "PLAYER_GUILD_UPDATE", "GUILD_MOTD"}) do
+for _, event in ipairs({"PLAYER_LOGIN", "PLAYER_ENTERING_WORLD", "GUILD_ROSTER_UPDATE", "PLAYER_GUILD_UPDATE", "GUILD_MOTD"}) do
     Dashboard.events:RegisterEvent(event)
 end
 
 if Dashboard:HasNews() then Dashboard.events:RegisterEvent("GUILD_NEWS_UPDATE") end
-Dashboard.events:SetScript("OnEvent", function(_, event)
-    if not Dashboard:IsVisible() then return end
-    if event == "GUILD_NEWS_UPDATE" then
-        Dashboard:UpdateNews()
-    elseif event == "GUILD_MOTD" then
-        Dashboard:Update()
-    else
-        Dashboard:Refresh()
+for _, event in ipairs({"CLUB_ADDED", "CLUB_UPDATED", "INITIAL_CLUBS_LOADED"}) do
+    if not C_EventUtils or not C_EventUtils.IsEventValid or C_EventUtils.IsEventValid(event) then Dashboard.events:RegisterEvent(event) end
+end
+
+Dashboard.events:SetScript("OnEvent", function(_, event, text)
+    if event == "PLAYER_GUILD_UPDATE" and text and text ~= "player" then return end
+    Dashboard:CheckGuild()
+    if event == "GUILD_MOTD" and type(text) == "string" and GuildHelper:CanAccessValues(text) then Dashboard.cachedMOTD = text end
+    if event == "PLAYER_LOGIN" or event == "PLAYER_ENTERING_WORLD" or event == "PLAYER_GUILD_UPDATE" or event == "INITIAL_CLUBS_LOADED" then
+        Dashboard:RequestData()
+        for _, delay in ipairs({5, 15, 30}) do
+            C_Timer.After(delay, function()
+                Dashboard:RequestData()
+                Dashboard:Update()
+            end)
+        end
     end
+
+    if not Dashboard:IsVisible() or Dashboard.updatePending then return end
+    Dashboard.updatePending = true
+    C_Timer.After(0.2, function()
+        Dashboard.updatePending = nil
+        Dashboard:Refresh()
+        Dashboard:UpdateNewsFilters()
+    end)
 end)
 
 Window:SetPageBuilder("dashboard", function(content) Dashboard:Build(content) end)

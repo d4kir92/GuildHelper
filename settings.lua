@@ -503,6 +503,12 @@ function Settings:Build(content)
     self:CreateCharacterPanel(body, panel)
     self:CreateMapPanel(body, panel)
     self:CreateInvitePanel(body, panel)
+    local notifications = Members:CreateButton(body, "LID_NOTIFICATIONPOSITION")
+    notifications:SetPoint("TOPLEFT", panel, "TOPRIGHT", 16, -450)
+    notifications:SetWidth(self.MAPWIDTH)
+    notifications:SetScript("OnClick", function()
+        GuildHelper.Notifications:SetEditing(not GuildHelper.Notifications.editing)
+    end)
     if not self.hooked then
         self.hooked = true
         Theme:OnRefresh(function() Settings:Update() end)

@@ -7,7 +7,7 @@
 ## Interface-Cata: 40402
 ## Interface-Mists: 50504
 
-## Version: 0.1.4
+## Version: 0.1.5
 ## Title: GuildHelper by |cff55d2ffD4KiR |T132115:16:16:0:0|t
 ## Notes:
 ## Notes-deDE:
@@ -62,7 +62,9 @@ specs.lua
 members.lua
 dashboard.lua
 groups.lua
+announcements.lua
 feedback.lua
+notifications.lua
 map.lua
 invite.lua
 settings.lua

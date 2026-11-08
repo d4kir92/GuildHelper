@@ -564,6 +564,7 @@ function Feedback:ReadComment(parts)
         text = text
     }
 
+    if GuildHelper.Notifications then GuildHelper.Notifications:Comment(id, store.comments[id][cid]) end
     self:Changed()
 end
 

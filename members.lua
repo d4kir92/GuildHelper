@@ -40,13 +40,13 @@ Members.COLUMNS = {
         width = 50
     },
     {
-        key = "secondSpec",
-        label = "LID_SECONDSPECSHORT",
+        key = "mainSpec",
+        label = "LID_MAINSPECSHORT",
         width = 72
     },
     {
-        key = "mainSpec",
-        label = "LID_MAINSPECSHORT",
+        key = "secondSpec",
+        label = "LID_SECONDSPECSHORT",
         width = 72
     },
     {
@@ -63,6 +63,11 @@ Members.COLUMNS = {
         key = "officerNote",
         label = "LID_OFFICERNOTE",
         note = true
+    },
+    {
+        key = "twitch",
+        label = "LID_TWITCH",
+        width = 120
     },
     {
         key = "lastOnline",
@@ -256,7 +261,18 @@ function Members:Matches(member)
     return true
 end
 
+function Members:GetTwitchName(member)
+    if self:IsSelf(member) then return GuildHelper.Specs:GetTwitch() end
+    local data = self:GetData(member)
+
+    return data and type(data.twitch) == "string" and data.twitch or ""
+end
+
 function Members:GetSortValue(member, key)
+    if key == "twitch" then
+        local name = self:GetTwitchName(member)
+        return name ~= "" and strlower(name) or "\255"
+    end
     if key == "level" then return member.level end
     if key == "rank" then return member.rankIndex end
     if key == "zone" then return member.zone == "" and "\255" or strlower(member.zone) end
@@ -538,14 +554,39 @@ function Members:GetOrderedColumns()
         end
     end
 
-    return list
+    local ordered, specsAdded = {}, false
+    for _, column in ipairs(list) do
+        if column.key == "mainSpec" or column.key == "secondSpec" then
+            if not specsAdded then
+                tinsert(ordered, byKey.mainSpec)
+                tinsert(ordered, byKey.secondSpec)
+                specsAdded = true
+            end
+        else
+            tinsert(ordered, column)
+        end
+    end
+
+    return ordered
+end
+
+function Members:GetColumnGroups()
+    local groups = {}
+    for _, column in ipairs(self:GetOrderedColumns()) do
+        if column.key ~= "secondSpec" then tinsert(groups, column) end
+    end
+
+    return groups
 end
 
 function Members:IsColumnEnabled(key)
     if key == "name" then return true end
     if key == "ilvl" then return self:ShowItemLevel() end
 
-    return not self:GetColumnConfig().hidden[key]
+    local hidden = self:GetColumnConfig().hidden
+    if key == "mainSpec" or key == "secondSpec" then return not (hidden.mainSpec and hidden.secondSpec) end
+
+    return not hidden[key]
 end
 
 function Members:ToggleColumn(key)
@@ -554,15 +595,22 @@ function Members:ToggleColumn(key)
         GuildHelper:SetConfig("SHOWILVL", not self:ShowItemLevel())
     else
         local config = self:GetColumnConfig()
-        config.hidden[key] = not config.hidden[key] or nil
+        if key == "mainSpec" or key == "secondSpec" then
+            local hidden = self:IsColumnEnabled(key) or nil
+            config.hidden.mainSpec = hidden
+            config.hidden.secondSpec = hidden
+        else
+            config.hidden[key] = not config.hidden[key] or nil
+        end
     end
 
     self:ColumnsChanged()
 end
 
 function Members:MoveColumn(key, direction)
+    if key == "secondSpec" then key = "mainSpec" end
     local order = {}
-    for _, column in ipairs(self:GetOrderedColumns()) do
+    for _, column in ipairs(self:GetColumnGroups()) do
         tinsert(order, column.key)
     end
 
@@ -574,7 +622,13 @@ function Members:MoveColumn(key, direction)
         end
     end
 
-    self:GetColumnConfig().order = order
+    local expanded = {}
+    for _, columnKey in ipairs(order) do
+        tinsert(expanded, columnKey)
+        if columnKey == "mainSpec" then tinsert(expanded, "secondSpec") end
+    end
+
+    self:GetColumnConfig().order = expanded
     self:ColumnsChanged()
 end
 
@@ -624,13 +678,15 @@ end
 function Members:RenderColumnMenu()
     local menu = self.columnMenu
     if not menu or not menu:IsShown() then return end
-    local columns = self:GetOrderedColumns()
+    local columns = self:GetColumnGroups()
     for index, column in ipairs(columns) do
         local row = menu.rows[index] or self:CreateColumnRow(menu, index)
         menu.rows[index] = row
         local locked = column.key == "name"
         row.key = column.key
-        row.text:SetText(GuildHelper:Trans(column.label))
+        local label = GuildHelper:Trans(column.label)
+        if column.key == "mainSpec" then label = label .. " + " .. GuildHelper:Trans("LID_SECONDSPECSHORT") end
+        row.text:SetText(label)
         row.check:SetChecked(self:IsColumnEnabled(column.key))
         row.check:SetEnabled(not locked)
         row.check:SetAlpha(locked and 0.45 or 1)
@@ -898,6 +954,7 @@ function Members:CreateRow(parent, index)
     row.isMain = Theme:Text(row, 12.5, "text")
     row.mainSpec = Theme:Text(row, 12, "navText")
     row.secondSpec = Theme:Text(row, 12, "navText")
+    row.twitch = Theme:Text(row, 12.5, "text")
     row.zone = Theme:Text(row, 12.5, "navText")
     row.rank = Theme:Text(row, 13, "text")
     row.ilvl = Theme:Text(row, 13, "text")
@@ -955,6 +1012,8 @@ function Members:FillRow(row, member)
     Theme:SetKey(row.isMain, member.declaredMain and "accent" or "muted")
     row.mainSpec:SetText(GuildHelper.Specs:FormatIcons(specs[1]) or "–")
     row.secondSpec:SetText(GuildHelper.Specs:FormatIcons(specs[2]) or "–")
+    local twitch = self:GetTwitchName(member)
+    row.twitch:SetText(twitch ~= "" and twitch or "–")
     row.zone:SetText(member.zone)
     row.rank:SetText(member.rank)
     row.ilvl:SetText(self:GetItemLevel(member) or "–")
@@ -1071,6 +1130,8 @@ function Members:LayoutColumns()
     for _, column in ipairs(self:GetOrderedColumns()) do
         local width = column.width or (column.note and noteWidth) or nameWidth
         local shown = self:IsColumnShown(column) and (column.key == "name" or x + width <= limit)
+        if column.key == "mainSpec" then shown = shown and x + width * 2 <= limit end
+        if column.key == "secondSpec" then shown = shown and self.COLUMNSHOWN.mainSpec end
         local header = self.headerByKey[column.key]
         self.COLUMNX[column.key] = x
         self.COLUMNW[column.key] = width
@@ -1103,6 +1164,7 @@ function Members:LayoutRow(row)
     Place(row.isMain, "isMain")
     Place(row.mainSpec, "mainSpec", 0, 8)
     Place(row.secondSpec, "secondSpec", 0, 8)
+    Place(row.twitch, "twitch", 0, 8)
     Place(row.zone, "zone", 0, 8)
     Place(row.rank, "rank", 0, 8)
     Place(row.ilvl, "ilvl")
