@@ -149,6 +149,36 @@ Window.FLAVORS = {
 }
 
 Window.builders = {}
+Window.NAVICONS = {dashboard = "INV_Misc_Map_01", members = "INV_Misc_GroupLooking", professions = "Trade_BlackSmithing", events = "INV_Misc_PocketWatch_01", groups = "INV_Misc_GroupNeedMore", chars = "INV_Misc_Head_Human_01", log = "INV_Misc_Book_09", management = "INV_Misc_Gear_01", feedback = "INV_Misc_Note_01", settings = "Trade_Engineering"}
+
+function Window:ApplyNavigation()
+    local collapsed = GuildHelper:GetConfig("NAVCOLLAPSED", false)
+    self.SIDEBAR = collapsed and 72 or 181
+    self.guildTitle:SetShown(not collapsed)
+    self.statusLine:SetShown(not collapsed)
+    self.sidebarDivider:SetPoint("TOPLEFT", self.frame, "TOPLEFT", self.SIDEBAR, -1)
+    self.sidebarDivider:SetPoint("BOTTOMLEFT", self.frame, "BOTTOMLEFT", self.SIDEBAR, 1)
+    for _, button in ipairs(self.navButtons) do
+        button:SetWidth(self.SIDEBAR - 30)
+        button.text:SetShown(not collapsed)
+    end
+    self.navToggle.icon:SetRotation(collapsed and -math.pi / 2 or math.pi / 2)
+    self.versionText:SetText(format(collapsed and "v%s" or "GuildHelper v%s", GuildHelper:GetVersion() or ""))
+    self.versionText:ClearAllPoints()
+    if collapsed then
+        self.versionText:SetPoint("BOTTOMLEFT", self.frame, "BOTTOMLEFT", 8, 40)
+        self.versionText:SetWidth(self.SIDEBAR - 16)
+        self.versionText:SetJustifyH("CENTER")
+    else
+        self.versionText:SetPoint("LEFT", self.navToggle, "RIGHT", 8, 0)
+        self.versionText:SetWidth(self.SIDEBAR - 70)
+        self.versionText:SetJustifyH("LEFT")
+    end
+    for _, content in pairs(self.pageFrames) do
+        content:SetPoint("TOPLEFT", self.frame, "TOPLEFT", self.SIDEBAR + 1, 0)
+    end
+    if self.noGuild then self.noGuild:SetPoint("TOPLEFT", self.frame, "TOPLEFT", self.SIDEBAR + 1, 0) end
+end
 Window.pageFrames = {}
 Window.navButtons = {}
 function Window:GetFlavorName()
@@ -189,7 +219,7 @@ function Window:UpdateNav()
         local hovered = button:IsMouseOver()
         Theme:SetKey(button.bg, active and "navActive" or "hover")
         button.bg:SetShown(active or hovered)
-        Theme:SetKey(button.dot, active and "accent" or "muted")
+        button.dot:SetAlpha(active and 1 or 0.8)
         Theme:SetKey(button.text, active and "accent" or "navText")
     end
 end
@@ -201,13 +231,22 @@ function Window:CreateNavButton(index, entry)
     button:SetPoint("TOPLEFT", frame, "TOPLEFT", 18, -77 - (index - 1) * 38)
     button.entry = entry
     button.bg = Theme:Round(button, "navActive", 7)
-    button.dot = Theme:Icon(button, "circle", 6, "muted")
+    button.dot = button:CreateTexture(nil, "ARTWORK")
+    button.dot:SetSize(20, 20)
+    button.dot:SetTexture("Interface\\Icons\\" .. self.NAVICONS[entry.key])
     button.dot:SetPoint("LEFT", button, "LEFT", 11, 0)
     button.text = Theme:Text(button, 13.5, "navText")
-    button.text:SetPoint("LEFT", button, "LEFT", 26, 0)
+    button.text:SetPoint("LEFT", button, "LEFT", 38, 0)
     Theme:SetTrans(button.text, entry.label)
-    button:SetScript("OnEnter", function() Window:UpdateNav() end)
-    button:SetScript("OnLeave", function() Window:UpdateNav() end)
+    button:SetScript("OnEnter", function(sel)
+        Window:UpdateNav()
+        if GuildHelper:GetConfig("NAVCOLLAPSED", false) then
+            GameTooltip:SetOwner(sel, "ANCHOR_RIGHT")
+            GameTooltip:SetText(GuildHelper:Trans(entry.label))
+            GameTooltip:Show()
+        end
+    end)
+    button:SetScript("OnLeave", function() GameTooltip:Hide() Window:UpdateNav() end)
     button:SetScript("OnClick", function() Window:SelectPage(entry.key) end)
     tinsert(self.navButtons, button)
 end
@@ -348,6 +387,7 @@ end
 function Window:CreateSidebar()
     local frame = self.frame
     local divider = Theme:Line(frame, "divider")
+    self.sidebarDivider = divider
     divider:SetWidth(1)
     divider:SetPoint("TOPLEFT", frame, "TOPLEFT", self.SIDEBAR, -1)
     divider:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", self.SIDEBAR, 1)
@@ -378,10 +418,20 @@ function Window:CreateSidebar()
     end
 
     local footer = Theme:Text(frame, 10.5, "muted")
-    footer:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 26, 24)
-    footer:SetWidth(self.SIDEBAR - 40)
-    footer:SetWordWrap(true)
-    footer:SetText(format("GuildHelper v%s", GuildHelper:GetVersion() or ""))
+    footer:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 8, 40)
+    footer:SetJustifyH("CENTER")
+    footer:SetWordWrap(false)
+    self.versionText = footer
+    self.navToggle = CreateFrame("Button", nil, frame)
+    self.navToggle:SetSize(30, 26)
+    self.navToggle:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 24, 10)
+    self.navToggle.icon = Theme:Icon(self.navToggle, "arrowup", 20, "navText")
+    self.navToggle.icon:SetPoint("CENTER")
+    self.navToggle:SetScript("OnClick", function()
+        GuildHelper:SetConfig("NAVCOLLAPSED", not GuildHelper:GetConfig("NAVCOLLAPSED", false))
+        Window:ApplyNavigation()
+    end)
+    self:ApplyNavigation()
 end
 
 function Window:CreateCloseButton()
