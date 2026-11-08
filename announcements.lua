@@ -61,7 +61,7 @@ function Groups:TickAnnouncements()
         local entry = self:Find(key)
         if not entry or not self:IsOwn(entry) or (entry.kind == "P" and entry.when <= now) then
             self.announcements[key] = nil
-        elseif not oldest or pending.queued < oldest then
+        elseif (entry.kind ~= "L" or not self.rosterReadyAt or GetTime() >= self.rosterReadyAt) and (not oldest or pending.queued < oldest) then
             selected, oldest = entry, pending.queued
         end
     end

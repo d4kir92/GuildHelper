@@ -658,7 +658,7 @@ function Groups:TickOwnLive(now)
     local own = self:GetOwnLive()
     if not own then return end
 
-    if self.dirty then
+    if self.dirty and (not self.rosterReadyAt or now >= self.rosterReadyAt) then
         local needs = self:GetLiveNeeds((self:GetActivity(own.activity) or {}).size)
         if self:Total(needs) == 0 then
             self:Close(own)
@@ -688,7 +688,7 @@ function Groups:Tick()
     local now, stamp = GetTime(), time()
     self:TickOwnLive(now)
     self:TickAnnouncements()
-    self.dirty = nil
+    if not self.rosterReadyAt or now >= self.rosterReadyAt then self.dirty = nil end
     for key, entry in pairs(self.live) do
         if not self:IsOwn(entry) and (entry.expires or 0) <= now then
             self.live[key] = nil
@@ -1301,6 +1301,7 @@ Groups.events:SetScript("OnEvent", function(_, event)
         Groups:Close(Groups:GetOwnLive())
     elseif event == "GROUP_ROSTER_UPDATE" or event == "PLAYER_ROLES_ASSIGNED" or event == "ROLE_CHANGED_INFORM" then
         Groups.dirty = true
+        Groups.rosterReadyAt = GetTime() + 2
     else
         Groups:CheckGuild()
         if event == "PLAYER_LOGIN" then
