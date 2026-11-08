@@ -127,8 +127,6 @@ function Sync:BuildSpecs()
         tinsert(parts, format("%s;%s;%s", entry.role or "", entry.spec or "", tostring(entry.icon or "")))
     end
 
-    tinsert(parts, GuildHelper.Specs:GetTwitch())
-
     return table.concat(parts, "~")
 end
 
@@ -148,14 +146,19 @@ function Sync:ParseSpecs(shortName, message)
 
     entry.main = parts[2] or ""
     entry.specs = specs
-    entry.twitch = parts[#GuildHelper.Specs.SLOTS + 3] or ""
+    if parts[#GuildHelper.Specs.SLOTS + 3] ~= nil then entry.twitch = parts[#GuildHelper.Specs.SLOTS + 3] end
     self:Notify()
 end
 
 function Sync:SendSpecs()
     local message = self:BuildSpecs()
     self:ParseSpecs(UnitName("player"), message)
+    local entry = self:GetEntry(UnitName("player"))
+    if entry then entry.twitch = GuildHelper.Specs:GetTwitch() end
+    self:Notify()
     self:Send(message, "S")
+    self:Send("T~" .. GuildHelper.Specs:GetTwitch(), "T")
+    self:Send("M~" .. (GuildHelper.Specs:GetMainName() or ""), "M")
 end
 
 function Sync:Parse(shortName, message)
@@ -274,6 +277,18 @@ function Sync:OnMessage(message, channel, sender)
         self:Parse(shortName, message)
     elseif kind == "S" then
         self:ParseSpecs(shortName, message)
+    elseif kind == "T" then
+        local entry = self:GetEntry(shortName)
+        if entry then
+            entry.twitch = strsub(message, 3)
+            self:Notify()
+        end
+    elseif kind == "M" then
+        local entry = self:GetEntry(shortName)
+        if entry then
+            entry.main = strsub(message, 3)
+            self:Notify()
+        end
     elseif kind == "Q" then
         self:ScheduleInfo(max(0, self.ANSWER_THROTTLE - (GetTime() - self.lastSend)) + random(2, 12))
     end
