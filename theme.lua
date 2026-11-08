@@ -311,9 +311,51 @@ function Theme:GetFont()
     return STANDARD_TEXT_FONT
 end
 
+function Theme:NoShadow(obj)
+    if obj and obj.SetShadowOffset then
+        obj:SetShadowOffset(0, 0)
+        obj:SetShadowColor(0, 0, 0, 0)
+    end
+
+    return obj
+end
+
+function Theme:FlatFont(base)
+    local name = base and base.GetName and base:GetName()
+    if not name then return base end
+    self.flatFonts = self.flatFonts or {}
+    if not self.flatFonts[name] then
+        local font = CreateFont("GuildHelperFlat" .. name)
+        font:CopyFontObject(base)
+        self.flatFonts[name] = self:NoShadow(font)
+    end
+
+    return self.flatFonts[name]
+end
+
+function Theme:FlatNative(widget)
+    if widget.GetNormalFontObject then
+        for _, state in ipairs({"Normal", "Highlight", "Disabled"}) do
+            local base = widget["Get" .. state .. "FontObject"](widget)
+            if base then widget["Set" .. state .. "FontObject"](widget, self:FlatFont(base)) end
+        end
+    end
+
+    if widget:GetObjectType() == "EditBox" and widget.GetFontObject then
+        local base = widget:GetFontObject()
+        if base then widget:SetFontObject(self:FlatFont(base)) end
+        self:NoShadow(widget)
+    end
+
+    self:NoShadow(widget.GetFontString and widget:GetFontString() or nil)
+
+    return widget
+end
+
 function Theme:Apply(element)
     local obj = element.obj
     if element.kind == "text" then
+        self:NoShadow(obj)
         if element.size then obj:SetFont(self:GetFont(), element.size, element.flags or "") end
         if element.key then obj:SetTextColor(self:GetColor(element.key)) end
     elseif element.kind == "shape" then

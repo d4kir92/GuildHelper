@@ -6,6 +6,7 @@ GuildHelper.Members = Members
 Members.ROWHEIGHT = 35
 Members.HEADERHEIGHT = 36
 Members.DETAILWIDTH = 220
+Members.COLUMNMENUROW = 28
 Members.TABLETOP = 108
 Members.BOTTOM = 21
 Members.MENUROWS = 16
@@ -15,38 +16,13 @@ Members.NOTEWIDTH = 170
 Members.MINNOTE = 70
 Members.COLUMNS = {
     {
-        key = "name",
-        label = "LID_NAME"
-    },
-    {
         key = "level",
         label = "LID_LVL",
         width = 40
     },
     {
-        key = "isMain",
-        label = "LID_MAINQ",
-        width = 50
-    },
-    {
-        key = "mainSpec",
-        label = "LID_MAINSPECSHORT",
-        width = 72
-    },
-    {
-        key = "secondSpec",
-        label = "LID_SECONDSPECSHORT",
-        width = 72
-    },
-    {
-        key = "zone",
-        label = "LID_ZONE",
-        width = 122
-    },
-    {
-        key = "rank",
-        label = "LID_RANK",
-        width = 92
+        key = "name",
+        label = "LID_NAME"
     },
     {
         key = "ilvl",
@@ -54,9 +30,29 @@ Members.COLUMNS = {
         width = 48
     },
     {
-        key = "lastOnline",
-        label = "LID_LASTSEEN",
-        width = 90
+        key = "zone",
+        label = "LID_ZONE",
+        width = 122
+    },
+    {
+        key = "isMain",
+        label = "LID_MAINQ",
+        width = 50
+    },
+    {
+        key = "secondSpec",
+        label = "LID_SECONDSPECSHORT",
+        width = 72
+    },
+    {
+        key = "mainSpec",
+        label = "LID_MAINSPECSHORT",
+        width = 72
+    },
+    {
+        key = "rank",
+        label = "LID_RANK",
+        width = 92
     },
     {
         key = "note",
@@ -67,6 +63,11 @@ Members.COLUMNS = {
         key = "officerNote",
         label = "LID_OFFICERNOTE",
         note = true
+    },
+    {
+        key = "lastOnline",
+        label = "LID_LASTSEEN",
+        width = 90
     },
 }
 
@@ -331,6 +332,7 @@ function Members:CreateNativeButton(parent, height)
     local button = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
     button:SetHeight(height)
     button:SetText(" ")
+    Theme:FlatNative(button)
     button.text = button:GetFontString()
     button.native = true
 
@@ -503,6 +505,180 @@ function Members:RenderMenu()
     end
 end
 
+function Members:GetColumnConfig()
+    local config = GuildHelper:GetConfig("MEMBERCOLUMNS", {})
+    if type(config.order) ~= "table" then config.order = {} end
+    if type(config.hidden) ~= "table" then config.hidden = {} end
+
+    return config
+end
+
+function Members:GetOrderedColumns()
+    local byKey, list, seen = {}, {}, {}
+    for _, column in ipairs(self.COLUMNS) do
+        byKey[column.key] = column
+    end
+
+    for _, key in ipairs(self:GetColumnConfig().order) do
+        if byKey[key] and not seen[key] then
+            seen[key] = true
+            tinsert(list, byKey[key])
+        end
+    end
+
+    if #list > 0 and not seen.name then
+        seen.name = true
+        tinsert(list, 1, byKey.name)
+    end
+
+    for _, column in ipairs(self.COLUMNS) do
+        if not seen[column.key] then
+            seen[column.key] = true
+            tinsert(list, column)
+        end
+    end
+
+    return list
+end
+
+function Members:IsColumnEnabled(key)
+    if key == "name" then return true end
+    if key == "ilvl" then return self:ShowItemLevel() end
+
+    return not self:GetColumnConfig().hidden[key]
+end
+
+function Members:ToggleColumn(key)
+    if key == "name" then return end
+    if key == "ilvl" then
+        GuildHelper:SetConfig("SHOWILVL", not self:ShowItemLevel())
+    else
+        local config = self:GetColumnConfig()
+        config.hidden[key] = not config.hidden[key] or nil
+    end
+
+    self:ColumnsChanged()
+end
+
+function Members:MoveColumn(key, direction)
+    local order = {}
+    for _, column in ipairs(self:GetOrderedColumns()) do
+        tinsert(order, column.key)
+    end
+
+    for index, other in ipairs(order) do
+        local target = index + direction
+        if other == key and order[target] then
+            order[index], order[target] = order[target], order[index]
+            break
+        end
+    end
+
+    self:GetColumnConfig().order = order
+    self:ColumnsChanged()
+end
+
+function Members:ColumnsChanged()
+    self:RenderColumnMenu()
+    self:Update()
+end
+
+function Members:CreateArrowButton(parent, icon, onClick)
+    local button = CreateFrame("Button", nil, parent)
+    button:SetSize(22, 22)
+    button.icon = Theme:Icon(button, icon, 12, "muted")
+    button.icon:SetPoint("CENTER", button, "CENTER", 0, 0)
+    button:SetScript("OnEnter", function(sel) if sel:IsEnabled() then Theme:SetKey(sel.icon, "text") end end)
+    button:SetScript("OnLeave", function(sel) Theme:SetKey(sel.icon, "muted") end)
+    button:SetScript("OnClick", onClick)
+
+    return button
+end
+
+function Members:CreateColumnRow(menu, index)
+    local row = CreateFrame("Button", nil, menu)
+    row:SetHeight(self.COLUMNMENUROW)
+    row:SetPoint("TOPLEFT", menu, "TOPLEFT", 5, -5 - (index - 1) * self.COLUMNMENUROW)
+    row:SetPoint("TOPRIGHT", menu, "TOPRIGHT", -5, -5 - (index - 1) * self.COLUMNMENUROW)
+    row.bg = Theme:Round(row, "hover", 5)
+    row.bg:SetShown(false)
+    row.check = GuildHelper.Settings:CreateCheck(row)
+    row.check:SetPoint("LEFT", row, "LEFT", 6, 0)
+    row.down = self:CreateArrowButton(row, "arrowdown", function() Members:MoveColumn(row.key, 1) end)
+    row.down:SetPoint("RIGHT", row, "RIGHT", -2, 0)
+    row.up = self:CreateArrowButton(row, "arrowup", function() Members:MoveColumn(row.key, -1) end)
+    row.up:SetPoint("RIGHT", row.down, "LEFT", -2, 0)
+    row.text = Theme:Text(row, 12.5, "text")
+    row.text:SetPoint("LEFT", row, "LEFT", 36, 0)
+    row.text:SetPoint("RIGHT", row.up, "LEFT", -6, 0)
+    for _, frame in ipairs({row, row.check}) do
+        frame:SetScript("OnClick", function() Members:ToggleColumn(row.key) end)
+    end
+
+    row:SetScript("OnEnter", function(sel) sel.bg:SetShown(sel.key ~= "name") end)
+    row:SetScript("OnLeave", function(sel) sel.bg:SetShown(false) end)
+
+    return row
+end
+
+function Members:RenderColumnMenu()
+    local menu = self.columnMenu
+    if not menu or not menu:IsShown() then return end
+    local columns = self:GetOrderedColumns()
+    for index, column in ipairs(columns) do
+        local row = menu.rows[index] or self:CreateColumnRow(menu, index)
+        menu.rows[index] = row
+        local locked = column.key == "name"
+        row.key = column.key
+        row.text:SetText(GuildHelper:Trans(column.label))
+        row.check:SetChecked(self:IsColumnEnabled(column.key))
+        row.check:SetEnabled(not locked)
+        row.check:SetAlpha(locked and 0.45 or 1)
+        row.up:SetEnabled(index > 1)
+        row.down:SetEnabled(index < #columns)
+        row.up:SetAlpha(index > 1 and 1 or 0.3)
+        row.down:SetAlpha(index < #columns and 1 or 0.3)
+        row:Show()
+    end
+
+    for index = #columns + 1, #menu.rows do
+        menu.rows[index]:Hide()
+    end
+
+    menu:SetHeight(#columns * self.COLUMNMENUROW + 10)
+end
+
+function Members:ToggleColumnMenu(anchor)
+    if self.menu then self.menu:Hide() end
+    local menu = self.columnMenu
+    if not menu then
+        menu = CreateFrame("Frame", nil, Window.frame)
+        menu:SetFrameStrata("DIALOG")
+        menu:SetClampedToScreen(true)
+        menu:EnableMouse(true)
+        menu:SetWidth(230)
+        menu:Hide()
+        menu.ghNoInside = true
+        menu.rows = {}
+        Theme:Panel(menu, "card", "border", 7)
+        self.columnMenu = menu
+    end
+
+    if menu:IsShown() then
+        menu:Hide()
+        self:SetPillActive(anchor, false)
+
+        return
+    end
+
+    menu:ClearAllPoints()
+    menu:SetPoint("TOPRIGHT", anchor, "BOTTOMRIGHT", 0, -4)
+    menu:SetScript("OnHide", function() if Members.columnsPill then Members:SetPillActive(Members.columnsPill, false) end end)
+    menu:Show()
+    self:SetPillActive(anchor, true)
+    self:RenderColumnMenu()
+end
+
 function Members:GetClassOptions()
     local options = {
         {
@@ -573,7 +749,7 @@ function Members:CreateHeaderArea(content)
     local box, search
     local inset = 32
     if Theme:IsNative() then
-        search = CreateFrame("EditBox", nil, content, "InputBoxTemplate")
+        search = Theme:FlatNative(CreateFrame("EditBox", nil, content, "InputBoxTemplate"))
         search:SetSize(190, 24)
         search:SetPoint("TOPRIGHT", content, "TOPRIGHT", -Window.MARGIN - 42, -27)
         box = search
@@ -652,6 +828,10 @@ function Members:CreateFilters(content)
         Members.offset = 0
         Members:ApplyFilter()
     end)
+
+    self.columnsPill = self:CreatePill(content)
+    self.columnsPill:SetPoint("RIGHT", content, "TOPRIGHT", -Window.MARGIN - self.DETAILWIDTH - 12, -82)
+    self.columnsPill:SetScript("OnClick", function(sel) Members:ToggleColumnMenu(sel) end)
 end
 
 function Members:UpdateFilters()
@@ -663,6 +843,8 @@ function Members:UpdateFilters()
     self:SetPillActive(self.rankPill, self.filter.rank ~= nil)
     self:SetPillActive(self.onlinePill, self.filter.onlineOnly)
     self:SetPillActive(self.altsPill, self.filter.hideAlts)
+    self:SetPillText(self.columnsPill, GuildHelper:Trans("LID_COLUMNS"))
+    self:SetPillActive(self.columnsPill, self.columnMenu ~= nil and self.columnMenu:IsShown())
     for _, header in ipairs(self.headers) do
         local active = header.column.key == self.sortKey
         Theme:SetKey(header.text, active and "accent" or "muted")
@@ -860,7 +1042,13 @@ function Members:CreateTable(content)
     self:LayoutRows()
 end
 
+function Members:ShowItemLevel()
+    return GuildHelper:GetConfig("SHOWILVL", false) == true
+end
+
 function Members:IsColumnShown(column)
+    if not self:IsColumnEnabled(column.key) then return false end
+
     return column.key ~= "officerNote" or self:CanViewOfficerNote()
 end
 
@@ -870,7 +1058,7 @@ function Members:LayoutColumns()
     for _, column in ipairs(self.COLUMNS) do
         if column.note and self:IsColumnShown(column) then
             notes = notes + 1
-        elseif column.width then
+        elseif column.width and self:IsColumnShown(column) then
             fixed = fixed + column.width
         end
     end
@@ -880,9 +1068,9 @@ function Members:LayoutColumns()
     local nameWidth = max(self.MINNAME, free - noteWidth * notes)
     local x = self.NAMEX
     local limit = panel:GetWidth() - 6
-    for _, column in ipairs(self.COLUMNS) do
+    for _, column in ipairs(self:GetOrderedColumns()) do
         local width = column.width or (column.note and noteWidth) or nameWidth
-        local shown = self:IsColumnShown(column) and x + width <= limit
+        local shown = self:IsColumnShown(column) and (column.key == "name" or x + width <= limit)
         local header = self.headerByKey[column.key]
         self.COLUMNX[column.key] = x
         self.COLUMNW[column.key] = width
@@ -909,6 +1097,8 @@ function Members:LayoutRow(row)
         region:SetAlpha(shown[key] and 1 or 0)
     end
 
+    Place(row.dot, "name")
+    Place(row.name, "name", 15)
     Place(row.level, "level")
     Place(row.isMain, "isMain")
     Place(row.mainSpec, "mainSpec", 0, 8)
@@ -1311,7 +1501,16 @@ function Members:UpdateDetail()
     detail.name:SetText(member.short)
     detail.name:SetTextColor(r, g, b)
     detail.sub:SetText(GuildHelper:Trans("LID_CLASSLEVEL", nil, member.className, member.level))
+    local showIlvl = self:ShowItemLevel()
+    detail.ilvl:SetShown(showIlvl)
     detail.ilvl.value:SetText(self:GetItemLevel(member) or "–")
+    detail.rank:ClearAllPoints()
+    if showIlvl then
+        detail.rank:SetPoint("TOPLEFT", detail.ilvl, "TOPRIGHT", 8, 0)
+    else
+        detail.rank:SetPoint("TOPLEFT", detail.ilvl, "TOPLEFT", 0, 0)
+    end
+
     detail.rank.value:SetText(member.rank)
     local data = self:GetData(member)
     local professions = data and data.professions or {}
@@ -1388,6 +1587,7 @@ function Members:Update()
     self.panel:SetShown(inGuild)
     self.detail:SetShown(inGuild)
     self.filters:SetShown(inGuild)
+    self.columnsPill:SetShown(inGuild)
     self.searchBox:SetShown(inGuild)
     self.noGuild:SetShown(not inGuild)
     if not inGuild then
@@ -1434,6 +1634,7 @@ function Members:Build(content)
 
     content.OnPageHide = function()
         if Members.menu then Members.menu:Hide() end
+        if Members.columnMenu then Members.columnMenu:Hide() end
     end
 end
 
@@ -1445,6 +1646,8 @@ function Members:Reset()
     self.headerByKey = nil
     self.thumb = nil
     self.menu = nil
+    self.columnMenu = nil
+    self.columnsPill = nil
     self.searchBox = nil
     self.filters = nil
     self.rows = {}

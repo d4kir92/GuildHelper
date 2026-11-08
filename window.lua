@@ -221,7 +221,11 @@ function Window:SelectPage(key)
     entry = entry or self.NAV[1]
     self.current = entry.key
     GuildHelper:SetConfig("PAGE", entry.key)
+    local members = GuildHelper.Members
+    if members and members.menu then members.menu:Hide() end
+    if members and members.columnMenu then members.columnMenu:Hide() end
     for pageKey, content in pairs(self.pageFrames) do
+        if pageKey ~= entry.key and content:IsShown() and content.OnPageHide then content:OnPageHide() end
         content:SetShown(pageKey == entry.key)
     end
 

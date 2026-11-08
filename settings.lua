@@ -165,7 +165,7 @@ end
 function Settings:CreateTwitchRow(parent, y)
     local box
     if Theme:IsNative() then
-        box = CreateFrame("EditBox", nil, parent, "InputBoxTemplate")
+        box = Theme:FlatNative(CreateFrame("EditBox", nil, parent, "InputBoxTemplate"))
         box:SetSize(206, 24)
         box:SetPoint("TOPRIGHT", parent, "TOPRIGHT", -18, y - 2)
     else
@@ -245,8 +245,18 @@ Settings.INVITEOPTIONS = {
     }
 }
 
+Settings.DISPLAYOPTIONS = {
+    {
+        key = "SHOWILVL",
+        default = false,
+        label = "LID_SHOWILVL",
+        desc = "LID_SHOWILVLDESC",
+        display = true
+    }
+}
+
 function Settings:GetMapOption(key)
-    for _, list in ipairs({self.MAPOPTIONS, self.INVITEOPTIONS}) do
+    for _, list in ipairs({self.MAPOPTIONS, self.INVITEOPTIONS, self.DISPLAYOPTIONS}) do
         for _, option in ipairs(list) do
             if option.key == key then return GuildHelper:GetConfig(key, option.default) == true end
         end
@@ -262,7 +272,7 @@ end
 function Settings:ToggleMapOption(option)
     if self:IsMapOptionEnabled(option) then
         GuildHelper:SetConfig(option.key, not self:GetMapOption(option.key))
-        if GuildHelper.GuildMap and not option.invite then GuildHelper.GuildMap.Refresh() end
+        if GuildHelper.GuildMap and not option.invite and not option.display then GuildHelper.GuildMap.Refresh() end
     end
 
     self:Update()
@@ -362,7 +372,7 @@ function Settings:CreateInvitePanel(content, anchor)
 end
 
 function Settings:UpdateMap()
-    for _, rows in ipairs({self.mapRows or {}, self.inviteRows or {}}) do
+    for _, rows in ipairs({self.mapRows or {}, self.inviteRows or {}, self.displayRows or {}}) do
         for _, entry in ipairs(rows) do
             entry.check:SetChecked(self:GetMapOption(entry.option.key))
             entry.row:SetAlpha(self:IsMapOptionEnabled(entry.option) and 1 or 0.45)
@@ -387,7 +397,7 @@ function Settings:Build(content)
     Window:CreatePageTitle(content, "LID_SETTINGS")
     local panel = CreateFrame("Frame", nil, content)
     panel:SetPoint("TOPLEFT", content, "TOPLEFT", Window.PADDING, -80)
-    panel:SetSize(self.WIDTH, 132)
+    panel:SetSize(self.WIDTH, 170)
     Theme:Panel(panel, "panel", "border", 9)
     self.langPill = self:CreateRow(panel, -20, "LID_LANGUAGE", "LID_LANGUAGEDESC")
     self.langPill:SetScript("OnClick", function(sel)
@@ -402,6 +412,20 @@ function Settings:Build(content)
     self.designPill:SetScript("OnClick", function(sel)
         Members:OpenMenu(sel, Settings:GetDesignOptions(), GuildHelper:GetDesign(), function(value) GuildHelper:SetDesign(value) end)
     end)
+
+    local displayLine = Theme:Line(panel, "divider")
+    displayLine:SetHeight(1)
+    displayLine:SetPoint("TOPLEFT", panel, "TOPLEFT", 1, -132)
+    displayLine:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -1, -132)
+    self.displayRows = {}
+    for index, option in ipairs(self.DISPLAYOPTIONS) do
+        local entry = self:CreateMapRow(panel, index, option)
+        entry.row:ClearAllPoints()
+        entry.row:SetPoint("TOPLEFT", panel, "TOPLEFT", 10, -132 - (index - 1) * 36)
+        entry.row:SetPoint("RIGHT", panel, "RIGHT", -10, 0)
+        entry.row:SetHeight(36)
+        self.displayRows[index] = entry
+    end
 
     self:CreateCharacterPanel(content, panel)
     self:CreateMapPanel(content, panel)
