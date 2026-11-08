@@ -123,11 +123,22 @@ function Groups:CountPlanned(owner)
     return count
 end
 
-function Groups:AddActivity(list, key, name, size)
+function Groups:LevelRange(low, high)
+    low = type(low) == "number" and low > 0 and low or nil
+    high = type(high) == "number" and high > 0 and high or nil
+    if low and high and high > low then return low, format("%d-%d", low, high) end
+    if low or high then return low or high, tostring(low or high) end
+
+    return nil, nil
+end
+
+function Groups:AddActivity(list, key, name, size, low, high)
     if type(name) ~= "string" or name == "" or list.map[key] then return end
+    local level, range = self:LevelRange(low, high)
     local option = {
         value = key,
-        label = name,
+        label = range and format("%s (%s)", name, range) or name,
+        level = level,
         size = (type(size) == "number" and size > 0) and size or 5
     }
 
@@ -161,7 +172,10 @@ function Groups:CollectFinder(list)
 
         for _, id in ipairs(ids) do
             local info = C_LFGList.GetActivityInfoTable(id)
-            if info then self:AddActivity(list, "a" .. id, info.fullName, info.maxNumPlayers) end
+            if info then
+                local low = (info.minLevelSuggestion or 0) > 0 and info.minLevelSuggestion or info.minLevel
+                self:AddActivity(list, "a" .. id, info.fullName, info.maxNumPlayers, low, info.maxLevelSuggestion)
+            end
         end
     end
 end
@@ -169,7 +183,7 @@ end
 function Groups:CollectDungeons(list)
     if not GetLFGDungeonInfo then return end
     for id = 1, 3000 do
-        local name, typeID, subtypeID, _, _, _, _, _, _, _, _, difficulty, maxPlayers = GetLFGDungeonInfo(id)
+        local name, typeID, subtypeID, minLevel, maxLevel, _, minRecLevel, maxRecLevel, _, _, _, difficulty, maxPlayers = GetLFGDungeonInfo(id)
         if name and typeID == 1 and (subtypeID == 1 or subtypeID == 2) then
             local label = name
             if subtypeID == 2 and difficulty and GetDifficultyInfo then
@@ -177,7 +191,8 @@ function Groups:CollectDungeons(list)
                 if difficultyName and difficultyName ~= "" then label = name .. " (" .. difficultyName .. ")" end
             end
 
-            self:AddActivity(list, "d" .. id, label, maxPlayers)
+            local hasRec = (minRecLevel or 0) > 0
+            self:AddActivity(list, "d" .. id, label, maxPlayers, hasRec and minRecLevel or minLevel, hasRec and maxRecLevel or maxLevel)
         end
     end
 end
@@ -221,7 +236,12 @@ function Groups:SortActivities(list)
             tinsert(segment, list[index])
         end
 
-        table.sort(segment, function(a, b) return strlower(a.label) < strlower(b.label) end)
+        table.sort(segment, function(a, b)
+            local la, lb = a.level or math.huge, b.level or math.huge
+            if la ~= lb then return la < lb end
+
+            return strlower(a.label) < strlower(b.label)
+        end)
         for index, option in ipairs(segment) do
             list[first + index - 1] = option
         end
@@ -360,11 +380,11 @@ function Groups:FormatWhen(when)
     return self:DayLabel(when, self:GetDayOffset(when)) .. " " .. date("%H:%M", when)
 end
 
-function Groups:Send(message)
+function Groups:Send(message, key)
     if self.guild and #message <= 253 then
         self.lastSent = "F~" .. message
         self.lastSentTime = GetTime()
-        GuildHelper.Sync:Send(self.lastSent)
+        GuildHelper.Sync:Send(self.lastSent, key and ("F~" .. key))
     end
 end
 
@@ -396,7 +416,7 @@ function Groups:Broadcast(entry)
     if entry.kind == "L" then entry.expires = GetTime() + self.TTL end
     local text = table.concat({"L", entry.id, entry.kind, tostring(entry.when or 0), entry.activity, entry.TANK, entry.HEALER, entry.DAMAGER, entry.activityName}, "~")
     self.sent[entry.key] = GetTime()
-    self:Send(text .. "~" .. self:CleanText(entry.note, 252 - #text))
+    self:Send(text .. "~" .. self:CleanText(entry.note, 252 - #text), "G" .. entry.id)
 end
 
 function Groups:BroadcastOwn()
@@ -472,7 +492,7 @@ end
 
 function Groups:Close(entry)
     if not entry then return end
-    self:Send("D~" .. entry.id)
+    self:Send("D~" .. entry.id, "G" .. entry.id)
     local store = self:GetStore(entry.kind)
     if store then store[entry.key] = nil end
     if self.editing == entry.key then self.editing = nil end
@@ -500,12 +520,12 @@ end
 
 function Groups:SendApplication(entry)
     self.applySent[entry.key] = GetTime()
-    self:Send(table.concat({"A", entry.owner, entry.id, entry.applied}, "~"))
+    self:Send(table.concat({"A", entry.owner, entry.id, entry.applied}, "~"), "A" .. entry.key)
 end
 
 function Groups:Withdraw(entry)
     if not entry or not entry.applied then return end
-    self:Send("W~" .. entry.owner .. "~" .. entry.id)
+    self:Send("W~" .. entry.owner .. "~" .. entry.id, "A" .. entry.key)
     entry.applied = nil
 end
 

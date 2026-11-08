@@ -186,6 +186,15 @@ function Specs:Format(entry, short, separator)
     return table.concat(parts, separator or (short and "" or "  "))
 end
 
+function Specs:FormatIcons(entry)
+    if entry == nil then return nil end
+    local role = self:GetRole(entry.role)
+    local text = (role and self:GetIconString(self.ROLEICONS, role.coords) or "") .. (entry.spec and entry.spec ~= "" and self:GetIconString(entry.icon or "Interface\\Icons\\INV_Misc_QuestionMark") or "")
+    if text == "" then return nil end
+
+    return text
+end
+
 function Specs:GetOwn()
     local specs = GuildHelper:GetConfig("SPECS", {})
     for slot = 1, #self.SLOTS do

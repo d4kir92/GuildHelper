@@ -31,12 +31,12 @@ Members.COLUMNS = {
     {
         key = "mainSpec",
         label = "LID_MAINSPECSHORT",
-        width = 120
+        width = 72
     },
     {
         key = "secondSpec",
         label = "LID_SECONDSPECSHORT",
-        width = 120
+        width = 72
     },
     {
         key = "zone",
@@ -763,15 +763,7 @@ function Members:FillRow(row, member)
     row.dot:SetVertexColor(r, g, b)
     row.name:SetText(member.short)
     row.name:SetTextColor(r, g, b)
-    if member.alts then
-        row.tag:SetText(GuildHelper:Trans("LID_MAINTAG", nil, #member.alts))
-    elseif member.main then
-        row.tag:SetText(GuildHelper:Trans("LID_ALTTAG"))
-    elseif member.declaredMain then
-        row.tag:SetText(GuildHelper:Trans("LID_MAIN"))
-    else
-        row.tag:SetText("")
-    end
+    row.tag:SetText(member.main and not member.alts and GuildHelper:Trans("LID_ALTTAG") or "")
 
     self:FitName(row)
     row.level:SetText(member.level)
@@ -779,8 +771,8 @@ function Members:FillRow(row, member)
     local specs = data and data.specs or {}
     row.isMain:SetText(self:GetMainLabel(member))
     Theme:SetKey(row.isMain, member.declaredMain and "accent" or "muted")
-    row.mainSpec:SetText(GuildHelper.Specs:Format(specs[1], true) or "–")
-    row.secondSpec:SetText(GuildHelper.Specs:Format(specs[2], true) or "–")
+    row.mainSpec:SetText(GuildHelper.Specs:FormatIcons(specs[1]) or "–")
+    row.secondSpec:SetText(GuildHelper.Specs:FormatIcons(specs[2]) or "–")
     row.zone:SetText(member.zone)
     row.rank:SetText(member.rank)
     row.ilvl:SetText(self:GetItemLevel(member) or "–")

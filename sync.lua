@@ -6,6 +6,12 @@ Sync.SEND_THROTTLE = 15
 Sync.ANSWER_THROTTLE = 120
 Sync.lastSend = 0
 Sync.listeners = {}
+Sync.BURST = 8
+Sync.MAXTRIES = 20
+Sync.tokens = Sync.BURST
+Sync.queue = {}
+Sync.pump = CreateFrame("Frame")
+Sync.pump:SetScript("OnUpdate", function(_, elapsed) Sync:Pump(elapsed) end)
 function Sync:GetGuildKey()
     if not IsInGuild() then return nil end
     local guild = GetGuildInfo("player")
@@ -149,7 +155,7 @@ end
 function Sync:SendSpecs()
     local message = self:BuildSpecs()
     self:ParseSpecs(UnitName("player"), message)
-    self:Send(message)
+    self:Send(message, "S")
 end
 
 function Sync:Parse(shortName, message)
@@ -165,12 +171,66 @@ function Sync:Parse(shortName, message)
     self:Store(shortName, tonumber(parts[2]), professions)
 end
 
-function Sync:Send(message)
-    if not IsInGuild() then return end
+function Sync:Send(message, key)
+    if not IsInGuild() or type(message) ~= "string" or #message > 255 then return end
+    for _, item in ipairs(self.queue) do
+        if (key and item.key == key) or item.message == message then
+            item.message = message
+            item.tries = 0
+
+            return
+        end
+    end
+
+    tinsert(self.queue, {
+        message = message,
+        key = key,
+        tries = 0
+    })
+
+    self:Pump(0)
+end
+
+function Sync:IsThrottled(result)
+    if result == false then return true end
+    local codes = Enum and Enum.SendAddonMessageResult
+    if not codes or result == nil then return false end
+
+    return result == codes.AddonMessageThrottle or result == codes.ChannelThrottle
+end
+
+function Sync:Transmit(message)
+    local ok, result = false, nil
     if C_ChatInfo and C_ChatInfo.SendAddonMessage then
-        pcall(C_ChatInfo.SendAddonMessage, self.PREFIX, message, "GUILD")
+        ok, result = pcall(C_ChatInfo.SendAddonMessage, self.PREFIX, message, "GUILD")
     elseif SendAddonMessage then
-        pcall(SendAddonMessage, self.PREFIX, message, "GUILD")
+        ok, result = pcall(SendAddonMessage, self.PREFIX, message, "GUILD")
+    end
+
+    return not ok or not self:IsThrottled(result)
+end
+
+function Sync:Pump(elapsed)
+    self.tokens = min(self.BURST, self.tokens + elapsed)
+    if #self.queue == 0 then return end
+    if not IsInGuild() then
+        self.queue = {}
+
+        return
+    end
+
+    while self.tokens >= 1 and #self.queue > 0 do
+        local item = self.queue[1]
+        if not self:Transmit(item.message) then
+            item.tries = item.tries + 1
+            if item.tries >= self.MAXTRIES then tremove(self.queue, 1) end
+            self.tokens = 0
+
+            return
+        end
+
+        tremove(self.queue, 1)
+        self.tokens = self.tokens - 1
     end
 end
 
@@ -186,7 +246,7 @@ function Sync:SendInfo(force)
     self.lastSend = now
     local message = self:BuildInfo()
     self:Parse(UnitName("player"), message)
-    self:Send(message)
+    self:Send(message, "I")
     self:SendSpecs()
 end
 
