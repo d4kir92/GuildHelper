@@ -488,6 +488,30 @@ function Theme:Line(parent, key, layer)
     return self:Fill(texture, key)
 end
 
+function Theme:BindScrollDrag(thumb, getScroll, setScroll)
+    local function stop(frame)
+        frame:SetScript("OnUpdate", nil)
+    end
+
+    thumb:SetHitRectInsets(-4, -4, 0, 0)
+    thumb:SetScript("OnMouseDown", function(frame, button)
+        if button ~= "LeftButton" then return end
+        local scale = frame:GetEffectiveScale()
+        local startY = select(2, GetCursorPosition()) / scale
+        local startOffset, range, travel = getScroll()
+        if range <= 0 or travel <= 0 then return end
+        frame:SetScript("OnUpdate", function()
+            if not IsMouseButtonDown("LeftButton") then return stop(frame) end
+            local y = select(2, GetCursorPosition()) / scale
+            setScroll(min(range, max(0, startOffset + (startY - y) / travel * range)))
+        end)
+    end)
+    thumb:SetScript("OnMouseUp", function(frame, button)
+        if button == "LeftButton" then stop(frame) end
+    end)
+    thumb:SetScript("OnHide", stop)
+end
+
 function Theme:OnRefresh(callback)
     tinsert(self.callbacks, callback)
 end

@@ -464,6 +464,17 @@ function Members:OpenMenu(anchor, options, current, onSelect)
         menu.measure:Hide()
         menu.thumb = menu:CreateTexture(nil, "OVERLAY")
         menu.thumb:SetWidth(3)
+        menu.thumbDrag = CreateFrame("Button", nil, menu)
+        menu.thumbDrag:SetAllPoints(menu.thumb)
+        menu.thumbDrag:SetFrameLevel(menu:GetFrameLevel() + 5)
+        Theme:BindScrollDrag(menu.thumbDrag, function()
+            return menu.offset, #menu.options - menu.visible, menu.visible * 24 - menu.thumb:GetHeight()
+        end, function(offset)
+            offset = floor(offset + 0.5)
+            if offset == menu.offset then return end
+            menu.offset = offset
+            self:RenderMenu()
+        end)
         menu:EnableMouseWheel(true)
         menu:SetScript("OnMouseWheel", function(sel, delta)
             local offset = max(0, min(sel.offset - delta * 3, #sel.options - sel.visible))
@@ -535,6 +546,7 @@ function Members:RenderMenu()
 
     local total = #menu.options
     menu.thumb:SetShown(total > menu.visible)
+    menu.thumbDrag:SetShown(total > menu.visible)
     if total > menu.visible then
         local track = menu.visible * 24
         local size = max(16, track * menu.visible / total)
@@ -1394,10 +1406,16 @@ function Members:CreateDetail(content)
 
     detail.scroll = scroll
     detail.body = body
-    detail.thumb = CreateFrame("Frame", nil, detail)
+    detail.thumb = CreateFrame("Button", nil, detail)
     detail.thumb:SetWidth(4)
     detail.thumb:SetFrameLevel(scroll:GetFrameLevel() + 5)
     Theme:Round(detail.thumb, "thumb", 2)
+    Theme:BindScrollDrag(detail.thumb, function()
+        return scroll:GetVerticalScroll(), scroll:GetVerticalScrollRange(), scroll:GetHeight() - 12 - detail.thumb:GetHeight()
+    end, function(offset)
+        scroll:SetVerticalScroll(offset)
+        self:UpdateDetailThumb()
+    end)
     detail.thumb:Hide()
     local avatar = self:CreateAvatar(body, 40, 17)
     avatar:SetPoint("TOPLEFT", body, "TOPLEFT", 16, -16)
