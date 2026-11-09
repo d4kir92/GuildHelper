@@ -461,7 +461,11 @@ end
 function Feedback:Commit(entry)
     local store = self:GetStore()
     if not store or not self:Accepts(entry) then return end
+    local isNew = store.entries[entry.id] == nil
     store.entries[entry.id] = entry
+    if isNew and GuildHelper.Notifications then
+        GuildHelper.Notifications:NewEntry(entry.id, entry.owner, entry.created, entry.kind == "B" and "NEWBUG" or "NEWIDEA")
+    end
     self:Changed()
 end
 
@@ -505,6 +509,7 @@ function Feedback:ReadDelete(id, stamp, owner)
 
     store.votes[id] = nil
     store.comments[id] = nil
+    self:SetSubscribed(id, nil)
     self.pending[id] = nil
     self:Changed()
 end
@@ -671,6 +676,7 @@ function Feedback:Submit()
     }
 
     self:GetStore().entries[entry.id] = entry
+    self:SetSubscribed(entry.id, true)
     self:SendEntry(entry.id)
     self.draft.title = ""
     self.draft.text = ""
@@ -696,6 +702,7 @@ function Feedback:Delete(id)
 
     store.votes[id] = nil
     store.comments[id] = nil
+    self:SetSubscribed(id, nil)
     self:SendEntry(id)
     self.selected = nil
     self:Changed()
@@ -716,6 +723,7 @@ function Feedback:AddComment(id, value)
     }
 
     store.comments[id][comment.id] = comment
+    self:SetSubscribed(id, true)
     self:SendComment(id, comment.id)
     self.scrollComments = true
     self:Changed()
@@ -739,6 +747,28 @@ function Feedback:DeleteComment(id, cid)
 
     self:SendComment(id, cid)
     self:Changed()
+end
+
+function Feedback:GetSubscriptions()
+    local subscriptions = GuildHelper:GetConfig("FEEDBACKSUBSCRIPTIONS", {})
+    subscriptions[self.guild] = subscriptions[self.guild] or {}
+
+    return subscriptions[self.guild]
+end
+
+function Feedback:SetSubscribed(id, subscribed)
+    self:GetSubscriptions()[id] = subscribed
+end
+
+function Feedback:IsSubscribed(entry)
+    local subscribed = self:GetSubscriptions()[entry.id]
+    if subscribed ~= nil then return subscribed end
+    if self:IsOwn(entry) then return true end
+    for _, comment in pairs(self:GetStore().comments[entry.id] or {}) do
+        if self:IsOwnComment(comment) then return true end
+    end
+
+    return false
 end
 
 function Feedback:GetComments(id)
@@ -1023,7 +1053,7 @@ function Feedback:BuildDetail(side)
     self:AddThumb(self.body.scroll)
     self.comments = Dashboard:CreateList(Dashboard:CreateCard(detail, "LID_FBCOMMENTS"))
     self.comments:SetPoint("TOPLEFT", self.body, "BOTTOMLEFT", 0, -8)
-    self.comments:SetPoint("BOTTOMRIGHT", detail, "BOTTOMRIGHT", -8, 98)
+    self.comments:SetPoint("BOTTOMRIGHT", detail, "BOTTOMRIGHT", -8, 134)
     self.comments.rows = {}
     self:AddThumb(self.comments.scroll)
     self.comments.body:SetScript("OnSizeChanged", function(body, width)
@@ -1035,7 +1065,7 @@ function Feedback:BuildDetail(side)
 
     self.noComments = self:Text(self.comments, "LID_FBNOCOMMENTS", 16, -36)
     self.send = Members:CreateButton(detail, "LID_FBSEND")
-    self.send:SetPoint("BOTTOMRIGHT", detail, "BOTTOMRIGHT", -16, 58)
+    self.send:SetPoint("BOTTOMRIGHT", detail, "BOTTOMRIGHT", -16, 94)
     self.send:SetWidth(100)
     self.send:SetScript("OnClick", function() self:PostComment() end)
     self.commentBox = GuildHelper.Groups:CreateBox(detail, self.MAXCOMMENT)
@@ -1051,7 +1081,16 @@ function Feedback:BuildDetail(side)
     self.bug = self:CreateVote(detail, "bug", "LID_FBAFFECTED", 1)
     self.bug:SetPoint("BOTTOMLEFT", detail, "BOTTOMLEFT", 16, 16)
     self.delete = Members:CreateButton(detail, "LID_FBDELETE")
-    self.delete:SetPoint("BOTTOMRIGHT", detail, "BOTTOMRIGHT", -16, 14)
+    self.delete:SetPoint("BOTTOMRIGHT", detail, "BOTTOMRIGHT", -16, 54)
+    self.subscribe = Members:CreateButton(detail, "LID_FBSUBSCRIBE")
+    self.subscribe:SetPoint("BOTTOMRIGHT", detail, "BOTTOMRIGHT", -16, 14)
+    self.subscribe:SetWidth(160)
+    self.subscribe:SetScript("OnClick", function()
+        local entry = self:Find(self.selected)
+        if not entry then return end
+        self:SetSubscribed(entry.id, not self:IsSubscribed(entry))
+        self:RefreshDetail()
+    end)
     self.delete:SetWidth(130)
     self.edit = Members:CreateButton(detail, "LID_FBEDIT")
     self.edit:SetPoint("RIGHT", self.delete, "LEFT", -8, 0)
@@ -1327,7 +1366,7 @@ function Feedback:RefreshDetail()
     local entry = self:Find(self.selected)
     local shown = entry ~= nil
     self.noSelection:SetShown(not shown)
-    for _, region in ipairs({self.detailKind, self.detailDate, self.detailTitle, self.detailMeta, self.body, self.comments, self.commentBox, self.send}) do
+    for _, region in ipairs({self.detailKind, self.detailDate, self.detailTitle, self.detailMeta, self.body, self.comments, self.commentBox, self.send, self.subscribe}) do
         region:SetShown(shown)
     end
 
@@ -1337,6 +1376,7 @@ function Feedback:RefreshDetail()
     self.delete:SetShown(self:IsOwn(entry))
     self.edit:SetShown(self:IsOwn(entry))
     if not shown then return end
+    GuildHelper.Theme:SetTrans(self.subscribe.text, self:IsSubscribed(entry) and "LID_FBSUBSCRIBED" or "LID_FBSUBSCRIBE")
     local up, down = self:Count(entry.id)
     local vote = self:GetVote(entry.id)
     self.detailKind:SetText(GuildHelper:Trans(entry.kind == "B" and "LID_FBBUG" or "LID_FBIDEA"))

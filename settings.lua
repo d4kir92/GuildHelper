@@ -112,9 +112,9 @@ function Settings:CreateSpecRow(parent, y, slot)
     }
 end
 
-function Settings:CreateCharacterPanel(content, anchor)
+function Settings:CreateCharacterPanel(content)
     local panel = CreateFrame("Frame", nil, content)
-    panel:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -16)
+    panel:SetPoint("TOPLEFT", content, "TOPLEFT", Window.PADDING, -76)
     panel:SetSize(self.WIDTH, 236)
     Theme:Panel(panel, "panel", "border", 9)
     local header = Theme:Text(panel, 11, "muted")
@@ -141,9 +141,12 @@ function Settings:CreateCharacterPanel(content, anchor)
     line:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -1, -92)
     self.specRows = {self:CreateSpecRow(panel, -108, 1), self:CreateSpecRow(panel, -148, 2)}
     self:CreateTwitchRow(panel, -188)
+
+    return panel
 end
 
 function Settings:UpdateCharacter()
+    if not self.mainCheck then return end
     local Specs = GuildHelper.Specs
     self.mainCheck:SetChecked(Specs:IsMain())
     local none = GuildHelper:Trans("LID_NONE")
@@ -263,7 +266,7 @@ Settings.DISPLAYOPTIONS = {
 }
 
 function Settings:GetMapOption(key)
-    for _, list in ipairs({self.MAPOPTIONS, self.INVITEOPTIONS, self.DISPLAYOPTIONS}) do
+    for _, list in ipairs({self.MAPOPTIONS, self.INVITEOPTIONS, self.DISPLAYOPTIONS, self.notificationOptions or {}}) do
         for _, option in ipairs(list) do
             if option.key == key then return GuildHelper:GetConfig(key, option.default) == true end
         end
@@ -289,7 +292,7 @@ end
 function Settings:ShowMapTooltip(owner, option)
     GameTooltip:SetOwner(owner, "ANCHOR_RIGHT")
     GameTooltip:SetText(GuildHelper:Trans(option.label), 1, 1, 1)
-    GameTooltip:AddLine(GuildHelper:Trans(option.desc), 0.8, 0.8, 0.8, true)
+    if option.desc then GameTooltip:AddLine(GuildHelper:Trans(option.desc), 0.8, 0.8, 0.8, true) end
     GameTooltip:Show()
 end
 
@@ -380,7 +383,7 @@ function Settings:CreateInvitePanel(content, anchor)
 end
 
 function Settings:UpdateMap()
-    for _, rows in ipairs({self.mapRows or {}, self.inviteRows or {}, self.displayRows or {}}) do
+    for _, rows in ipairs({self.mapRows or {}, self.inviteRows or {}, self.displayRows or {}, self.notificationRows or {}}) do
         for _, entry in ipairs(rows) do
             entry.check:SetChecked(self:GetMapOption(entry.option.key))
             entry.row:SetAlpha(self:IsMapOptionEnabled(entry.option) and 1 or 0.45)
@@ -442,12 +445,41 @@ function Settings:CreateWindowKey(panel)
 end
 
 function Settings:Update()
+    self:UpdateCharacter()
     if self.langPill == nil then return end
     self:SetPill(self.langPill, Members:GetOptionLabel(self:GetLanguageOptions(), GuildHelper:GetConfig("LANGUAGE", "auto")))
     self:SetPill(self.designPill, Members:GetOptionLabel(self:GetDesignOptions(), GuildHelper:GetDesign()))
     self:UpdateWindowKey()
-    self:UpdateCharacter()
     self:UpdateMap()
+end
+
+function Settings:CreateNotificationPanel(content, anchor)
+    local panel = CreateFrame("Frame", nil, content)
+    panel:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -16)
+    panel:SetSize(self.WIDTH, 282)
+    Theme:Panel(panel, "panel", "border", 9)
+    local header = Theme:Text(panel, 11, "muted")
+    header:SetPoint("TOPLEFT", panel, "TOPLEFT", 18, -16)
+    Theme:SetTrans(header, "LID_NOTIFICATIONS", true)
+    self.notificationOptions = {}
+    self.notificationRows = {}
+    for index, key in ipairs(GuildHelper.Notifications.NEW_TYPES) do
+        local option = {key = key, default = false, label = "LID_NOTIFICATION" .. key, display = true}
+        self.notificationOptions[index] = option
+        self.notificationRows[index] = self:CreateMapRow(panel, index, option)
+    end
+
+    local position = Members:CreateButton(panel, "LID_NOTIFICATIONPOSITION")
+    position:SetPoint("TOPLEFT", panel, "TOPLEFT", 18, -202)
+    position:SetWidth(self.WIDTH - 36)
+    position:SetScript("OnClick", function()
+        GuildHelper.Notifications:SetEditing(not GuildHelper.Notifications.editing)
+    end)
+
+    local test = Members:CreateButton(panel, "LID_NOTIFICATIONTEST")
+    test:SetPoint("TOPLEFT", position, "BOTTOMLEFT", 0, -4)
+    test:SetWidth(self.WIDTH - 36)
+    test:SetScript("OnClick", function() GuildHelper.Notifications:Test() end)
 end
 
 function Settings:Build(content)
@@ -456,7 +488,7 @@ function Settings:Build(content)
     scroll:SetPoint("TOPLEFT", content, "TOPLEFT", Window.PADDING, -80)
     scroll:SetPoint("BOTTOMRIGHT", content, "BOTTOMRIGHT", -Window.PADDING, Window.PADDING)
     local body = CreateFrame("Frame", nil, scroll)
-    body:SetSize(self.WIDTH + 16 + self.MAPWIDTH, 546)
+    body:SetSize(self.WIDTH + 16 + self.MAPWIDTH, 594)
     scroll:SetScrollChild(body)
     scroll:EnableMouseWheel(true)
     scroll:SetScript("OnMouseWheel", function(sel, delta)
@@ -500,19 +532,9 @@ function Settings:Build(content)
     end
 
     self:CreateWindowKey(panel)
-    self:CreateCharacterPanel(body, panel)
     self:CreateMapPanel(body, panel)
     self:CreateInvitePanel(body, panel)
-    local notifications = Members:CreateButton(body, "LID_NOTIFICATIONPOSITION")
-    notifications:SetPoint("TOPLEFT", panel, "TOPRIGHT", 16, -450)
-    notifications:SetWidth(self.MAPWIDTH)
-    notifications:SetScript("OnClick", function()
-        GuildHelper.Notifications:SetEditing(not GuildHelper.Notifications.editing)
-    end)
-    local test = Members:CreateButton(body, "LID_NOTIFICATIONTEST")
-    test:SetPoint("TOPLEFT", notifications, "BOTTOMLEFT", 0, -12)
-    test:SetWidth(self.MAPWIDTH)
-    test:SetScript("OnClick", function() GuildHelper.Notifications:Test() end)
+    self:CreateNotificationPanel(body, panel)
     if not self.hooked then
         self.hooked = true
         Theme:OnRefresh(function() Settings:Update() end)
@@ -613,5 +635,17 @@ function Settings:FinishSetup()
     if self.setup then self.setup:Hide() end
 end
 
-Window:OnRebuild(function() Settings.setup = nil end)
+Window:OnRebuild(function()
+    Settings.setup = nil
+    Settings.mainCheck = nil
+    Settings.langPill = nil
+    Settings.mapPanel = nil
+end)
+
+Window:SetPageBuilder("chars", function(content, entry)
+    Window:CreatePageTitle(content, entry.label)
+    local panel = Settings:CreateCharacterPanel(content)
+    Window:BuildPlaceholder(content, entry, panel)
+    content.OnPageShow = function() Settings:UpdateCharacter() end
+end)
 Window:SetPageBuilder("settings", function(content) Settings:Build(content) end)

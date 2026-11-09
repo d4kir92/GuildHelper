@@ -200,10 +200,14 @@ function Window:CreatePageTitle(content, label)
     return title
 end
 
-function Window:BuildPlaceholder(content, entry)
-    Window:CreatePageTitle(content, entry.label)
+function Window:BuildPlaceholder(content, entry, anchor)
+    if not anchor then self:CreatePageTitle(content, entry.label) end
     local text = Theme:Text(content, 14, "muted")
-    text:SetPoint("TOPLEFT", content, "TOPLEFT", self.PADDING, -76)
+    if anchor then
+        text:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -18)
+    else
+        text:SetPoint("TOPLEFT", content, "TOPLEFT", self.PADDING, -76)
+    end
     Theme:SetTrans(text, "LID_COMINGSOON")
     local description = Theme:Text(content, 14, "text")
     description:SetPoint("TOPLEFT", text, "BOTTOMLEFT", 0, -18)

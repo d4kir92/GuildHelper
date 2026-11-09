@@ -1,5 +1,6 @@
 local _, GuildHelper = ...
 local Notifications = {queue = {}, seen = {}, started = time()}
+Notifications.NEW_TYPES = {"NEWLIVE", "NEWPLANNED", "NEWIDEA", "NEWBUG"}
 GuildHelper.Notifications = Notifications
 
 function Notifications:GetDisplayTime()
@@ -63,10 +64,10 @@ function Notifications:Create()
         if self.editing or not self.current then return end
         local notice = self.current
         local feedback = GuildHelper.Feedback
-        if notice.applicant and notice.guild == GuildHelper.Sync:GetGuildKey() then
+        if (notice.applicant or notice.group) and notice.guild == GuildHelper.Sync:GetGuildKey() then
             local groups = GuildHelper.Groups
             local entry = groups:Find(notice.id)
-            if entry and entry.applicants and entry.applicants[notice.applicant] then
+            if entry and (notice.group or (entry.applicants and entry.applicants[notice.applicant])) then
                 GuildHelper.Window:SelectPage("groups")
                 GuildHelper.Window.frame:Show()
                 groups:SetMode(entry.kind)
@@ -140,6 +141,17 @@ function Notifications:Application(id, applicant, author)
     self:Enqueue({id = id, guild = guild, applicant = applicant, author = author, queued = self:GetDisplayTime()})
 end
 
+function Notifications:NewEntry(id, owner, created, category, group)
+    if not created or created < self.started or created > time() + 60 or GuildHelper.Groups:IsSelfName(owner) then return end
+    local guild = GuildHelper.Sync:GetGuildKey()
+    if not guild then return end
+    local key = guild .. ":" .. category .. ":" .. id
+    if self.seen[key] then return end
+    self.seen[key] = true
+    if GuildHelper:GetConfig(category, false) ~= true then return end
+    self:Enqueue({id = id, guild = guild, category = category, group = group, queued = self:GetDisplayTime()})
+end
+
 function Notifications:Comment(id, comment)
     if not comment or comment.created < self.started or comment.created > time() + 60 or GuildHelper.Groups:IsSelfName(comment.owner) then return end
     local guild = GuildHelper.Sync:GetGuildKey()
@@ -147,6 +159,8 @@ function Notifications:Comment(id, comment)
     local key = guild .. ":" .. id .. ":" .. comment.id
     if self.seen[key] then return end
     self.seen[key] = true
+    local entry = GuildHelper.Feedback:Find(id)
+    if entry and not GuildHelper.Feedback:IsSubscribed(entry) then return end
     self:Enqueue({id = id, guild = guild, author = comment.author or comment.owner, queued = self:GetDisplayTime()})
 end
 
@@ -171,6 +185,17 @@ function Notifications:Render()
         self.frame:Show()
         return
     end
+    if self.current.category then
+        local source = self.current.group and GuildHelper.Groups or GuildHelper.Feedback
+        local entry = source:Find(self.current.id)
+        if not entry or GuildHelper:GetConfig(self.current.category, false) ~= true then self:Dismiss() return end
+        self:Create()
+        self:ShowGroupAction(false)
+        self.frame.title:SetText(GuildHelper:Trans("LID_NOTIFICATION" .. self.current.category))
+        self.frame.text:SetText(self.current.group and source:GetActivityName(entry) or entry.title)
+        self.frame:Show()
+        return
+    end
     if self.current.applicant then
         local groups = GuildHelper.Groups
         local entry = groups:Find(self.current.id)
@@ -186,7 +211,7 @@ function Notifications:Render()
         return
     end
     local entry = GuildHelper.Feedback:Find(self.current.id)
-    if not entry then self:Dismiss() return end
+    if not entry or not GuildHelper.Feedback:IsSubscribed(entry) then self:Dismiss() return end
     self:Create()
     self:ShowGroupAction(false)
     self.frame.title:SetText(GuildHelper:Trans("LID_NOTIFICATIONCOMMENT"))
@@ -208,7 +233,7 @@ function Notifications:Tick()
             local notice = self.queue[1]
             if notice.guild ~= guild or self:GetDisplayTime() - notice.queued > 180 then
                 table.remove(self.queue, 1)
-            elseif not notice.applicant and not GuildHelper.Feedback:Find(notice.id) then
+            elseif not notice.applicant and not notice.category and not GuildHelper.Feedback:Find(notice.id) then
                 if self:GetDisplayTime() - notice.queued < 30 then return end
                 table.remove(self.queue, 1)
             else

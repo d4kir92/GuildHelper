@@ -596,6 +596,9 @@ function Groups:ReadListing(owner, sender, parts)
     if kind == "L" then entry.expires = GetTime() + self.TTL end
     store[key] = entry
     self.seen[key] = GetTime()
+    if GuildHelper.Notifications then
+        GuildHelper.Notifications:NewEntry(key, owner, tonumber(id:match("^%d+")), kind == "L" and "NEWLIVE" or "NEWPLANNED", true)
+    end
 
     return true
 end
