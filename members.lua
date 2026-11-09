@@ -1074,8 +1074,6 @@ function Members:CreateAvatar(parent, size, fontSize)
     fallback.letter = Theme:Text(fallback, fontSize)
     fallback.letter:SetPoint("CENTER")
     avatar.fallback = fallback
-    avatar.portrait = avatar:CreateTexture(nil, "ARTWORK")
-    avatar.portrait:SetAllPoints()
     avatar.racePortrait = avatar:CreateTexture(nil, "ARTWORK")
     avatar.racePortrait:SetAllPoints()
     if avatar.CreateMaskTexture and avatar.racePortrait.AddMaskTexture then
@@ -1109,49 +1107,43 @@ function Members:SetRacePortrait(portrait, race, gender)
     return pcall(portrait.SetAtlas, portrait, atlas)
 end
 
-function Members:FillAvatar(avatar, member, data, r, g, b)
-    local portrait = avatar.portrait
-    local displayed = false
-    portrait:SetTexture(nil)
-    portrait:SetTexCoord(0, 1, 0, 1)
-    local unit
-    if SetPortraitTexture then
-        if self:IsSelf(member) then
-            unit = "player"
-        elseif member.guid and UnitGUID then
-            local guid = UnitGUID("target")
-            if GuildHelper:CanAccessValues(guid, member.guid) and guid == member.guid then unit = "target" end
-        end
-    end
-    if unit then
-        displayed = pcall(SetPortraitTexture, portrait, unit)
-    end
-    local racePortrait = avatar.racePortrait
-    local raceDisplayed = false
-    if not displayed then
-        if data then
-            raceDisplayed = self:SetRacePortrait(racePortrait, data.portraitRace, data.portraitGender)
-        end
-        if not raceDisplayed and GetPlayerInfoByGUID and GuildHelper:CanAccessValues(member.guid) and member.guid then
-            local ok, _, _, _, race, sex = pcall(GetPlayerInfoByGUID, member.guid)
-            if ok and GuildHelper:CanAccessValues(race, sex) and type(race) == "string" and (sex == 2 or sex == 3) then
-                raceDisplayed = self:SetRacePortrait(racePortrait, race:lower(), sex == 2 and "male" or "female")
-            end
-        end
-        if not raceDisplayed and member.guildRaceID and C_CreatureInfo and C_CreatureInfo.GetRaceInfo then
-            local ok, raceInfo = pcall(C_CreatureInfo.GetRaceInfo, member.guildRaceID)
-            if ok and GuildHelper:CanAccessValues(raceInfo) and raceInfo and GuildHelper:CanAccessValues(raceInfo.clientFileString) and raceInfo.clientFileString then
-                raceDisplayed = self:SetRacePortrait(racePortrait, raceInfo.clientFileString:lower(), "male")
-            end
+function Members:GetRaceAvatar(member, data)
+    local race, sex
+    if member.guildRaceID and C_CreatureInfo and C_CreatureInfo.GetRaceInfo then
+        local ok, info = pcall(C_CreatureInfo.GetRaceInfo, member.guildRaceID)
+        if ok and GuildHelper:CanAccessValues(info) and info and GuildHelper:CanAccessValues(info.clientFileString) then
+            race = info.clientFileString
         end
     end
 
+    if self:IsSelf(member) then
+        local _, playerRace = UnitRace("player")
+        if not race and GuildHelper:CanAccessValues(playerRace) then race = playerRace end
+        sex = UnitSex("player")
+    elseif GetPlayerInfoByGUID and GuildHelper:CanAccessValues(member.guid) and member.guid then
+        local ok, _, _, _, cachedRace, cachedSex = pcall(GetPlayerInfoByGUID, member.guid)
+        if ok then
+            if not race and GuildHelper:CanAccessValues(cachedRace) then race = cachedRace end
+            sex = cachedSex
+        end
+    end
+
+    if type(race) ~= "string" or race == "" then return end
+    local gender = data and data.portraitGender
+    if GuildHelper:CanAccessValues(sex) and (sex == 2 or sex == 3) then
+        gender = sex == 2 and "male" or "female"
+    end
+    return race:lower(), gender
+end
+
+function Members:FillAvatar(avatar, member, data, r, g, b)
+    local race, gender = self:GetRaceAvatar(member, data)
+    local displayed = self:SetRacePortrait(avatar.racePortrait, race, gender)
     avatar.crown:SetShown(member.isGuildLeader)
-    portrait:SetShown(displayed)
-    racePortrait:SetShown(raceDisplayed)
+    avatar.racePortrait:SetShown(displayed)
     local fallback = avatar.fallback
-    fallback:SetShown(not displayed and not raceDisplayed)
-    if displayed or raceDisplayed then return end
+    fallback:SetShown(not displayed)
+    if displayed then return end
     fallback.border:SetVertexColor(r, g, b, 1)
     fallback.fill:SetVertexColor(r * 0.28, g * 0.28, b * 0.28, 1)
     fallback.letter:SetText(member.short:match("^[%z\1-\127\194-\244][\128-\191]*") or "?")
@@ -1887,127 +1879,7 @@ function Members:Reset()
     self.filter.text = ""
 end
 
-function Members:PreviewPortrait(name)
-    local query = strlower(name:match("^%s*(.-)%s*$"))
-    if query == "" then
-        print("[GuildHelper]", "/ghportraitdebug <Name>")
-        return
-    end
-
-    self:Scan()
-    local member
-    for _, entry in ipairs(self.list) do
-        if strlower(entry.short):sub(1, #query) == query then
-            if member then
-                print("[GuildHelper]", "Mehrere Treffer. Bitte den vollständigen Namen eingeben.")
-                return
-            end
-            member = entry
-        end
-    end
-    if not member then
-        print("[GuildHelper]", "Kein Gildenmitglied gefunden:", name)
-        return
-    end
-
-    local preview = self.portraitPreview
-    if not preview then
-        preview = CreateFrame("Button", nil, UIParent)
-        preview:SetFrameStrata("DIALOG")
-        preview:SetSize(336, 148)
-        preview:SetPoint("CENTER")
-        preview:SetScript("OnClick", function(button) button:Hide() end)
-        local background = preview:CreateTexture(nil, "BACKGROUND")
-        background:SetAllPoints()
-        background:SetColorTexture(0.08, 0.08, 0.08, 0.95)
-        preview.title = preview:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-        preview.title:SetPoint("TOP", 0, -10)
-        preview.current = self:CreateAvatar(preview, 64, 22)
-        preview.current:SetPoint("TOP", preview, "TOPLEFT", 56, -36)
-        preview.candidates = {}
-        for index, label in ipairs({"Gespeicherte ID", "Basis-ID"}) do
-            local texture = preview:CreateTexture(nil, "ARTWORK")
-            texture:SetSize(64, 64)
-            texture:SetPoint("TOP", preview, "TOPLEFT", 56 + 112 * index, -36)
-            local caption = preview:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-            caption:SetPoint("TOP", texture, "BOTTOM", 0, -6)
-            preview.candidates[index] = {texture = texture, caption = caption, label = label}
-        end
-        local current = preview:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        current:SetPoint("TOP", preview.current, "BOTTOM", 0, -6)
-        current:SetText("Aktueller Avatar")
-        self.portraitPreview = preview
-    end
-
-    local data = self:GetData(member)
-    local r, g, b = self:GetClassColor(member)
-    self:FillAvatar(preview.current, member, data, r, g, b)
-    preview.title:SetText(member.short .. "  (Klick zum Schließen)")
-    local displayID = data and data.portraitDisplayID
-    local baseID = data and data.portraitOutfit and data.portraitOutfit.displayID
-    local isSelf = self:IsSelf(member)
-    if isSelf then
-        displayID = nil
-        local _, _, raceID = UnitRace("player")
-        local sex = UnitSex("player")
-        if GuildHelper:CanAccessValues(raceID, sex) and (sex == 2 or sex == 3) then
-            local models = GuildHelper.Sync.PORTRAIT_MODELS[raceID]
-            if models then baseID = models[sex - 1] end
-        end
-    end
-
-    local displayIDs = {displayID, baseID}
-    for index, candidate in ipairs(preview.candidates) do
-        local id = displayIDs[index]
-        candidate.texture:SetTexture(nil)
-        local ok = id and SetPortraitTextureFromCreatureDisplayID and pcall(SetPortraitTextureFromCreatureDisplayID, candidate.texture, id)
-        local status = not id and "fehlt" or not SetPortraitTextureFromCreatureDisplayID and "API fehlt" or ok and tostring(id) or "API-Fehler"
-        candidate.caption:SetText(candidate.label .. "\n" .. status)
-    end
-    preview.isSelf = isSelf
-    if isSelf then
-        local candidate = preview.candidates[1]
-        local function updateLocalPortrait(model)
-            if not preview.isSelf then return end
-            local status = "GetDisplayInfo fehlt"
-            if model.GetDisplayInfo then
-                local ok, id = pcall(model.GetDisplayInfo, model)
-                status = ok and "Keine gültige ID" or "Abfragefehler"
-                if ok and GuildHelper:CanAccessValues(id) and type(id) == "number" and id > 0 and id <= 2147483647 then
-                    local rendered = SetPortraitTextureFromCreatureDisplayID and pcall(SetPortraitTextureFromCreatureDisplayID, candidate.texture, id)
-                    status = tostring(id) .. (rendered and "" or " (kein Bild)")
-                end
-            end
-            candidate.caption:SetText("Lokale Modell-ID\n" .. status)
-        end
-
-        if not preview.playerModel then
-            local ok, model = pcall(CreateFrame, "PlayerModel", nil, UIParent)
-            if ok then
-                model:SetSize(1, 1)
-                model:SetPoint("CENTER")
-                model:SetAlpha(0)
-                model:SetScript("OnModelLoaded", updateLocalPortrait)
-                preview.playerModel = model
-            end
-        end
-        local model = preview.playerModel
-        if model then
-            local ok, applied = pcall(model.SetUnit, model, "player")
-            if ok and GuildHelper:CanAccessValues(applied) and applied ~= false then
-                updateLocalPortrait(model)
-            else
-                candidate.caption:SetText("Lokale Modell-ID\nSetUnit fehlgeschlagen")
-            end
-        else
-            candidate.caption:SetText("Lokale Modell-ID\nPlayerModel fehlt")
-        end
-    end
-    preview:Show()
-end
-
 function Members:Init()
-    GuildHelper:AddSlash("ghportraitdebug", function(name) Members:PreviewPortrait(name) end)
     Window:OnRebuild(function() Members:Reset() end)
     self:LoadFilter()
     Theme:OnRefresh(function() Members:Update() end)
