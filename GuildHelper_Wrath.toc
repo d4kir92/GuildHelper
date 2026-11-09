@@ -1,17 +1,17 @@
 ## Interface: 38002, 30403
-## Version: 0.2.4
+## Version: 0.3.0
 ## Title: GuildHelper by |cff55d2ffD4KiR |T132115:16:16:0:0|t
-## Notes:
-## Notes-deDE:
-## Notes-esES:
-## Notes-esMX:
-## Notes-frFR:
-## Notes-itIT:
-## Notes-koKR:
-## Notes-ptBR:
-## Notes-ruRU:
-## Notes-zhCN:
-## Notes-zhTW:
+## Notes: See who’s in your guild, find groups for now or later, and share ideas and bug reports.
+## Notes-deDE: Sieh, wer in deiner Gilde ist, finde Gruppen für jetzt oder später und teile Ideen und Fehlermeldungen.
+## Notes-esES: Consulta los miembros de tu hermandad, busca grupos para ahora o más adelante y comparte ideas e informes de errores.
+## Notes-esMX: Consulta los miembros de tu hermandad, busca grupos para ahora o más adelante y comparte ideas y reportes de errores.
+## Notes-frFR: Consultez les membres de votre guilde, trouvez des groupes pour maintenant ou plus tard et partagez vos idées et signalements de bugs.
+## Notes-itIT: Consulta l’elenco dei membri della gilda, trova gruppi per subito o per più tardi e condividi idee e segnalazioni di bug.
+## Notes-koKR: 길드원을 확인하고, 바로 참여할 파티나 예정된 파티를 찾고, 아이디어와 버그 제보를 공유하세요.
+## Notes-ptBR: Veja os membros da sua guilda, encontre grupos para agora ou mais tarde e compartilhe ideias e relatos de erros.
+## Notes-ruRU: Смотрите список участников гильдии, ищите группы на сейчас или на потом, делитесь идеями и сообщайте об ошибках.
+## Notes-zhCN: 查看公会成员，寻找即时或预约队伍，分享建议并报告错误。
+## Notes-zhTW: 查看公會成員，尋找即時或預約隊伍，分享建議並回報錯誤。
 ## Author: D4KiR |T132115:16:16:0:0|t
 ## Category: Guild
 ## Category-deDE: Gilde
