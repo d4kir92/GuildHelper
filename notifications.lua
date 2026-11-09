@@ -1,6 +1,11 @@
 local _, GuildHelper = ...
 local Notifications = {queue = {}, seen = {}, started = time()}
 GuildHelper.Notifications = Notifications
+
+function Notifications:GetDisplayTime()
+    return (self.combatStart or GetTime()) - (self.combatDuration or 0)
+end
+
 function Notifications:RestorePosition()
     local position = GuildHelper:GetConfig("NOTIFICATIONPOSITION", {})
     self.frame:ClearAllPoints()
@@ -112,7 +117,7 @@ function Notifications:SetEditing(active)
         self.frame.text:SetText(GuildHelper:Trans("LID_NOTIFICATIONMOVE"))
         self.frame:Show()
     else
-        self.expires = GetTime() + 8
+        self.expires = self:GetDisplayTime() + 8
         self:Render()
     end
 end
@@ -132,7 +137,7 @@ end
 function Notifications:Application(id, applicant, author)
     local guild = GuildHelper.Sync:GetGuildKey()
     if not guild then return end
-    self:Enqueue({id = id, guild = guild, applicant = applicant, author = author, queued = GetTime()})
+    self:Enqueue({id = id, guild = guild, applicant = applicant, author = author, queued = self:GetDisplayTime()})
 end
 
 function Notifications:Comment(id, comment)
@@ -142,19 +147,19 @@ function Notifications:Comment(id, comment)
     local key = guild .. ":" .. id .. ":" .. comment.id
     if self.seen[key] then return end
     self.seen[key] = true
-    self:Enqueue({id = id, guild = guild, author = comment.author or comment.owner, queued = GetTime()})
+    self:Enqueue({id = id, guild = guild, author = comment.author or comment.owner, queued = self:GetDisplayTime()})
 end
 
 function Notifications:Test()
     self:SetEditing(false)
     self.current = {test = true, guild = GuildHelper.Sync:GetGuildKey()}
-    self.expires = GetTime() + 8
+    self.expires = self:GetDisplayTime() + 8
     self:Render()
 end
 
 function Notifications:Render()
     if self.editing then return end
-    if not self.current then
+    if not self.current or InCombatLockdown() then
         if self.frame then self.frame:Hide() end
         return
     end
@@ -190,24 +195,25 @@ function Notifications:Render()
 end
 
 function Notifications:Tick()
+    if InCombatLockdown() then return end
     local guild = GuildHelper.Sync:GetGuildKey()
     if self.current and self.current.guild ~= guild then self:Dismiss() end
     if self.editing then return end
     if self.current then
-        if self.frame and self.frame:IsMouseOver() then self.expires = GetTime() + 8 end
-        if GetTime() >= (self.expires or 0) then self:Dismiss() end
+        if self.frame and self.frame:IsMouseOver() then self.expires = self:GetDisplayTime() + 8 end
+        if self:GetDisplayTime() >= (self.expires or 0) then self:Dismiss() end
     end
     if not self.current then
         while #self.queue > 0 do
             local notice = self.queue[1]
-            if notice.guild ~= guild or GetTime() - notice.queued > 180 then
+            if notice.guild ~= guild or self:GetDisplayTime() - notice.queued > 180 then
                 table.remove(self.queue, 1)
             elseif not notice.applicant and not GuildHelper.Feedback:Find(notice.id) then
-                if GetTime() - notice.queued < 30 then return end
+                if self:GetDisplayTime() - notice.queued < 30 then return end
                 table.remove(self.queue, 1)
             else
                 self.current = table.remove(self.queue, 1)
-                self.expires = GetTime() + 8
+                self.expires = self:GetDisplayTime() + 8
                 break
             end
         end
@@ -217,7 +223,23 @@ end
 
 Notifications.events = CreateFrame("Frame")
 Notifications.events:RegisterEvent("PLAYER_LOGIN")
-Notifications.events:SetScript("OnEvent", function()
+Notifications.events:RegisterEvent("PLAYER_REGEN_DISABLED")
+Notifications.events:RegisterEvent("PLAYER_REGEN_ENABLED")
+Notifications.events:SetScript("OnEvent", function(_, event)
+    if event == "PLAYER_REGEN_DISABLED" then
+        Notifications.combatStart = GetTime()
+        Notifications:Render()
+        return
+    end
+    if event == "PLAYER_REGEN_ENABLED" then
+        if Notifications.combatStart then
+            local duration = GetTime() - Notifications.combatStart
+            Notifications.combatDuration = (Notifications.combatDuration or 0) + duration
+            Notifications.combatStart = nil
+        end
+        Notifications:Tick()
+        return
+    end
     Notifications.started = time()
     if EventRegistry then
         EventRegistry:RegisterCallback("EditMode.Enter", function() Notifications:SetEditing(true) end, Notifications)
