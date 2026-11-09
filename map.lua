@@ -11,3 +11,26 @@ if GuildHelper.GuildMap then
         return true
     end
 end
+if GuildHelper.GuildMap then
+    GuildHelper:RegisterSharedSettings({
+        keys = {"GUILDMEMBERPINS", "GUILDMEMBERLEVEL", "GUILDMEMBERNAME", "GUILDMEMBERSHARE"},
+        getDB = function()
+            GHTABPC = GHTABPC or {}
+
+            return GHTABPC
+        end,
+        get = function(key)
+            local value = GHTABPC[key]
+            if value == nil and MAUTTAB then value = MAUTTAB[key] end
+            if value == nil then value = key == "GUILDMEMBERPINS" or key == "GUILDMEMBERSHARE" end
+            GHTABPC[key] = value
+
+            return value
+        end,
+        set = function(key, value) GuildHelper:SetConfig(key, value) end,
+        onChange = function()
+            GuildHelper.GuildMap.Refresh()
+            GuildHelper.Settings:UpdateMap()
+        end
+    })
+end

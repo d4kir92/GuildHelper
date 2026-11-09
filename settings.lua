@@ -283,7 +283,10 @@ function Settings:ToggleMapOption(option)
     if self:IsMapOptionEnabled(option) then
         GuildHelper:SetConfig(option.key, not self:GetMapOption(option.key))
         if option.key == "MMBTN" then GuildHelper:SetMinimapVisible(self:GetMapOption("MMBTN")) end
-        if GuildHelper.GuildMap and not option.invite and not option.display then GuildHelper.GuildMap.Refresh() end
+        if GuildHelper.GuildMap and not option.invite and not option.display then
+            GuildHelper:SetSharedSetting(option.key, self:GetMapOption(option.key))
+            GuildHelper.GuildMap.Refresh()
+        end
     end
 
     self:Update()
