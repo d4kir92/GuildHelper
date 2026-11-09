@@ -1062,21 +1062,99 @@ function Members:CreateAvatar(parent, size, fontSize)
     return avatar
 end
 
+function Members:FinishAvatarModel(avatar, model)
+    local outfit = model.outfit
+    if not outfit or not model:IsShown() or model.ready or model.dressing then return end
+    local ok, fileID = pcall(model.GetModelFileID, model)
+    if not ok or not GuildHelper:CanAccessValues(fileID) or not fileID or fileID == 0 then return end
+
+    model.dressing = true
+    for _, item in ipairs(outfit) do
+        if item ~= 0 then
+            local appearance = item < 0 and -item or ("item:" .. item)
+            pcall(model.TryOn, model, appearance)
+        end
+    end
+    model.ready = pcall(model.SetPortraitZoom, model, 0.8)
+    model.dressing = false
+    if model.ready then
+        model:SetAlpha(1)
+        avatar.portrait:Hide()
+        avatar.fallback:Hide()
+    end
+end
+
+function Members:ShowAvatarModel(avatar, outfit)
+    local model = avatar.model
+    if not outfit then
+        if model then model:Hide() end
+        return false
+    end
+    if not model then
+        local ok, frame = pcall(CreateFrame, "DressUpModel", nil, avatar)
+        if not ok then return false end
+        model = frame
+        avatar.model = model
+        model:Hide()
+        if not model.ClearModel or not model.SetDisplayInfo or not model.GetModelFileID or not model.TryOn or not model.SetPortraitZoom then
+            return false
+        end
+        model:SetAllPoints()
+        model:EnableMouse(false)
+        if model.SetKeepModelOnHide then model:SetKeepModelOnHide(true) end
+        if model.SetAutoDress then model:SetAutoDress(false) end
+        pcall(model.SetScript, model, "OnModelLoaded", function(loadedModel) self:FinishAvatarModel(avatar, loadedModel) end)
+        model.supported = true
+    end
+    if not model.supported then return false end
+
+    if model.outfit ~= outfit then
+        model.outfit = nil
+        model.ready = false
+        model:SetAlpha(0)
+        model:ClearModel()
+        model.outfit = outfit
+        local ok, result = pcall(model.SetDisplayInfo, model, outfit.displayID)
+        if not ok or (GuildHelper:CanAccessValues(result) and result == false) then model.outfit = nil end
+    end
+    model:SetShown(model.outfit ~= nil)
+    self:FinishAvatarModel(avatar, model)
+    return model.ready
+end
+
 function Members:FillAvatar(avatar, member, data, r, g, b)
     local portrait = avatar.portrait
     local displayed = false
     portrait:SetTexture(nil)
-    if self:IsSelf(member) and SetPortraitTexture then
-        displayed = pcall(SetPortraitTexture, portrait, "player")
-    elseif data and data.portraitDisplayID and SetPortraitTextureFromCreatureDisplayID then
+    portrait:SetTexCoord(0, 1, 0, 1)
+    local unit
+    if SetPortraitTexture then
+        if self:IsSelf(member) then
+            unit = "player"
+        elseif member.guid and UnitGUID then
+            local guid = UnitGUID("target")
+            if GuildHelper:CanAccessValues(guid, member.guid) and guid == member.guid then unit = "target" end
+        end
+    end
+    if unit then
+        displayed = pcall(SetPortraitTexture, portrait, unit)
+    end
+    local modelShown = self:ShowAvatarModel(avatar, not displayed and data and data.portraitOutfit)
+    if not displayed and not modelShown and data and data.portraitDisplayID and SetPortraitTextureFromCreatureDisplayID then
         displayed = pcall(SetPortraitTextureFromCreatureDisplayID, portrait, data.portraitDisplayID)
+    end
+    if not displayed and not modelShown and data and data.portraitRace and data.portraitGender and portrait.SetAtlas and C_Texture and C_Texture.GetAtlasInfo then
+        local suffix = data.portraitRace .. "-" .. data.portraitGender
+        local atlas = "raceicon128-" .. suffix
+        if not C_Texture.GetAtlasInfo(atlas) then atlas = "raceicon-" .. suffix end
+        if C_Texture.GetAtlasInfo(atlas) then displayed = pcall(portrait.SetAtlas, portrait, atlas) end
     end
 
     avatar.crown:SetShown(member.isGuildLeader)
     portrait:SetShown(displayed)
     local fallback = avatar.fallback
-    fallback:SetShown(not displayed)
-    if displayed then return end
+    fallback:SetShown(not displayed and not modelShown)
+    if displayed or modelShown then return end
     fallback.border:SetVertexColor(r, g, b, 1)
     fallback.fill:SetVertexColor(r * 0.28, g * 0.28, b * 0.28, 1)
     fallback.letter:SetText(member.short:match("^[%z\1-\127\194-\244][\128-\191]*") or "?")
@@ -1824,8 +1902,10 @@ function Members:Init()
     local events = CreateFrame("Frame")
     events:RegisterEvent("GUILD_ROSTER_UPDATE")
     events:RegisterEvent("PLAYER_GUILD_UPDATE")
+    events:RegisterEvent("PLAYER_TARGET_CHANGED")
     events:SetScript("OnEvent", function(_, event)
         if Members.content == nil or not Members.content:IsVisible() then return end
+        if event == "PLAYER_TARGET_CHANGED" then return Members:Update() end
         if event == "PLAYER_GUILD_UPDATE" then Members:RequestRoster() end
         Members:Refresh()
     end)

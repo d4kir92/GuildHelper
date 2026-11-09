@@ -8,6 +8,23 @@ Sync.lastSend = 0
 Sync.listeners = {}
 Sync.BURST = 1
 Sync.MAXTRIES = 20
+Sync.PORTRAIT_MODELS = {
+    [1] = {49, 50},
+    [2] = {51, 52},
+    [3] = {53, 54},
+    [4] = {55, 56},
+    [5] = {57, 58},
+    [6] = {59, 60},
+    [7] = {1563, 1564},
+    [8] = {1478, 1479},
+    [9] = {6894, 6895},
+    [10] = {15476, 15475},
+    [11] = {16125, 16126},
+    [22] = {29422, 29423},
+    [24] = {38551, 38552},
+    [25] = {38551, 38552},
+    [26] = {38551, 38552},
+}
 Sync.tokens = Sync.BURST
 Sync.queue = {}
 Sync.pump = CreateFrame("Frame")
@@ -321,7 +338,41 @@ function Sync:SendLoadedPortrait()
     self:Send(format("A~%d", id), "A")
 end
 
+function Sync:GetPortraitItem(slot, slotName)
+    if C_Transmog and C_Transmog.GetSlotVisualInfo and TransmogUtil and TransmogUtil.CreateTransmogLocation and Enum and Enum.TransmogType and Enum.TransmogModification then
+        local ok, visual, _, source, _, _, _, _, hidden = pcall(function()
+            local location = TransmogUtil.CreateTransmogLocation(slotName, Enum.TransmogType.Appearance, Enum.TransmogModification.None)
+            return C_Transmog.GetSlotVisualInfo(location)
+        end)
+        if ok and GuildHelper:CanAccessValues(visual) and type(visual) == "table" then
+            source, hidden = visual.appliedSourceID, visual.isHideVisual
+        end
+        if ok and GuildHelper:CanAccessValues(source, hidden) then
+            if hidden then return 0 end
+            if type(source) == "number" and source > 0 then return -source end
+        end
+    end
+
+    local item = GetInventoryItemID("player", slot)
+    return GuildHelper:CanAccessValues(item) and item or 0
+end
+
 function Sync:SendPortrait()
+    local _, race, raceID = UnitRace("player")
+    local sex = UnitSex("player")
+    if GuildHelper:CanAccessValues(race, sex) and type(race) == "string" and race:match("^[A-Za-z]+$") and (sex == 2 or sex == 3) then
+        self:Trace("Volksavatar senden:", race, sex)
+        self:Send(format("R~%s~%d", strlower(race), sex), "R")
+    end
+    if GuildHelper:CanAccessValues(raceID, sex) and self.PORTRAIT_MODELS[raceID] and (sex == 2 or sex == 3) then
+        local head = self:GetPortraitItem(1, "HEADSLOT")
+        local shoulders = self:GetPortraitItem(3, "SHOULDERSLOT")
+        local chest = self:GetPortraitItem(5, "CHESTSLOT")
+        local outfit = format("P~%d~%d~%d~%d~%d", raceID, sex, head, shoulders, chest)
+        self:Trace("3D-Porträt senden:", outfit)
+        self:Send(outfit, "P")
+    end
+
     if not SetPortraitTextureFromCreatureDisplayID then return end
     if not self.portraitModel then
         self.portraitModel = CreateFrame("PlayerModel", nil, UIParent)
@@ -408,6 +459,30 @@ function Sync:OnMessage(message, channel, sender)
             self:Trace("M empfangen:", shortName, "Main:", entry.main ~= "" and entry.main or "(leer)")
             self:Notify()
         end
+    elseif kind == "P" then
+        if #message > 48 then return end
+        local race, sex, head, shoulders, chest = message:match("^P~(%d+)~([23])~(%-?%d+)~(%-?%d+)~(%-?%d+)$")
+        local models = race and self.PORTRAIT_MODELS[tonumber(race)]
+        if not models then return end
+        head, shoulders, chest = tonumber(head), tonumber(shoulders), tonumber(chest)
+        if math.abs(head) > 2147483647 or math.abs(shoulders) > 2147483647 or math.abs(chest) > 2147483647 then return end
+        local entry = self:GetEntry(shortName)
+        self:Trace("3D-Porträt empfangen:", shortName, message)
+        if entry and (not entry.portraitOutfit or entry.portraitOutfit.key ~= message) then
+            entry.portraitOutfit = {key = message, displayID = models[tonumber(sex) - 1], head, shoulders, chest}
+            self:Notify()
+        end
+    elseif kind == "R" then
+        local race, sex = message:match("^R~([a-z]+)~([23])$")
+        if not race or #race > 32 then return end
+        local entry = self:GetEntry(shortName)
+        local gender = sex == "2" and "male" or "female"
+        self:Trace("Volksavatar empfangen:", shortName, race, gender)
+        if entry and (entry.portraitRace ~= race or entry.portraitGender ~= gender) then
+            entry.portraitRace = race
+            entry.portraitGender = gender
+            self:Notify()
+        end
     elseif kind == "A" then
         local rawID = message:match("^A~(%d+)$")
         local id = rawID and #rawID <= 10 and tonumber(rawID)
@@ -444,6 +519,7 @@ function Sync:Init()
     local events = CreateFrame("Frame")
     events:RegisterEvent("CHAT_MSG_ADDON")
     events:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
+    events:RegisterUnitEvent("UNIT_INVENTORY_CHANGED", "player")
     events:RegisterEvent("SKILL_LINES_CHANGED")
     events:RegisterEvent("PLAYER_GUILD_UPDATE")
     if GuildHelper:IsForever() then events:RegisterEvent("GUILD_ROSTER_UPDATE") end
