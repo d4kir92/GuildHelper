@@ -173,12 +173,13 @@ function Members:LinkMains()
         byName[member.key] = member
         member.main = nil
         member.alts = nil
+        member.declaredMain = false
     end
 
     for _, member in ipairs(self.list) do
         local declared = self:GetDeclaredMain(member, byName)
-        member.declaredMain = declared == member
         if declared then
+            declared.declaredMain = true
             member.main = declared ~= member and declared or nil
         else
             member.main = self:FindMainInNote(member, member.note, byName) or self:FindMainInNote(member, member.officerNote, byName)
