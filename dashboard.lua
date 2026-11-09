@@ -25,10 +25,7 @@ end
 
 function Dashboard:GetMOTD()
     if not self:CheckGuild() then return "" end
-    local text
-    if C_GuildInfo and C_GuildInfo.GetMOTD then text = C_GuildInfo.GetMOTD() end
-    if not GuildHelper:CanAccessValues(text) then text = nil end
-    if (not text or text == "") and GetGuildRosterMOTD then text = GetGuildRosterMOTD() end
+    local text = GetGuildRosterMOTD and GetGuildRosterMOTD()
     if not GuildHelper:CanAccessValues(text) then text = nil end
     if (not text or text == "") and C_Club and C_Club.GetGuildClubId and C_Club.GetClubInfo then
         local id = C_Club.GetGuildClubId()
