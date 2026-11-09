@@ -1887,7 +1887,127 @@ function Members:Reset()
     self.filter.text = ""
 end
 
+function Members:PreviewPortrait(name)
+    local query = strlower(name:match("^%s*(.-)%s*$"))
+    if query == "" then
+        print("[GuildHelper]", "/ghportraitdebug <Name>")
+        return
+    end
+
+    self:Scan()
+    local member
+    for _, entry in ipairs(self.list) do
+        if strlower(entry.short):sub(1, #query) == query then
+            if member then
+                print("[GuildHelper]", "Mehrere Treffer. Bitte den vollständigen Namen eingeben.")
+                return
+            end
+            member = entry
+        end
+    end
+    if not member then
+        print("[GuildHelper]", "Kein Gildenmitglied gefunden:", name)
+        return
+    end
+
+    local preview = self.portraitPreview
+    if not preview then
+        preview = CreateFrame("Button", nil, UIParent)
+        preview:SetFrameStrata("DIALOG")
+        preview:SetSize(336, 148)
+        preview:SetPoint("CENTER")
+        preview:SetScript("OnClick", function(button) button:Hide() end)
+        local background = preview:CreateTexture(nil, "BACKGROUND")
+        background:SetAllPoints()
+        background:SetColorTexture(0.08, 0.08, 0.08, 0.95)
+        preview.title = preview:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        preview.title:SetPoint("TOP", 0, -10)
+        preview.current = self:CreateAvatar(preview, 64, 22)
+        preview.current:SetPoint("TOP", preview, "TOPLEFT", 56, -36)
+        preview.candidates = {}
+        for index, label in ipairs({"Gespeicherte ID", "Basis-ID"}) do
+            local texture = preview:CreateTexture(nil, "ARTWORK")
+            texture:SetSize(64, 64)
+            texture:SetPoint("TOP", preview, "TOPLEFT", 56 + 112 * index, -36)
+            local caption = preview:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            caption:SetPoint("TOP", texture, "BOTTOM", 0, -6)
+            preview.candidates[index] = {texture = texture, caption = caption, label = label}
+        end
+        local current = preview:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        current:SetPoint("TOP", preview.current, "BOTTOM", 0, -6)
+        current:SetText("Aktueller Avatar")
+        self.portraitPreview = preview
+    end
+
+    local data = self:GetData(member)
+    local r, g, b = self:GetClassColor(member)
+    self:FillAvatar(preview.current, member, data, r, g, b)
+    preview.title:SetText(member.short .. "  (Klick zum Schließen)")
+    local displayID = data and data.portraitDisplayID
+    local baseID = data and data.portraitOutfit and data.portraitOutfit.displayID
+    local isSelf = self:IsSelf(member)
+    if isSelf then
+        displayID = nil
+        local _, _, raceID = UnitRace("player")
+        local sex = UnitSex("player")
+        if GuildHelper:CanAccessValues(raceID, sex) and (sex == 2 or sex == 3) then
+            local models = GuildHelper.Sync.PORTRAIT_MODELS[raceID]
+            if models then baseID = models[sex - 1] end
+        end
+    end
+
+    local displayIDs = {displayID, baseID}
+    for index, candidate in ipairs(preview.candidates) do
+        local id = displayIDs[index]
+        candidate.texture:SetTexture(nil)
+        local ok = id and SetPortraitTextureFromCreatureDisplayID and pcall(SetPortraitTextureFromCreatureDisplayID, candidate.texture, id)
+        local status = not id and "fehlt" or not SetPortraitTextureFromCreatureDisplayID and "API fehlt" or ok and tostring(id) or "API-Fehler"
+        candidate.caption:SetText(candidate.label .. "\n" .. status)
+    end
+    preview.isSelf = isSelf
+    if isSelf then
+        local candidate = preview.candidates[1]
+        local function updateLocalPortrait(model)
+            if not preview.isSelf then return end
+            local status = "GetDisplayInfo fehlt"
+            if model.GetDisplayInfo then
+                local ok, id = pcall(model.GetDisplayInfo, model)
+                status = ok and "Keine gültige ID" or "Abfragefehler"
+                if ok and GuildHelper:CanAccessValues(id) and type(id) == "number" and id > 0 and id <= 2147483647 then
+                    local rendered = SetPortraitTextureFromCreatureDisplayID and pcall(SetPortraitTextureFromCreatureDisplayID, candidate.texture, id)
+                    status = tostring(id) .. (rendered and "" or " (kein Bild)")
+                end
+            end
+            candidate.caption:SetText("Lokale Modell-ID\n" .. status)
+        end
+
+        if not preview.playerModel then
+            local ok, model = pcall(CreateFrame, "PlayerModel", nil, UIParent)
+            if ok then
+                model:SetSize(1, 1)
+                model:SetPoint("CENTER")
+                model:SetAlpha(0)
+                model:SetScript("OnModelLoaded", updateLocalPortrait)
+                preview.playerModel = model
+            end
+        end
+        local model = preview.playerModel
+        if model then
+            local ok, applied = pcall(model.SetUnit, model, "player")
+            if ok and GuildHelper:CanAccessValues(applied) and applied ~= false then
+                updateLocalPortrait(model)
+            else
+                candidate.caption:SetText("Lokale Modell-ID\nSetUnit fehlgeschlagen")
+            end
+        else
+            candidate.caption:SetText("Lokale Modell-ID\nPlayerModel fehlt")
+        end
+    end
+    preview:Show()
+end
+
 function Members:Init()
+    GuildHelper:AddSlash("ghportraitdebug", function(name) Members:PreviewPortrait(name) end)
     Window:OnRebuild(function() Members:Reset() end)
     self:LoadFilter()
     Theme:OnRefresh(function() Members:Update() end)
