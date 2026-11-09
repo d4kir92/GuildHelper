@@ -155,19 +155,42 @@ function Members:GetData(member)
     return GuildHelper.Sync:GetData(member.short)
 end
 
-function Members:GetDeclaredMain(member, byName)
+function Members:GetDeclaredMain(member, byName, byFirstName)
     if self:IsSelf(member) and GuildHelper.Specs:IsMain() then return member end
     local data = self:GetData(member)
     local main = data and data.main
+    if main == nil and byFirstName then
+        local firstName = member.key:match("^%S+")
+        if firstName and byFirstName[firstName] == member then
+            local legacy = GuildHelper.Sync:GetData(firstName)
+            main = legacy and legacy.main
+        end
+    end
     if main == nil or main == "" then return nil end
     local key = GuildHelper.Sync:GetKey(main)
-    if key == member.key then return member end
+    if byFirstName and not key:find("%s") then return byFirstName[key] or nil end
 
     return byName[key]
 end
 
 function Members:LinkMains()
     local byName = {}
+    local byFirstName
+    if GuildHelper:IsForever() then
+        byFirstName = {}
+        if #self.list == GetNumGuildMembers() then
+            for _, member in ipairs(self.list) do
+                local firstName = member.key:match("^%S+")
+                if firstName then
+                    if byFirstName[firstName] == nil then
+                        byFirstName[firstName] = member
+                    else
+                        byFirstName[firstName] = false
+                    end
+                end
+            end
+        end
+    end
     for _, member in ipairs(self.list) do
         byName[member.key] = member
         member.main = nil
@@ -176,7 +199,7 @@ function Members:LinkMains()
     end
 
     for _, member in ipairs(self.list) do
-        local declared = self:GetDeclaredMain(member, byName)
+        local declared = self:GetDeclaredMain(member, byName, byFirstName)
         if declared then
             declared.declaredMain = true
             member.main = declared ~= member and declared or nil
@@ -1055,7 +1078,16 @@ function Members:FillRow(row, member)
     self:FillAvatar(row.avatar, member, data, r, g, b)
     row.name:SetText(member.short)
     row.name:SetTextColor(r, g, b)
-    row.tag:SetText(member.main and not member.alts and GuildHelper:Trans("LID_ALTTAG") or "")
+    local tag = ""
+    if not self.COLUMNSHOWN.isMain then
+        if member.declaredMain then
+            tag = GuildHelper:Trans("LID_MAIN")
+        elseif member.main then
+            tag = GuildHelper:Trans("LID_ALTTAG")
+        end
+    end
+
+    row.tag:SetText(tag)
 
     self:FitName(row)
     row.level:SetText(member.level)
