@@ -229,13 +229,34 @@ function Members:LinkMains()
     end
 end
 
+function Members:GetGuildClubRoster()
+    local roster = {}
+    if not C_Club or not C_Club.GetGuildClubId or not C_Club.GetClubMembers or not C_Club.GetMemberInfo then return roster end
+    local ok, clubID = pcall(C_Club.GetGuildClubId)
+    if not ok or not GuildHelper:CanAccessValues(clubID) or not clubID then return roster end
+    local loaded, ids = pcall(C_Club.GetClubMembers, clubID)
+    if not loaded or not GuildHelper:CanAccessValues(ids) or type(ids) ~= "table" then return roster end
+
+    for _, id in ipairs(ids) do
+        if GuildHelper:CanAccessValues(id) then
+            local found, info = pcall(C_Club.GetMemberInfo, clubID, id)
+            if found and GuildHelper:CanAccessValues(info) and info then
+                if GuildHelper:CanAccessValues(info.guid) and info.guid then roster[info.guid] = info end
+                if GuildHelper:CanAccessValues(info.name) and type(info.name) == "string" then roster[info.name] = info end
+            end
+        end
+    end
+    return roster
+end
+
 function Members:Scan()
     wipe(self.list)
     self.numOnline = 0
     if not IsInGuild() then return end
+    local clubRoster = self:GetGuildClubRoster()
     local total = GetNumGuildMembers() or 0
     for index = 1, total do
-        local name, rankName, rankIndex, level, className, zone, note, officerNote, online, _, classFile = GetGuildRosterInfo(index)
+        local name, rankName, rankIndex, level, className, zone, note, officerNote, online, _, classFile, _, _, _, _, _, guid = GetGuildRosterInfo(index)
         if name then
             local short = self:ShortName(name)
             local member = {
@@ -252,9 +273,17 @@ function Members:Scan()
                 note = note or "",
                 officerNote = officerNote or "",
                 online = online and true or false,
-                guid = select(17, GetGuildRosterInfo(index)),
+                guid = guid,
             }
 
+            local clubInfo
+            if GuildHelper:CanAccessValues(guid) and guid then
+                clubInfo = clubRoster[guid]
+            else
+                clubInfo = clubRoster[name]
+                if clubInfo and GuildHelper:CanAccessValues(clubInfo.guid) then member.guid = clubInfo.guid end
+            end
+            if clubInfo and GuildHelper:CanAccessValues(clubInfo.race) then member.guildRaceID = clubInfo.race end
             member.lastOnline = self:GetLastOnlineHours(index, member.online)
             if member.online then self.numOnline = self.numOnline + 1 end
             tinsert(self.list, member)
@@ -1070,6 +1099,16 @@ function Members:CreateAvatar(parent, size, fontSize)
     return avatar
 end
 
+function Members:SetRacePortrait(portrait, race, gender)
+    if not race or not gender or not portrait.SetAtlas or not C_Texture or not C_Texture.GetAtlasInfo then return false end
+    local atlasRace = race == "scourge" and "undead" or race
+    local suffix = atlasRace .. "-" .. gender
+    local atlas = "raceicon128-" .. suffix
+    if not C_Texture.GetAtlasInfo(atlas) then atlas = "raceicon-" .. suffix end
+    if not C_Texture.GetAtlasInfo(atlas) then return false end
+    return pcall(portrait.SetAtlas, portrait, atlas)
+end
+
 function Members:FillAvatar(avatar, member, data, r, g, b)
     local portrait = avatar.portrait
     local displayed = false
@@ -1089,11 +1128,22 @@ function Members:FillAvatar(avatar, member, data, r, g, b)
     end
     local racePortrait = avatar.racePortrait
     local raceDisplayed = false
-    if not displayed and data and data.portraitRace and data.portraitGender and racePortrait.SetAtlas and C_Texture and C_Texture.GetAtlasInfo then
-        local suffix = data.portraitRace .. "-" .. data.portraitGender
-        local atlas = "raceicon128-" .. suffix
-        if not C_Texture.GetAtlasInfo(atlas) then atlas = "raceicon-" .. suffix end
-        if C_Texture.GetAtlasInfo(atlas) then raceDisplayed = pcall(racePortrait.SetAtlas, racePortrait, atlas) end
+    if not displayed then
+        if data then
+            raceDisplayed = self:SetRacePortrait(racePortrait, data.portraitRace, data.portraitGender)
+        end
+        if not raceDisplayed and GetPlayerInfoByGUID and GuildHelper:CanAccessValues(member.guid) and member.guid then
+            local ok, _, _, _, race, sex = pcall(GetPlayerInfoByGUID, member.guid)
+            if ok and GuildHelper:CanAccessValues(race, sex) and type(race) == "string" and (sex == 2 or sex == 3) then
+                raceDisplayed = self:SetRacePortrait(racePortrait, race:lower(), sex == 2 and "male" or "female")
+            end
+        end
+        if not raceDisplayed and member.guildRaceID and C_CreatureInfo and C_CreatureInfo.GetRaceInfo then
+            local ok, raceInfo = pcall(C_CreatureInfo.GetRaceInfo, member.guildRaceID)
+            if ok and GuildHelper:CanAccessValues(raceInfo) and raceInfo and GuildHelper:CanAccessValues(raceInfo.clientFileString) and raceInfo.clientFileString then
+                raceDisplayed = self:SetRacePortrait(racePortrait, raceInfo.clientFileString:lower(), "male")
+            end
+        end
     end
 
     avatar.crown:SetShown(member.isGuildLeader)
