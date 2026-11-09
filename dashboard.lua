@@ -255,18 +255,21 @@ end
 function Dashboard:UpdatePageThumb()
     local scroll, thumb = self.page, self.pageThumb
     if scroll == nil or thumb == nil then return end
-    local range = scroll:GetVerticalScrollRange()
+    self:UpdateScrollThumb(scroll, thumb, scroll:GetVerticalScrollRange(), scroll:GetVerticalScroll())
+end
+
+function Dashboard:UpdateScrollThumb(scroll, thumb, range, offset, inset)
     if range <= 0 then
         thumb:Hide()
 
         return
     end
 
-    local track = scroll:GetHeight() - 12
-    local height = max(24, track * scroll:GetHeight() / (scroll:GetHeight() + range))
+    local track = max(1, scroll:GetHeight() - 12)
+    local height = min(track, max(24, track * scroll:GetHeight() / (scroll:GetHeight() + range)))
     thumb:SetHeight(height)
     thumb:ClearAllPoints()
-    thumb:SetPoint("TOPRIGHT", scroll, "TOPRIGHT", -9, -6 - (track - height) * scroll:GetVerticalScroll() / range)
+    thumb:SetPoint("TOPRIGHT", scroll, "TOPRIGHT", inset or -9, -6 - (track - height) * offset / range)
     thumb:Show()
 end
 
@@ -548,9 +551,24 @@ end
 
 function Dashboard:CreateChat(parent)
     local card = self:CreateCard(parent, "LID_CHAT")
+    local input = GuildHelper.Groups:CreateBox(card, 255)
+    input:SetPoint("BOTTOMLEFT", card, "BOTTOMLEFT", 16, 10)
+    input:SetPoint("BOTTOMRIGHT", card, "BOTTOMRIGHT", -16, 10)
+    input:SetMaxBytes(255)
+    input:SetScript("OnEnterPressed", function(box)
+        local text = strtrim(box:GetText())
+        if text == "" or not IsInGuild() then return end
+        if C_GuildInfo and C_GuildInfo.CanSpeakInGuildChat and not C_GuildInfo.CanSpeakInGuildChat() then return end
+        local send = C_ChatInfo and C_ChatInfo.SendChatMessage or SendChatMessage
+        if not send then return end
+        if send(text, "GUILD") == false then return end
+        box:SetText("")
+    end)
+    card:HookScript("OnHide", function() input:ClearFocus() end)
+
     local messages = CreateFrame("ScrollingMessageFrame", nil, card)
     messages:SetPoint("TOPLEFT", card, "TOPLEFT", 16, -34)
-    messages:SetPoint("BOTTOMRIGHT", card, "BOTTOMRIGHT", -16, 8)
+    messages:SetPoint("BOTTOMRIGHT", input, "TOPRIGHT", -14, 6)
     messages:SetMaxLines(self.CHATMAX)
     messages:SetFading(false)
     messages:SetJustifyH("LEFT")
@@ -559,6 +577,16 @@ function Dashboard:CreateChat(parent)
         SetItemRef(link, text, button, DEFAULT_CHAT_FRAME)
     end)
     Theme:Track(messages, "text", nil, 13)
+    local thumb = CreateFrame("Frame", nil, card)
+    thumb:SetWidth(4)
+    Theme:Round(thumb, "thumb", 2)
+    thumb:Hide()
+    card.UpdateChatThumb = function()
+        local range = messages:GetMaxScrollRange()
+        local offset = messages:GetScrollOffset()
+        self:UpdateScrollThumb(messages, thumb, range * 13, (range - offset) * 13, 14)
+    end
+    messages:HookScript("OnSizeChanged", function() card:UpdateChatThumb() end)
     messages:EnableMouseWheel(true)
     messages:SetScript("OnMouseWheel", function(frame, delta)
         local atEdge = delta > 0 and frame:AtTop() or delta < 0 and frame:AtBottom()
@@ -566,6 +594,7 @@ function Dashboard:CreateChat(parent)
             if delta > 0 then frame:ScrollUp() else frame:ScrollDown() end
         end
 
+        card:UpdateChatThumb()
         if delta > 0 and frame:AtTop() and self:RequestChatHistory() then return end
         if atEdge then self:ScrollPage(delta) end
     end)
@@ -714,6 +743,7 @@ function Dashboard:UpdateChat()
 
     if offset > 0 and frame.SetScrollOffset then frame:SetScrollOffset(offset) end
     card.chatText, card.chatR, card.chatG, card.chatB = text, r, g, b
+    card:UpdateChatThumb()
 end
 
 function Dashboard:Update()
