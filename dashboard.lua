@@ -201,12 +201,11 @@ function Dashboard:GetLine(card, index)
     line.bg = Theme:Round(line, "rowHover", 5)
     line.bg:SetShown(false)
     line.dot = Theme:Icon(line, "circle", 6, "muted")
-    line.dot:SetPoint("LEFT", line, "LEFT", 10, 0)
+    line.dot:SetPoint("LEFT", line, "LEFT", card == self.zones and 18 or 10, 0)
     line.left = Theme:Text(line, 12.5, "text")
     line.right = Theme:Text(line, 12, "muted")
     line.right:SetPoint("RIGHT", line, "RIGHT", -10, 0)
     line.right:SetJustifyH("RIGHT")
-    line.left:SetPoint("RIGHT", line.right, "LEFT", -8, 0)
     line:SetScript("OnEnter", function(sel) sel.bg:SetShown(sel.member ~= nil) end)
     line:SetScript("OnLeave", function(sel) sel.bg:SetShown(false) end)
     line:SetScript("OnClick", function(sel) if sel.member then Members:Focus(sel.member) end end)
@@ -219,9 +218,24 @@ function Dashboard:SetLine(card, index, left, right, member, header)
     local line = self:GetLine(card, index)
     line.member = member
     line.left:ClearAllPoints()
-    line.left:SetPoint("LEFT", line, "LEFT", member and 24 or 10, 0)
+    local leftInset = 10
+    if member then leftInset = card == self.zones and 32 or 24 end
+    line.left:SetPoint("LEFT", line, "LEFT", leftInset, 0)
     line.left:SetPoint("RIGHT", line.right, "LEFT", -8, 0)
     line.left:SetText(left)
+    local twitch = card == self.zones and member and Members:GetTwitchName(member)
+    if twitch and twitch ~= "" then
+        local nameWidth = line.left:GetStringWidth()
+        line.left:SetText(left .. "    " .. twitch)
+        local wideWidth = line.left:GetStringWidth()
+        line.left:SetText(left .. " " .. twitch)
+        local spaceWidth = (wideWidth - line.left:GetStringWidth()) / 3
+        if spaceWidth > 0 then
+            local tabWidth = 24
+            local gap = tabWidth - (nameWidth + 8) % tabWidth + 8
+            line.left:SetText(left .. string.rep(" ", math.ceil(gap / spaceWidth)) .. twitch)
+        end
+    end
     line.right:SetText(right or "")
     line.dot:SetShown(member ~= nil)
     if member then

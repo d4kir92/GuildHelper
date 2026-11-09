@@ -996,6 +996,39 @@ function Members:ShowTooltip(row)
     GameTooltip:Show()
 end
 
+function Members:OpenPlayerMenu(member, button)
+    local manager = UnitPopupManager
+    local playerMenu = manager and manager.GetMenu and manager:GetMenu("PLAYER")
+    if UnitPopup_OpenMenu and playerMenu and playerMenu.AssembleMenuEntries and manager.RegisterMenu and UnitPopupCopyCharacterNameButtonMixin then
+        local menuKey = "GUILDHELPER_MEMBER"
+        if not manager:GetMenu(menuKey) then
+            manager:RegisterMenu(menuKey, {
+                AssembleMenuEntries = function(_, context)
+                    local entries = {}
+                    local playerEntries = playerMenu:AssembleMenuEntries(context)
+                    local ignore = UnitPopupIgnoreButtonMixin
+                    local addIgnore = ignore and not tContains(playerEntries, ignore)
+                    for _, entry in ipairs(playerEntries) do
+                        if addIgnore and entry == UnitPopupOtherSubsectionTitle then
+                            entries[#entries + 1] = ignore
+                        end
+                        if entry ~= UnitPopupCopyCharacterNameButtonMixin and entry ~= UnitPopupDuelButtonMixin and entry ~= UnitPopupDuelToTheDeathButtonMixin and entry ~= UnitPopupPetBattleDuelButtonMixin then
+                            entries[#entries + 1] = entry
+                        end
+                    end
+                    return entries
+                end,
+            })
+        end
+        local guid = GuildHelper:CanAccessValues(member.guid) and member.guid or nil
+        UnitPopup_OpenMenu(menuKey, {name = member.name, guid = guid})
+        return
+    end
+
+    local link = "player:" .. member.name
+    SetItemRef(link, "|H" .. link .. "|h[" .. member.short .. "]|h", button, DEFAULT_CHAT_FRAME)
+end
+
 function Members:CreateRow(parent, index)
     local row = CreateFrame("Button", nil, parent)
     row:SetHeight(self.ROWHEIGHT)
@@ -1029,7 +1062,16 @@ function Members:CreateRow(parent, index)
     row.badge.text = Theme:Text(row.badge, 11, "online")
     row.badge.text:SetPoint("CENTER", row.badge, "CENTER", 0, 0)
     row:RegisterForClicks("AnyUp")
-    row:SetScript("OnClick", function(sel) if sel.member then Members:Select(sel.member) end end)
+    row:SetScript("OnClick", function(sel, button)
+        local member = sel.member
+        if not member then return end
+        if button == "RightButton" then
+            GameTooltip:Hide()
+            Members:OpenPlayerMenu(member, button)
+        else
+            Members:Select(member)
+        end
+    end)
     row:SetScript("OnEnter", function(sel)
         Members:UpdateRowBackground(sel)
         Members:ShowTooltip(sel)
