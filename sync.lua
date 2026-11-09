@@ -34,11 +34,14 @@ function Sync:GetData(shortName)
     local store = self:GetStore()
     if store == nil or shortName == nil then return nil end
 
-    return store[self:GetKey(shortName)]
+    return store[self:GetKey(shortName)] or store[strlower(strsplit("-", shortName))]
 end
 
 function Sync:GetKey(name)
-    return strlower(strsplit("-", name))
+    local shortName = strsplit("-", name)
+    if GuildHelper:IsForever() then shortName = shortName:match("^%S+") or shortName end
+
+    return strlower(shortName)
 end
 
 function Sync:OnUpdate(callback)
@@ -121,6 +124,10 @@ function Sync:Store(shortName, ilvl, professions)
     self:Notify()
 end
 
+function Sync:Trace(...)
+    if self.debug then print("[GuildHelper Sync]", ...) end
+end
+
 function Sync:BuildSpecs()
     local parts = {"S", GuildHelper.Specs:GetMainName() or ""}
     for _, entry in ipairs(GuildHelper.Specs:GetOwn()) do
@@ -145,6 +152,7 @@ function Sync:ParseSpecs(shortName, message)
     end
 
     entry.main = parts[2] or ""
+    self:Trace("S", shortName, "Main:", entry.main ~= "" and entry.main or "(leer)")
     entry.specs = specs
     if parts[#GuildHelper.Specs.SLOTS + 3] ~= nil then entry.twitch = parts[#GuildHelper.Specs.SLOTS + 3] end
     self:Notify()
@@ -158,7 +166,9 @@ function Sync:SendSpecs()
     self:Notify()
     self:Send(message, "S")
     self:Send("T~" .. GuildHelper.Specs:GetTwitch(), "T")
-    self:Send("M~" .. (GuildHelper.Specs:GetMainName() or ""), "M")
+    local main = GuildHelper.Specs:GetMainName()
+    self:Trace("Gespeicherter Main:", main or "(leer)", "Gilde:", self:GetGuildKey() or "(keine)")
+    self:Send("M~" .. (main or ""), "M")
 end
 
 function Sync:Parse(shortName, message)
@@ -195,14 +205,6 @@ function Sync:Send(message, key, prefix)
     self:Pump(0)
 end
 
-function Sync:IsThrottled(result)
-    if result == false then return true end
-    local codes = Enum and Enum.SendAddonMessageResult
-    if not codes or result == nil then return false end
-
-    return result == codes.AddonMessageThrottle or result == codes.ChannelThrottle
-end
-
 function Sync:Transmit(message, prefix)
     local ok, result = false, nil
     if C_ChatInfo and C_ChatInfo.SendAddonMessage then
@@ -211,7 +213,14 @@ function Sync:Transmit(message, prefix)
         ok, result = pcall(SendAddonMessage, prefix or self.PREFIX, message, "GUILD")
     end
 
-    return not ok or not self:IsThrottled(result)
+    if (prefix or self.PREFIX) == self.PREFIX and strsub(message, 1, 2) == "M~" then
+        self:Trace("Versand:", message, ok and "API-Ergebnis:" or "API-Fehler:", tostring(result))
+    end
+    if not ok or result == false then return false end
+    local codes = Enum and Enum.SendAddonMessageResult
+    if type(result) == "number" and codes then return result == codes.Success end
+
+    return true
 end
 
 function Sync:Pump(elapsed)
@@ -265,14 +274,18 @@ end
 
 function Sync:OnMessage(message, channel, sender)
     if channel ~= "GUILD" or type(message) ~= "string" or type(sender) ~= "string" then return end
-    if not GuildHelper:CanAccessValues(message, sender) then return end
+    if not GuildHelper:CanAccessValues(message, sender) then
+        self:Trace("Gildennachricht vom Client gesperrt")
+
+        return
+    end
     if strsub(message, 1, 2) == "F~" and GuildHelper.Groups then
         GuildHelper.Groups:OnMessage(message, sender)
 
         return
     end
     local shortName = strsplit("-", sender)
-    if shortName == UnitName("player") then return end
+    if self:GetKey(shortName) == self:GetKey(UnitName("player") or "") then return end
     local kind = strsub(message, 1, 1)
     if kind == "I" then
         self:Parse(shortName, message)
@@ -288,6 +301,7 @@ function Sync:OnMessage(message, channel, sender)
         local entry = self:GetEntry(shortName)
         if entry then
             entry.main = strsub(message, 3)
+            self:Trace("M empfangen:", shortName, "Main:", entry.main ~= "" and entry.main or "(leer)")
             self:Notify()
         end
     elseif kind == "Q" then
@@ -296,6 +310,15 @@ function Sync:OnMessage(message, channel, sender)
 end
 
 function Sync:Init()
+    GuildHelper:AddSlash("ghsyncdebug", function()
+        Sync.debug = not Sync.debug
+        print("[GuildHelper Sync]", Sync.debug and "Debug an" or "Debug aus")
+        if Sync.debug then
+            Sync:SendSpecs()
+            Sync:Send("Q")
+        end
+    end)
+
     if C_ChatInfo and C_ChatInfo.RegisterAddonMessagePrefix then
         C_ChatInfo.RegisterAddonMessagePrefix(self.PREFIX)
     elseif RegisterAddonMessagePrefix then

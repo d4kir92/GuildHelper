@@ -241,7 +241,7 @@ end
 function Specs:IsMain()
     local main = self:GetMainName()
 
-    return main ~= nil and strlower(main) == strlower(UnitName("player") or "")
+    return main ~= nil and GuildHelper.Sync:GetKey(main) == GuildHelper.Sync:GetKey(UnitName("player") or "")
 end
 
 function Specs:SetMain(value)

@@ -161,7 +161,7 @@ function Members:GetDeclaredMain(member, byName)
     local data = self:GetData(member)
     local main = data and data.main
     if main == nil or main == "" then return nil end
-    local key = strlower(self:ShortName(main))
+    local key = GuildHelper.Sync:GetKey(main)
     if key == member.key then return member end
 
     return byName[key]
@@ -219,7 +219,7 @@ function Members:Scan()
             local member = {
                 name = name,
                 short = short,
-                key = strlower(short),
+                key = GuildHelper.Sync:GetKey(short),
                 rank = rankName or "",
                 rankIndex = rankIndex or 0,
                 level = level or 0,
@@ -1390,7 +1390,7 @@ function Members:IsSelf(member)
     if guid and member.guid then return member.guid == guid end
     local name = UnitName("player") or ""
 
-    return strlower(member.short) == strlower(self:ShortName(name))
+    return member.key == GuildHelper.Sync:GetKey(name)
 end
 
 function Members:CanViewOfficerNote()
