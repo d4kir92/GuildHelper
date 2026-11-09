@@ -247,6 +247,25 @@ function Sync:Pump(elapsed)
     end
 end
 
+function Sync:GetOwnPortraitDisplayID()
+    if not SetPortraitTextureFromCreatureDisplayID then return nil end
+    if not self.portraitModel then
+        self.portraitModel = CreateFrame("PlayerModel", nil, UIParent)
+        self.portraitModel:SetSize(1, 1)
+        self.portraitModel:SetPoint("CENTER")
+        self.portraitModel:SetAlpha(0)
+    end
+
+    local model = self.portraitModel
+    if not model.GetDisplayInfo then return nil end
+    local ok, applied = pcall(model.SetUnit, model, "player")
+    if not ok or applied == false then return nil end
+    local read, id = pcall(model.GetDisplayInfo, model)
+    if read and GuildHelper:CanAccessValues(id) and type(id) == "number" and id > 0 then return id end
+
+    return nil
+end
+
 function Sync:SendInfo(force)
     if not IsInGuild() then return end
     local now = GetTime()
@@ -261,6 +280,7 @@ function Sync:SendInfo(force)
     self:Parse(UnitName("player"), message)
     self:Send(message, "I")
     self:SendSpecs()
+    self:Send(format("A~%d", self:GetOwnPortraitDisplayID() or 0), "A")
 end
 
 function Sync:ScheduleInfo(delay)
@@ -302,6 +322,16 @@ function Sync:OnMessage(message, channel, sender)
         if entry then
             entry.main = strsub(message, 3)
             self:Trace("M empfangen:", shortName, "Main:", entry.main ~= "" and entry.main or "(leer)")
+            self:Notify()
+        end
+    elseif kind == "A" then
+        local rawID = message:match("^A~(%d+)$")
+        local id = rawID and #rawID <= 10 and tonumber(rawID)
+        if not id or id > 2147483647 then return end
+        local entry = self:GetEntry(shortName)
+        local displayID = id > 0 and id or nil
+        if entry and entry.portraitDisplayID ~= displayID then
+            entry.portraitDisplayID = displayID
             self:Notify()
         end
     elseif kind == "Q" then

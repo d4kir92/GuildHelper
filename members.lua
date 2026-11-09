@@ -222,6 +222,7 @@ function Members:Scan()
                 key = GuildHelper.Sync:GetKey(short),
                 rank = rankName or "",
                 rankIndex = rankIndex or 0,
+                isGuildLeader = rankIndex == 0,
                 level = level or 0,
                 className = className or "",
                 classFile = classFile,
@@ -943,12 +944,9 @@ function Members:CreateRow(parent, index)
     row.line:SetHeight(1)
     row.line:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", 0, 0)
     row.line:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT", 0, 0)
-    row.dot = row:CreateTexture(nil, "ARTWORK")
-    row.dot:SetTexture(Theme.MEDIA .. "circle")
-    row.dot:SetSize(7, 7)
-    row.dot:SetPoint("LEFT", row, "LEFT", self.NAMEX, 0)
+    row.avatar = self:CreateAvatar(row, 22, 11)
     row.name = Theme:Text(row, 13.5)
-    row.name:SetPoint("LEFT", row, "LEFT", self.NAMEX + 15, 0)
+    row.name:SetPoint("LEFT", row, "LEFT", self.NAMEX + 28, 0)
     row.tag = Theme:Text(row, 10.5, "muted")
     row.tag:SetPoint("LEFT", row.name, "RIGHT", 6, 0)
     row.level = Theme:Text(row, 13, "text")
@@ -997,17 +995,71 @@ function Members:GetSpecSortValue(member, slot)
     return strlower((entry.role or "") .. (entry.spec or ""))
 end
 
+function Members:CreateAvatar(parent, size, fontSize)
+    local avatar = CreateFrame("Frame", nil, parent)
+    avatar:SetSize(size, size)
+    local fallback = CreateFrame("Frame", nil, avatar)
+    fallback:SetAllPoints()
+    fallback:SetFrameLevel(avatar:GetFrameLevel())
+    fallback.border = fallback:CreateTexture(nil, "BACKGROUND")
+    fallback.border:SetTexture(Theme.MEDIA .. "circle")
+    fallback.border:SetAllPoints()
+    fallback.fill = fallback:CreateTexture(nil, "BORDER")
+    fallback.fill:SetTexture(Theme.MEDIA .. "circle")
+    fallback.fill:SetPoint("TOPLEFT", 1, -1)
+    fallback.fill:SetPoint("BOTTOMRIGHT", -1, 1)
+    fallback.letter = Theme:Text(fallback, fontSize)
+    fallback.letter:SetPoint("CENTER")
+    avatar.fallback = fallback
+    avatar.portrait = avatar:CreateTexture(nil, "ARTWORK")
+    avatar.portrait:SetAllPoints()
+    local crownSize = size == 22 and 12 or 16
+    local crownAtlas = "UI-HUD-UnitFrame-Player-Group-LeaderIcon"
+    avatar.crown = avatar:CreateTexture(nil, "OVERLAY")
+    avatar.crown:SetSize(crownSize, crownSize)
+    avatar.crown:SetPoint("BOTTOM", avatar, "TOP", 0, size == 22 and -4 or -6)
+    if avatar.crown.SetAtlas and C_Texture and C_Texture.GetAtlasInfo and C_Texture.GetAtlasInfo(crownAtlas) then
+        avatar.crown:SetAtlas(crownAtlas)
+    else
+        avatar.crown:SetTexture("Interface\\GroupFrame\\UI-Group-LeaderIcon")
+    end
+    avatar.crown:Hide()
+
+    return avatar
+end
+
+function Members:FillAvatar(avatar, member, data, r, g, b)
+    local portrait = avatar.portrait
+    local displayed = false
+    portrait:SetTexture(nil)
+    if self:IsSelf(member) and SetPortraitTexture then
+        displayed = pcall(SetPortraitTexture, portrait, "player")
+    elseif data and data.portraitDisplayID and SetPortraitTextureFromCreatureDisplayID then
+        displayed = pcall(SetPortraitTextureFromCreatureDisplayID, portrait, data.portraitDisplayID)
+    end
+
+    avatar.crown:SetShown(member.isGuildLeader)
+    portrait:SetShown(displayed)
+    local fallback = avatar.fallback
+    fallback:SetShown(not displayed)
+    if displayed then return end
+    fallback.border:SetVertexColor(r, g, b, 1)
+    fallback.fill:SetVertexColor(r * 0.28, g * 0.28, b * 0.28, 1)
+    fallback.letter:SetText(member.short:match("^[%z\1-\127\194-\244][\128-\191]*") or "?")
+    fallback.letter:SetTextColor(r, g, b)
+end
+
 function Members:FillRow(row, member)
     row.member = member
     local r, g, b = self:GetClassColor(member)
-    row.dot:SetVertexColor(r, g, b)
+    local data = self:GetData(member)
+    self:FillAvatar(row.avatar, member, data, r, g, b)
     row.name:SetText(member.short)
     row.name:SetTextColor(r, g, b)
     row.tag:SetText(member.main and not member.alts and GuildHelper:Trans("LID_ALTTAG") or "")
 
     self:FitName(row)
     row.level:SetText(member.level)
-    local data = self:GetData(member)
     local specs = data and data.specs or {}
     row.isMain:SetText(self:GetMainLabel(member))
     Theme:SetKey(row.isMain, member.declaredMain and "accent" or "muted")
@@ -1159,8 +1211,8 @@ function Members:LayoutRow(row)
         region:SetAlpha(shown[key] and 1 or 0)
     end
 
-    Place(row.dot, "name")
-    Place(row.name, "name", 15)
+    Place(row.avatar, "name")
+    Place(row.name, "name", 28)
     Place(row.level, "level")
     Place(row.isMain, "isMain")
     Place(row.mainSpec, "mainSpec", 0, 8)
@@ -1178,7 +1230,7 @@ end
 function Members:FitName(row)
     row.name:SetWidth(0)
     local tag = row.tag:GetText() or ""
-    local limit = self.nameWidth - 23 - (tag ~= "" and row.tag:GetStringWidth() + 6 or 0)
+    local limit = self.nameWidth - 36 - (tag ~= "" and row.tag:GetStringWidth() + 6 or 0)
     if row.name:GetStringWidth() > limit then row.name:SetWidth(max(20, limit)) end
 end
 
@@ -1316,13 +1368,8 @@ function Members:CreateDetail(content)
     detail.thumb:SetFrameLevel(scroll:GetFrameLevel() + 5)
     Theme:Round(detail.thumb, "thumb", 2)
     detail.thumb:Hide()
-    local avatar = CreateFrame("Frame", nil, body)
-    avatar:SetSize(40, 40)
+    local avatar = self:CreateAvatar(body, 40, 17)
     avatar:SetPoint("TOPLEFT", body, "TOPLEFT", 16, -16)
-    avatar.border = Theme:CreateShape(avatar, 8, "BACKGROUND", 0)
-    avatar.fill = Theme:CreateShape(avatar, 7, "BACKGROUND", 1, 1)
-    avatar.letter = Theme:Text(avatar, 17)
-    avatar.letter:SetPoint("CENTER", avatar, "CENTER", 0, 0)
     detail.avatar = avatar
     detail.name = Theme:Text(body, 18)
     detail.name:SetPoint("TOPLEFT", avatar, "TOPRIGHT", 12, -2)
@@ -1557,10 +1604,8 @@ function Members:UpdateDetail()
         return
     end
     local r, g, b = self:GetClassColor(member)
-    detail.avatar.border:SetColor(r, g, b, 1)
-    detail.avatar.fill:SetColor(r * 0.28, g * 0.28, b * 0.28, 1)
-    detail.avatar.letter:SetText(member.short:match("^[%z\1-\127\194-\244][\128-\191]*") or "?")
-    detail.avatar.letter:SetTextColor(r, g, b)
+    local data = self:GetData(member)
+    self:FillAvatar(detail.avatar, member, data, r, g, b)
     detail.name:SetText(member.short)
     detail.name:SetTextColor(r, g, b)
     detail.sub:SetText(GuildHelper:Trans("LID_CLASSLEVEL", nil, member.className, member.level))
@@ -1575,7 +1620,6 @@ function Members:UpdateDetail()
     end
 
     detail.rank.value:SetText(member.rank)
-    local data = self:GetData(member)
     local professions = data and data.professions or {}
     local y = -136
     local hasSpecs = data ~= nil and data.specs ~= nil
