@@ -6,11 +6,10 @@ local Dashboard = {}
 GuildHelper.Dashboard = Dashboard
 Dashboard.LINE = 22
 Dashboard.TOP = 70
-Dashboard.STATSTOP = 186
+Dashboard.MOTDTOP = 146
 Dashboard.SCROLLTOP = 66
 Dashboard.SCROLLPAD = 4
-Dashboard.MINLOWER = 358
-Dashboard.MYCARDHEIGHT = 176
+Dashboard.MINLOWER = 398
 Dashboard.CHATLIMIT = 50
 Dashboard.CHATMAX = 500
 function Dashboard:CheckGuild()
@@ -169,19 +168,6 @@ function Dashboard:CreateCard(parent, label)
     return card
 end
 
-function Dashboard:CreateStat(parent, label)
-    local stat = CreateFrame("Frame", nil, parent)
-    stat:SetHeight(64)
-    Theme:Panel(stat, "card", "border", 9)
-    stat.label = Theme:Text(stat, 11, "muted")
-    stat.label:SetPoint("TOPLEFT", stat, "TOPLEFT", 14, -12)
-    Theme:SetTrans(stat.label, label, true)
-    stat.value = Theme:Text(stat, 22, "text")
-    stat.value:SetPoint("TOPLEFT", stat, "TOPLEFT", 14, -30)
-
-    return stat
-end
-
 function Dashboard:CreateList(card)
     local scroll = CreateFrame("ScrollFrame", nil, card)
     scroll:SetPoint("TOPLEFT", card, "TOPLEFT", 6, -34)
@@ -295,7 +281,7 @@ function Dashboard:CreatePage(content)
     scroll:SetScript("OnMouseWheel", function(_, delta) Dashboard:ScrollPage(delta) end)
     scroll:SetScript("OnSizeChanged", function(sel, width, height)
         body:SetWidth(max(1, width or sel:GetWidth()))
-        body:SetHeight(max(height or sel:GetHeight(), self.STATSTOP - self.SCROLLTOP + self.MINLOWER + self.MYCARDHEIGHT + 12 + self.SCROLLPAD))
+        body:SetHeight(max(height or sel:GetHeight(), self.MOTDTOP - self.SCROLLTOP + self.MINLOWER + self.SCROLLPAD))
         Dashboard:UpdatePageThumb()
     end)
 
@@ -317,14 +303,14 @@ end
 
 function Dashboard:CreateMOTD(content)
     local card = self:CreateTextCard(content, "LID_MOTD")
-    card:SetPoint("TOPLEFT", content, "TOPLEFT", Window.PADDING, -self.TOP + self.SCROLLTOP)
+    card:SetPoint("TOPLEFT", content, "TOPLEFT", Window.PADDING, -self.MOTDTOP + self.SCROLLTOP)
     card:SetHeight(102)
     card.hit = Members:CreateEditLink(card, card.title, card.title)
 
     self.motd = card
     self.information = self:CreateTextCard(content, "LID_GUILDINFORMATION")
     self.information:SetPoint("TOPLEFT", card, "TOPRIGHT", 12, 0)
-    self.information:SetPoint("BOTTOMRIGHT", content, "TOPRIGHT", -Window.MARGIN, -self.TOP + self.SCROLLTOP - 102)
+    self.information:SetPoint("BOTTOMRIGHT", content, "TOPRIGHT", -Window.MARGIN, -self.MOTDTOP + self.SCROLLTOP - 102)
 end
 
 function Dashboard:CreateTextCard(parent, label)
@@ -345,45 +331,40 @@ end
 
 function Dashboard:CreateStats(content)
     local stats = CreateFrame("Frame", nil, content)
-    stats:SetPoint("TOPLEFT", content, "TOPLEFT", Window.PADDING, -self.STATSTOP + self.SCROLLTOP)
+    stats:SetPoint("TOPLEFT", content, "TOPLEFT", Window.PADDING, -self.TOP + self.SCROLLTOP)
+    stats:SetPoint("TOPRIGHT", content, "TOPRIGHT", -Window.MARGIN, -self.TOP + self.SCROLLTOP)
     stats:SetHeight(64)
-    stats.items = {self:CreateStat(stats, "LID_ONLINENOW"), self:CreateStat(stats, "LID_GUILDHELPERUSERS")}
-    stats:SetScript("OnSizeChanged", function(sel, width)
-        local size = ((width or sel:GetWidth()) - 12) / #sel.items
-        for i, item in ipairs(sel.items) do
-            item:ClearAllPoints()
-            item:SetPoint("TOPLEFT", sel, "TOPLEFT", (i - 1) * (size + 12), 0)
-            item:SetWidth(max(1, size))
+    Theme:Panel(stats, "card", "border", 9)
+    local fields = {
+        {"online", "LID_ONLINENOW"},
+        {"users", "LID_GUILDHELPERUSERS"},
+        {"average", "LID_AVGILVLONLINE"},
+        {"maxAverage", "LID_AVGILVLMAXLEVEL"},
+    }
+    for _, field in ipairs(fields) do
+        local cell = CreateFrame("Frame", nil, stats)
+        local label = Theme:Text(cell, 11, "muted")
+        label:SetPoint("TOPLEFT", cell, "TOPLEFT", 14, -12)
+        label:SetPoint("RIGHT", cell, "RIGHT", -8, 0)
+        label:SetJustifyH("LEFT")
+        label:SetWordWrap(false)
+        Theme:SetTrans(label, field[2], true)
+        local value = Theme:Text(cell, 22, "text")
+        value:SetPoint("TOPLEFT", cell, "TOPLEFT", 14, -30)
+        stats[field[1]] = cell
+        cell.value = value
+    end
+    stats:SetScript("OnSizeChanged", function(_, width)
+        local cellWidth = max(1, width / #fields)
+        for index, field in ipairs(fields) do
+            local cell = stats[field[1]]
+            cell:ClearAllPoints()
+            cell:SetPoint("TOPLEFT", stats, "TOPLEFT", (index - 1) * cellWidth, 0)
+            cell:SetSize(cellWidth, 64)
         end
     end)
-
     stats:GetScript("OnSizeChanged")(stats, stats:GetWidth())
     self.stats = stats
-end
-
-function Dashboard:CreateMyCard(body)
-    local card = self:CreateCard(body, "LID_MYGUILDCARD")
-    card:SetPoint("BOTTOMLEFT", body, "BOTTOMLEFT", Window.PADDING, self.SCROLLPAD)
-    card:SetPoint("BOTTOMRIGHT", body, "BOTTOMRIGHT", -Window.MARGIN, self.SCROLLPAD)
-    card:SetHeight(self.MYCARDHEIGHT)
-    card.rank = Theme:Text(card, 13, "text")
-    card.rank:SetPoint("TOPLEFT", card, "TOPLEFT", 16, -34)
-    card.rank:SetPoint("RIGHT", card, "RIGHT", -16, 0)
-    card.noteHeader = Theme:Text(card, 11, "muted")
-    card.noteHeader:SetPoint("TOPLEFT", card, "TOPLEFT", 16, -62)
-    Theme:SetTrans(card.noteHeader, "LID_NOTE", true)
-    card.noteText = Theme:Text(card, 12.5, "text")
-    card.noteText:SetPoint("TOPLEFT", card.noteHeader, "BOTTOMLEFT", 0, -6)
-    card.noteText:SetPoint("RIGHT", card, "RIGHT", -16, 0)
-    card.officerHeader = Theme:Text(card, 11, "muted")
-    card.officerHeader:SetPoint("TOPLEFT", card, "TOPLEFT", 16, -112)
-    Theme:SetTrans(card.officerHeader, "LID_OFFICERNOTE", true)
-    card.officerText = Theme:Text(card, 12.5, "text")
-    card.officerText:SetPoint("TOPLEFT", card.officerHeader, "BOTTOMLEFT", 0, -6)
-    card.officerText:SetPoint("RIGHT", card, "RIGHT", -16, 0)
-    card.noteHit = Members:CreateEditLink(card, card.noteHeader, card.noteText)
-    card.officerHit = Members:CreateEditLink(card, card.officerHeader, card.officerText)
-    self.myCard = card
 end
 
 function Dashboard:Build(content)
@@ -392,41 +373,32 @@ function Dashboard:Build(content)
     self.guildName = Theme:Text(content, 13, "muted")
     self.guildName:SetPoint("BOTTOMLEFT", title, "BOTTOMRIGHT", 10, 1)
     local body = self:CreatePage(content)
-    local top = -self.STATSTOP + self.SCROLLTOP
     self:CreateMOTD(body)
     self:CreateStats(body)
-    local side = CreateFrame("Frame", nil, body)
-    side:SetPoint("TOPRIGHT", body, "TOPRIGHT", -Window.MARGIN, top)
-    self:CreateMyCard(body)
-    side:SetPoint("BOTTOMRIGHT", self.myCard, "TOPRIGHT", 0, 12)
-    self.side = side
-    self.stats.average = self:CreateStat(side, "LID_AVGILVLONLINE")
-    self.stats.average:SetPoint("TOPLEFT", side, "TOPLEFT", 0, 0)
-    self.stats.average:SetPoint("TOPRIGHT", side, "TOPRIGHT", 0, 0)
-    self.zones = self:CreateList(self:CreateCard(side, "LID_WHOISWHERE"))
-    self.zones:SetPoint("TOPLEFT", self.stats.average, "BOTTOMLEFT", 0, -12)
-    self.zones:SetPoint("BOTTOMRIGHT", side, "RIGHT", 0, -32)
-    self.professions = self:CreateList(self:CreateCard(side, "LID_GUILDPROFESSIONS"))
-    self.professions:SetPoint("TOPLEFT", self.zones, "BOTTOMLEFT", 0, -12)
-    self.professions:SetPoint("BOTTOMRIGHT", side, "BOTTOMRIGHT", 0, 0)
     self.news = self:CreateTextCard(body, "LID_GUILDNEWS")
     self.newsFilterButton = Members:CreatePill(self.news, GuildHelper:Trans("LID_NEWSFILTERS"))
     self.newsFilterButton:SetPoint("TOPRIGHT", self.news, "TOPRIGHT", -10, -5)
     self.newsFilterButton:SetScript("OnClick", function() Dashboard:ToggleNewsFilters() end)
     self.newsFilterButton:SetEnabled(GetGuildNewsFilters ~= nil and SetGuildNewsFilter ~= nil)
     self.news.title:SetPoint("RIGHT", self.newsFilterButton, "LEFT", -8, 0)
-    self.stats:SetPoint("TOPRIGHT", side, "TOPLEFT", -12, 0)
-    self.news:SetPoint("TOPLEFT", self.stats, "BOTTOMLEFT", 0, -12)
-    self.news:SetPoint("TOPRIGHT", self.stats, "BOTTOMRIGHT", 0, -12)
-    self.news:SetHeight(88)
+    self.news:SetPoint("TOPLEFT", self.motd, "BOTTOMLEFT", 0, -12)
+    self.news:SetPoint("RIGHT", self.motd, "RIGHT")
+    self.news:SetHeight(110)
+    self.professions = self:CreateList(self:CreateCard(body, "LID_GUILDPROFESSIONS"))
+    self.professions:SetPoint("TOPLEFT", self.news, "TOPRIGHT", 12, 0)
+    self.professions:SetPoint("RIGHT", self.stats, "RIGHT")
+    self.professions:SetPoint("BOTTOM", self.news, "BOTTOM")
     self.chat = self:CreateChat(body)
     self.chat:SetPoint("TOPLEFT", self.news, "BOTTOMLEFT", 0, -12)
-    self.chat:SetPoint("BOTTOMRIGHT", side, "BOTTOMLEFT", -12, 0)
+    self.chat:SetPoint("RIGHT", self.news, "RIGHT")
+    self.chat:SetPoint("BOTTOM", body, "BOTTOM", 0, self.SCROLLPAD)
+    self.zones = self:CreateList(self:CreateCard(body, "LID_WHOISWHERE"))
+    self.zones:SetPoint("TOPLEFT", self.professions, "BOTTOMLEFT", 0, -12)
+    self.zones:SetPoint("RIGHT", self.professions, "RIGHT")
+    self.zones:SetPoint("BOTTOM", self.chat, "BOTTOM")
     content:SetScript("OnSizeChanged", function(_, width)
         local available = width - Window.PADDING - Window.MARGIN
         self.motd:SetWidth(max(1, (available - 12) / 2))
-        local columnWidth = max(1, (available - 24) / 3)
-        side:SetWidth(columnWidth)
     end)
 
     content:GetScript("OnSizeChanged")(content, content:GetWidth())
@@ -465,12 +437,22 @@ function Dashboard:UpdateMOTD()
 end
 
 function Dashboard:UpdateStats()
-    local total, online, users, sum, count = #Members.list, 0, 0, 0, 0
+    local total, online, users, onlineUsers, sum, count = #Members.list, 0, 0, 0, 0, 0
+    local maxSum, maxCount = 0, 0
+    local maxLevel = 60
+    if not GuildHelper:IsForever() and GetMaxLevelForPlayerExpansion then
+        maxLevel = GetMaxLevelForPlayerExpansion() or maxLevel
+    end
     for _, member in ipairs(Members.list) do
         local data = Members:GetData(member)
         if data then users = users + 1 end
+        if member.level == maxLevel and data and data.ilvl then
+            maxSum = maxSum + data.ilvl
+            maxCount = maxCount + 1
+        end
         if member.online then
             online = online + 1
+            if data then onlineUsers = onlineUsers + 1 end
             if data and data.ilvl then
                 sum = sum + data.ilvl
                 count = count + 1
@@ -478,10 +460,11 @@ function Dashboard:UpdateStats()
         end
     end
 
-    local items = self.stats.items
-    items[1].value:SetText(format("%s%d|r / %d", Theme:GetHex("online"), online, total))
-    items[2].value:SetText(format("%d / %d", users, total))
+    local onlineColor = Theme:GetHex("online")
+    self.stats.online.value:SetText(format("%s%d|r / %d", onlineColor, online, total))
+    self.stats.users.value:SetText(format("%s%d|r / %d", onlineColor, onlineUsers, users))
     self.stats.average.value:SetText(count > 0 and format("%.1f", sum / count) or "–")
+    self.stats.maxAverage.value:SetText(maxCount > 0 and format("%.1f", maxSum / maxCount) or "–")
 end
 
 function Dashboard:UpdateZones()
@@ -563,69 +546,11 @@ function Dashboard:UpdateProfessions()
     self:FinishList(self.professions, #order)
 end
 
-function Dashboard:UpdateMyCard()
-    local card = self.myCard
-    local member = Members:GetSelf()
-    local viewOfficer = Members:CanViewOfficerNote()
-    card.rank:SetText(member and format("%s: %s", GuildHelper:Trans("LID_RANK"), member.rank) or "")
-    card.noteText:SetText(member and member.note ~= "" and member.note or "–")
-    Theme:SetKey(card.noteText, member and member.note ~= "" and "text" or "muted")
-    card.officerHeader:SetShown(viewOfficer)
-    card.officerText:SetShown(viewOfficer)
-    card.officerText:SetText(member and member.officerNote ~= "" and member.officerNote or "–")
-    Theme:SetKey(card.officerText, member and member.officerNote ~= "" and "text" or "muted")
-    Members:UpdateNoteEditor(card.noteHit, member, Members:CanEditPublicNote(member))
-    Members:UpdateNoteEditor(card.officerHit, viewOfficer and member or nil, Members:CanEditOfficerNote())
-end
-
-function Dashboard:CreateChatScrollbar(card, messages)
-    local slider = CreateFrame("Slider", nil, card)
-    slider:SetPoint("TOPRIGHT", card, "TOPRIGHT", -10, -34)
-    slider:SetPoint("BOTTOMRIGHT", card, "BOTTOMRIGHT", -10, 8)
-    slider:SetWidth(10)
-    slider:SetOrientation("VERTICAL")
-    slider:SetValueStep(1)
-
-    local track = CreateFrame("Frame", nil, slider)
-    track:SetPoint("TOP", slider, "TOP")
-    track:SetPoint("BOTTOM", slider, "BOTTOM")
-    track:SetWidth(4)
-    Theme:Round(track, "border", 2)
-    local thumb = slider:CreateTexture(nil, "OVERLAY")
-    thumb:SetSize(8, 22)
-    thumb:SetColorTexture(1, 1, 1, 1)
-    Theme:Track(thumb, "texture", "thumb")
-    slider:SetThumbTexture(thumb)
-
-    function card:UpdateScrollbar()
-        local range = messages:GetMaxScrollRange()
-        slider.syncing = true
-        slider:SetMinMaxValues(0, max(1, range))
-        slider:SetValue(range > 0 and range - messages:GetScrollOffset() or 1)
-        slider:EnableMouse(range > 0)
-        thumb:SetShown(range > 0)
-        slider.syncing = nil
-    end
-
-    slider:SetScript("OnValueChanged", function(frame, value)
-        if frame.syncing then return end
-        messages:SetScrollOffset(max(0, messages:GetMaxScrollRange() - value))
-        if messages:AtTop() then self:RequestChatHistory() end
-    end)
-    if messages.SetOnScrollChangedCallback then
-        messages:SetOnScrollChangedCallback(function() card:UpdateScrollbar() end)
-    end
-
-    messages:HookScript("OnSizeChanged", function() card:UpdateScrollbar() end)
-    card:UpdateScrollbar()
-end
-
 function Dashboard:CreateChat(parent)
-    local card = self:CreateCard(parent)
-    card.title:SetText(CHAT_MSG_GUILD or GUILD)
+    local card = self:CreateCard(parent, "LID_CHAT")
     local messages = CreateFrame("ScrollingMessageFrame", nil, card)
     messages:SetPoint("TOPLEFT", card, "TOPLEFT", 16, -34)
-    messages:SetPoint("BOTTOMRIGHT", card, "BOTTOMRIGHT", -26, 8)
+    messages:SetPoint("BOTTOMRIGHT", card, "BOTTOMRIGHT", -16, 8)
     messages:SetMaxLines(self.CHATMAX)
     messages:SetFading(false)
     messages:SetJustifyH("LEFT")
@@ -634,15 +559,13 @@ function Dashboard:CreateChat(parent)
         SetItemRef(link, text, button, DEFAULT_CHAT_FRAME)
     end)
     Theme:Track(messages, "text", nil, 13)
-    self:CreateChatScrollbar(card, messages)
     messages:EnableMouseWheel(true)
     messages:SetScript("OnMouseWheel", function(frame, delta)
         local atEdge = delta > 0 and frame:AtTop() or delta < 0 and frame:AtBottom()
-        for _ = 1, 3 do
+        for _ = 1, 2 do
             if delta > 0 then frame:ScrollUp() else frame:ScrollDown() end
         end
 
-        card:UpdateScrollbar()
         if delta > 0 and frame:AtTop() and self:RequestChatHistory() then return end
         if atEdge then self:ScrollPage(delta) end
     end)
@@ -791,13 +714,12 @@ function Dashboard:UpdateChat()
 
     if offset > 0 and frame.SetScrollOffset then frame:SetScrollOffset(offset) end
     card.chatText, card.chatR, card.chatG, card.chatB = text, r, g, b
-    card:UpdateScrollbar()
 end
 
 function Dashboard:Update()
     if not self:IsVisible() then return end
     local inGuild = IsInGuild()
-    for _, region in ipairs({self.motd, self.information, self.news, self.stats, self.side, self.myCard, self.chat}) do
+    for _, region in ipairs({self.motd, self.information, self.news, self.stats, self.professions, self.zones, self.chat}) do
         region:SetShown(inGuild)
     end
 
@@ -815,7 +737,6 @@ function Dashboard:Update()
     self:UpdateStats()
     self:UpdateZones()
     self:UpdateProfessions()
-    self:UpdateMyCard()
     self:UpdateChat()
 end
 
@@ -828,10 +749,8 @@ function Dashboard:Reset()
     self.news = nil
     self.chat = nil
     self.stats = nil
-    self.side = nil
     self.zones = nil
     self.professions = nil
-    self.myCard = nil
 end
 
 Window:OnRebuild(function() Dashboard:Reset() end)
