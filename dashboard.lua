@@ -525,7 +525,7 @@ function Dashboard:UpdateProfessions()
         local data = Members:GetData(member)
         local seen = {}
         for _, prof in ipairs(data and data.professions or {}) do
-            local id = prof[4] or sync:GetProfessionID(prof[1])
+            local id = sync:GetProfessionID(prof[1], prof[4])
             local key = id or prof[1]
             if counts[key] == nil then
                 counts[key] = 0

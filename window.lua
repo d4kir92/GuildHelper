@@ -649,10 +649,13 @@ function Window:StartScaling(grip)
     local startX = GetCursorPosition()
     local width = frame:GetWidth() * frame:GetEffectiveScale()
     grip.mode = "scale"
+    grip.scaleBadge.text:SetFormattedText("%d%%", floor(startScale * 100 + 0.5))
+    grip.scaleBadge:Show()
     grip:SetScript("OnUpdate", function(sel)
         if IsMouseButtonDown and not IsMouseButtonDown("LeftButton") then return Window:StopResize(sel) end
         local x = GetCursorPosition()
         Window:SetScaleKeepPosition(startScale * (width + x - startX) / width)
+        sel.scaleBadge.text:SetFormattedText("%d%%", floor(frame:GetScale() * 100 + 0.5))
     end)
 end
 
@@ -677,6 +680,7 @@ function Window:StopResize(grip)
     local frame = self.frame
     if grip.mode == nil then return end
     grip:SetScript("OnUpdate", nil)
+    grip.scaleBadge:Hide()
     if grip.mode == "size" then
         GuildHelper:SetConfig("WIDTH", floor(frame:GetWidth() + 0.5))
         GuildHelper:SetConfig("HEIGHT", floor(frame:GetHeight() + 0.5))
@@ -702,6 +706,14 @@ function Window:CreateResizeGrip()
     grip:SetSize(16, 16)
     grip:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -5, 5)
     grip:SetFrameLevel(frame:GetFrameLevel() + 20)
+    local scaleBadge = CreateFrame("Frame", nil, grip)
+    scaleBadge:SetSize(52, 24)
+    scaleBadge:SetPoint("RIGHT", grip, "LEFT", -6, 3)
+    Theme:Panel(scaleBadge, "control", "border", 6)
+    scaleBadge.text = Theme:Text(scaleBadge, 13, "text")
+    scaleBadge.text:SetPoint("CENTER")
+    scaleBadge:Hide()
+    grip.scaleBadge = scaleBadge
     grip:SetNormalTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Up")
     grip:SetHighlightTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Highlight")
     grip:SetPushedTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Down")

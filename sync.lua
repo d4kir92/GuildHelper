@@ -66,11 +66,22 @@ function Sync:GetOwnItemLevel()
     return nil
 end
 
-Sync.professionIDs = {
-    [129] = "First Aid", [164] = "Blacksmithing", [165] = "Leatherworking",
-    [171] = "Alchemy", [182] = "Herbalism", [185] = "Cooking", [186] = "Mining",
-    [197] = "Tailoring", [202] = "Engineering", [333] = "Enchanting", [356] = "Fishing",
-    [393] = "Skinning", [755] = "Jewelcrafting", [773] = "Inscription", [794] = "Archaeology",
+Sync.professionNames = {
+    [129] = {enUS = "First Aid", deDE = "Erste Hilfe"},
+    [164] = {enUS = "Blacksmithing", deDE = "Schmiedekunst"},
+    [165] = {enUS = "Leatherworking", deDE = "Lederverarbeitung"},
+    [171] = {enUS = "Alchemy", deDE = "Alchimie"},
+    [182] = {enUS = "Herbalism", deDE = "Kräuterkunde"},
+    [185] = {enUS = "Cooking", deDE = "Kochkunst"},
+    [186] = {enUS = "Mining", deDE = "Bergbau"},
+    [197] = {enUS = "Tailoring", deDE = "Schneiderei"},
+    [202] = {enUS = "Engineering", deDE = "Ingenieurskunst"},
+    [333] = {enUS = "Enchanting", deDE = "Verzauberkunst"},
+    [356] = {enUS = "Fishing", deDE = "Angeln"},
+    [393] = {enUS = "Skinning", deDE = "Kürschnerei"},
+    [755] = {enUS = "Jewelcrafting", deDE = "Juwelierskunst"},
+    [773] = {enUS = "Inscription", deDE = "Inschriftenkunde"},
+    [794] = {enUS = "Archaeology", deDE = "Archäologie"},
 }
 
 function Sync:GetProfessionName(id, fallback)
@@ -78,7 +89,9 @@ function Sync:GetProfessionName(id, fallback)
         local name
         if C_TradeSkillUI.GetTradeSkillDisplayName then
             name = C_TradeSkillUI.GetTradeSkillDisplayName(id)
-        elseif C_TradeSkillUI.GetProfessionInfoBySkillLineID then
+        end
+
+        if (not name or name == "") and C_TradeSkillUI.GetProfessionInfoBySkillLineID then
             local info = C_TradeSkillUI.GetProfessionInfoBySkillLineID(id)
             name = info and info.professionName
         end
@@ -86,12 +99,19 @@ function Sync:GetProfessionName(id, fallback)
         if name and name ~= "" then return name end
     end
 
-    return fallback
+    local names = self.professionNames[id]
+
+    return names and names[GetLocale()] or fallback
 end
 
-function Sync:GetProfessionID(name)
-    for id, englishName in pairs(self.professionIDs) do
-        if name == englishName or name == self:GetProfessionName(id) then return id end
+function Sync:GetProfessionID(name, id)
+    if id and id > 0 then return id end
+    for skillLineID, names in pairs(self.professionNames) do
+        if name == names.enUS or name == names.deDE then return skillLineID end
+    end
+
+    for skillLineID in pairs(self.professionNames) do
+        if name == self:GetProfessionName(skillLineID) then return skillLineID end
     end
 end
 
@@ -104,7 +124,7 @@ function Sync:GetOwnProfessions()
             if index then
                 local name, _, rank, maxRank, _, _, skillLineID = GetProfessionInfo(index)
                 if name then
-                    tinsert(list, {name, rank or 0, maxRank or 0, skillLineID or self:GetProfessionID(name)})
+                    tinsert(list, {name, rank or 0, maxRank or 0, self:GetProfessionID(name, skillLineID)})
                 end
             end
         end
