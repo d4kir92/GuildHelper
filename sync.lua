@@ -34,14 +34,26 @@ function Sync:GetData(shortName)
     local store = self:GetStore()
     if store == nil or shortName == nil then return nil end
 
-    return store[self:GetKey(shortName)] or store[strlower(strsplit("-", shortName))]
+    return store[self:GetKey(shortName)]
 end
 
 function Sync:GetKey(name)
     local shortName = strsplit("-", name)
-    if GuildHelper:IsForever() then shortName = shortName:match("^%S+") or shortName end
 
     return strlower(shortName)
+end
+
+function Sync:GetOwnName()
+    local name = UnitName("player")
+    if not GuildHelper:IsForever() or not name then return name end
+    if self:GetKey(name):find("%s") then return name end
+
+    local guid = UnitGUID("player")
+    if not guid then return nil end
+    for index = 1, GetNumGuildMembers() or 0 do
+        local memberName, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, memberGUID = GetGuildRosterInfo(index)
+        if memberGUID == guid then return memberName end
+    end
 end
 
 function Sync:OnUpdate(callback)
@@ -208,9 +220,11 @@ function Sync:ParseSpecs(shortName, message)
 end
 
 function Sync:SendSpecs()
+    GuildHelper.Specs:MigrateMain()
     local message = self:BuildSpecs()
-    self:ParseSpecs(UnitName("player"), message)
-    local entry = self:GetEntry(UnitName("player"))
+    local name = self:GetOwnName()
+    if name then self:ParseSpecs(name, message) end
+    local entry = name and self:GetEntry(name)
     if entry then entry.twitch = GuildHelper.Specs:GetTwitch() end
     self:Notify()
     self:Send(message, "S")
@@ -296,23 +310,38 @@ function Sync:Pump(elapsed)
     end
 end
 
-function Sync:GetOwnPortraitDisplayID()
-    if not SetPortraitTextureFromCreatureDisplayID then return nil end
+function Sync:SendLoadedPortrait()
+    if not self.portraitPending then return end
+    local model = self.portraitModel
+    local ok, id = pcall(model.GetDisplayInfo, model)
+    if not ok or not GuildHelper:CanAccessValues(id) or type(id) ~= "number" or id <= 0 or id > 2147483647 then return end
+
+    self.portraitPending = false
+    self:Trace("Porträt senden:", id)
+    self:Send(format("A~%d", id), "A")
+end
+
+function Sync:SendPortrait()
+    if not SetPortraitTextureFromCreatureDisplayID then return end
     if not self.portraitModel then
         self.portraitModel = CreateFrame("PlayerModel", nil, UIParent)
         self.portraitModel:SetSize(1, 1)
         self.portraitModel:SetPoint("CENTER")
         self.portraitModel:SetAlpha(0)
+        self.portraitModel:SetScript("OnModelLoaded", function() self:SendLoadedPortrait() end)
     end
 
     local model = self.portraitModel
-    if not model.GetDisplayInfo then return nil end
+    if not model.GetDisplayInfo then return end
+    self.portraitPending = true
     local ok, applied = pcall(model.SetUnit, model, "player")
-    if not ok or applied == false then return nil end
-    local read, id = pcall(model.GetDisplayInfo, model)
-    if read and GuildHelper:CanAccessValues(id) and type(id) == "number" and id > 0 then return id end
+    if not ok or (GuildHelper:CanAccessValues(applied) and applied == false) then
+        self.portraitPending = false
 
-    return nil
+        return
+    end
+
+    self:SendLoadedPortrait()
 end
 
 function Sync:SendInfo(force)
@@ -326,10 +355,11 @@ function Sync:SendInfo(force)
 
     self.lastSend = now
     local message = self:BuildInfo()
-    self:Parse(UnitName("player"), message)
+    local name = self:GetOwnName()
+    if name then self:Parse(name, message) end
     self:Send(message, "I")
     self:SendSpecs()
-    self:Send(format("A~%d", self:GetOwnPortraitDisplayID() or 0), "A")
+    self:SendPortrait()
 end
 
 function Sync:ScheduleInfo(delay)
@@ -354,7 +384,12 @@ function Sync:OnMessage(message, channel, sender)
         return
     end
     local shortName = strsplit("-", sender)
-    if self:GetKey(shortName) == self:GetKey(UnitName("player") or "") then return end
+    local senderKey = self:GetKey(shortName)
+    local playerKey = self:GetKey(UnitName("player") or "")
+    if senderKey:match("^%S+") == playerKey:match("^%S+") then
+        local ownName = self:GetOwnName()
+        if ownName and senderKey == self:GetKey(ownName) then return end
+    end
     local kind = strsub(message, 1, 1)
     if kind == "I" then
         self:Parse(shortName, message)
@@ -378,6 +413,7 @@ function Sync:OnMessage(message, channel, sender)
         local id = rawID and #rawID <= 10 and tonumber(rawID)
         if not id or id > 2147483647 then return end
         local entry = self:GetEntry(shortName)
+        self:Trace("Porträt empfangen:", shortName, id)
         local displayID = id > 0 and id or nil
         if entry and entry.portraitDisplayID ~= displayID then
             entry.portraitDisplayID = displayID
@@ -394,6 +430,7 @@ function Sync:Init()
         print("[GuildHelper Sync]", Sync.debug and "Debug an" or "Debug aus")
         if Sync.debug then
             Sync:SendSpecs()
+            Sync:SendPortrait()
             Sync:Send("Q")
         end
     end)
@@ -409,9 +446,12 @@ function Sync:Init()
     events:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
     events:RegisterEvent("SKILL_LINES_CHANGED")
     events:RegisterEvent("PLAYER_GUILD_UPDATE")
+    if GuildHelper:IsForever() then events:RegisterEvent("GUILD_ROSTER_UPDATE") end
     events:SetScript("OnEvent", function(_, event, prefix, message, channel, sender)
         if event == "CHAT_MSG_ADDON" then
             if prefix == Sync.PREFIX then Sync:OnMessage(message, channel, sender) end
+        elseif event == "GUILD_ROSTER_UPDATE" then
+            if GuildHelper.Specs:MigrateMain() then Sync:SendSpecs() end
         else
             Sync:ScheduleInfo(5)
         end

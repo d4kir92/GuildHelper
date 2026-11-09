@@ -238,17 +238,47 @@ function Specs:GetMainName()
     return key and self:GetMains()[key] or nil
 end
 
+function Specs:MigrateMain()
+    if not GuildHelper:IsForever() then return end
+    local sync = GuildHelper.Sync
+    local guildKey = sync:GetGuildKey()
+    local mains = self:GetMains()
+    local main = guildKey and mains[guildKey]
+    if not main then return end
+    local key = sync:GetKey(main)
+    if key == "" or key:find("%s") then return end
+
+    local match
+    for index = 1, GetNumGuildMembers() or 0 do
+        local name = GetGuildRosterInfo(index)
+        if not name then return end
+        if sync:GetKey(name):match("^%S+") == key then
+            if match then return end
+            match = name
+        end
+    end
+
+    if not match or sync:GetKey(match) == key then return end
+    mains[guildKey] = match
+
+    return true
+end
+
 function Specs:IsMain()
     local main = self:GetMainName()
 
-    return main ~= nil and GuildHelper.Sync:GetKey(main) == GuildHelper.Sync:GetKey(UnitName("player") or "")
+    local name = main and GuildHelper.Sync:GetOwnName()
+
+    return name ~= nil and GuildHelper.Sync:GetKey(main) == GuildHelper.Sync:GetKey(name)
 end
 
 function Specs:SetMain(value)
     local key = GuildHelper.Sync:GetGuildKey()
     if key == nil then return end
     if value then
-        self:GetMains()[key] = UnitName("player")
+        local name = GuildHelper.Sync:GetOwnName()
+        if not name then return end
+        self:GetMains()[key] = name
     elseif self:IsMain() then
         self:GetMains()[key] = nil
     end

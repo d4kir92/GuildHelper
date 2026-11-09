@@ -151,7 +151,6 @@ end
 
 function Members:GetData(member)
     if member == nil then return nil end
-    if self:IsSelf(member) then return GuildHelper.Sync:GetData(UnitName("player")) or GuildHelper.Sync:GetData(member.short) end
 
     return GuildHelper.Sync:GetData(member.short)
 end
@@ -1435,9 +1434,9 @@ function Members:IsSelf(member)
     if member == nil then return false end
     local guid = UnitGUID and UnitGUID("player")
     if guid and member.guid then return member.guid == guid end
-    local name = UnitName("player") or ""
+    local name = GuildHelper.Sync:GetOwnName()
 
-    return member.key == GuildHelper.Sync:GetKey(name)
+    return name ~= nil and member.key == GuildHelper.Sync:GetKey(name)
 end
 
 function Members:CanViewOfficerNote()
