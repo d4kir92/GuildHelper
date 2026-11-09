@@ -4,7 +4,6 @@ local Window = GuildHelper.Window
 local Members = GuildHelper.Members
 local Dashboard = {}
 GuildHelper.Dashboard = Dashboard
-Dashboard.SIDE = 260
 Dashboard.LINE = 22
 Dashboard.TOP = 70
 Dashboard.STATSTOP = 186
@@ -12,10 +11,17 @@ Dashboard.LISTTOP = 266
 Dashboard.SCROLLTOP = 66
 Dashboard.SCROLLPAD = 4
 Dashboard.MINLOWER = 278
+Dashboard.MYCARDHEIGHT = 176
+Dashboard.CHATLIMIT = 50
+Dashboard.CHATMAX = 500
 function Dashboard:CheckGuild()
     local guild = GuildHelper.Sync:GetGuildKey()
     if guild ~= self.guild then
         self.guild = guild
+        self.chatMessages = {}
+        self.chatClubID = nil
+        self.chatStreamID = nil
+        self:ResetChatHistory()
         self.cachedMOTD = nil
         self.lastRequest = nil
     end
@@ -159,7 +165,7 @@ function Dashboard:CreateCard(parent, label)
     Theme:Panel(card, "panel", "border", 9)
     card.title = Theme:Text(card, 11, "muted")
     card.title:SetPoint("TOPLEFT", card, "TOPLEFT", 16, -14)
-    Theme:SetTrans(card.title, label, true)
+    if label then Theme:SetTrans(card.title, label, true) end
 
     return card
 end
@@ -290,7 +296,7 @@ function Dashboard:CreatePage(content)
     scroll:SetScript("OnMouseWheel", function(_, delta) Dashboard:ScrollPage(delta) end)
     scroll:SetScript("OnSizeChanged", function(sel, width, height)
         body:SetWidth(max(1, width or sel:GetWidth()))
-        body:SetHeight(max(height or sel:GetHeight(), self.LISTTOP - self.SCROLLTOP + self.MINLOWER + self.SCROLLPAD))
+        body:SetHeight(max(height or sel:GetHeight(), self.LISTTOP - self.SCROLLTOP + self.MINLOWER + self.MYCARDHEIGHT + 12 + self.SCROLLPAD))
         Dashboard:UpdatePageThumb()
     end)
 
@@ -357,11 +363,11 @@ function Dashboard:CreateStats(content)
     self.stats = stats
 end
 
-function Dashboard:CreateMyCard(side)
-    local card = self:CreateCard(side, "LID_MYGUILDCARD")
-    card:SetPoint("TOPLEFT", side, "TOPLEFT", 0, 0)
-    card:SetPoint("TOPRIGHT", side, "TOPRIGHT", 0, 0)
-    card:SetHeight(176)
+function Dashboard:CreateMyCard(body)
+    local card = self:CreateCard(body, "LID_MYGUILDCARD")
+    card:SetPoint("BOTTOMLEFT", body, "BOTTOMLEFT", Window.PADDING, self.SCROLLPAD)
+    card:SetPoint("BOTTOMRIGHT", body, "BOTTOMRIGHT", -Window.MARGIN, self.SCROLLPAD)
+    card:SetHeight(self.MYCARDHEIGHT)
     card.rank = Theme:Text(card, 13, "text")
     card.rank:SetPoint("TOPLEFT", card, "TOPLEFT", 16, -34)
     card.rank:SetPoint("RIGHT", card, "RIGHT", -16, 0)
@@ -393,14 +399,15 @@ function Dashboard:Build(content)
     self:CreateStats(body)
     local side = CreateFrame("Frame", nil, body)
     side:SetPoint("TOPRIGHT", body, "TOPRIGHT", -Window.MARGIN, top)
-    side:SetPoint("BOTTOMRIGHT", body, "BOTTOMRIGHT", -Window.MARGIN, self.SCROLLPAD)
-    side:SetWidth(self.SIDE)
+    self:CreateMyCard(body)
+    side:SetPoint("BOTTOMRIGHT", self.myCard, "TOPRIGHT", 0, 12)
     self.side = side
-    self:CreateMyCard(side)
+    self.zones = self:CreateList(self:CreateCard(side, "LID_WHOISWHERE"))
+    self.zones:SetPoint("TOPLEFT", side, "TOPLEFT", 0, 0)
+    self.zones:SetPoint("BOTTOMRIGHT", side, "RIGHT", 0, 6)
     self.professions = self:CreateList(self:CreateCard(side, "LID_GUILDPROFESSIONS"))
-    self.professions:SetPoint("TOPLEFT", self.myCard, "BOTTOMLEFT", 0, -12)
+    self.professions:SetPoint("TOPLEFT", side, "LEFT", 0, -6)
     self.professions:SetPoint("BOTTOMRIGHT", side, "BOTTOMRIGHT", 0, 0)
-    self.zones = self:CreateList(self:CreateCard(body, "LID_WHOISWHERE"))
     self.news = self:CreateTextCard(body, "LID_GUILDNEWS")
     self.newsFilterButton = Members:CreatePill(self.news, GuildHelper:Trans("LID_NEWSFILTERS"))
     self.newsFilterButton:SetPoint("TOPRIGHT", self.news, "TOPRIGHT", -10, -5)
@@ -408,13 +415,16 @@ function Dashboard:Build(content)
     self.newsFilterButton:SetEnabled(GetGuildNewsFilters ~= nil and SetGuildNewsFilter ~= nil)
     self.news.title:SetPoint("RIGHT", self.newsFilterButton, "LEFT", -8, 0)
     self.news:SetPoint("TOPLEFT", body, "TOPLEFT", Window.PADDING, top)
-    self.news:SetPoint("BOTTOMLEFT", body, "BOTTOMLEFT", Window.PADDING, self.SCROLLPAD)
-    self.zones:SetPoint("TOPLEFT", self.news, "TOPRIGHT", 12, 0)
-    self.zones:SetPoint("BOTTOMRIGHT", side, "BOTTOMLEFT", -12, 0)
+    self.news:SetPoint("BOTTOMLEFT", self.myCard, "TOPLEFT", 0, 12)
+    self.chat = self:CreateChat(body)
+    self.chat:SetPoint("TOPLEFT", self.news, "TOPRIGHT", 12, 0)
+    self.chat:SetPoint("BOTTOMRIGHT", side, "BOTTOMLEFT", -12, 0)
     content:SetScript("OnSizeChanged", function(_, width)
         local available = width - Window.PADDING - Window.MARGIN
         self.motd:SetWidth(max(1, (available - 12) / 2))
-        self.news:SetWidth(max(1, (available - self.SIDE - 24) * 0.6))
+        local columnWidth = max(1, (available - 24) / 3)
+        self.news:SetWidth(columnWidth)
+        side:SetWidth(columnWidth)
     end)
 
     content:GetScript("OnSizeChanged")(content, content:GetWidth())
@@ -507,26 +517,34 @@ function Dashboard:UpdateZones()
 end
 
 function Dashboard:UpdateProfessions()
-    local counts, best, order = {}, {}, {}
+    local counts, best, order, names = {}, {}, {}, {}
+    local sync = GuildHelper.Sync
     for _, member in ipairs(Members.list) do
         local data = Members:GetData(member)
+        local seen = {}
         for _, prof in ipairs(data and data.professions or {}) do
-            local name = prof[1]
-            if counts[name] == nil then
-                counts[name] = 0
-                best[name] = 0
-                tinsert(order, name)
+            local id = prof[4] or sync:GetProfessionID(prof[1])
+            local key = id or prof[1]
+            if counts[key] == nil then
+                counts[key] = 0
+                best[key] = 0
+                names[key] = sync:GetProfessionName(id, prof[1])
+                tinsert(order, key)
             end
 
-            counts[name] = counts[name] + 1
-            best[name] = max(best[name], prof[2] or 0)
+            if not seen[key] then
+                seen[key] = true
+                counts[key] = counts[key] + 1
+            end
+
+            best[key] = max(best[key], prof[2] or 0)
         end
     end
 
     table.sort(order, function(a, b)
         if counts[a] ~= counts[b] then return counts[a] > counts[b] end
 
-        return a < b
+        return names[a] < names[b]
     end)
 
     if #order == 0 then
@@ -536,8 +554,8 @@ function Dashboard:UpdateProfessions()
         return
     end
 
-    for i, name in ipairs(order) do
-        self:SetLine(self.professions, i, format("%s |cff888888(%d)|r", name, best[name]), tostring(counts[name]))
+    for i, key in ipairs(order) do
+        self:SetLine(self.professions, i, format("%s |cff888888(%d)|r", names[key], best[key]), tostring(counts[key]))
     end
 
     self:FinishList(self.professions, #order)
@@ -558,10 +576,144 @@ function Dashboard:UpdateMyCard()
     Members:UpdateNoteEditor(card.officerHit, viewOfficer and member or nil, Members:CanEditOfficerNote())
 end
 
+function Dashboard:CreateChat(parent)
+    local card = self:CreateCard(parent)
+    card.title:SetText(CHAT_MSG_GUILD or GUILD)
+    local messages = CreateFrame("ScrollingMessageFrame", nil, card)
+    messages:SetPoint("TOPLEFT", card, "TOPLEFT", 16, -34)
+    messages:SetPoint("BOTTOMRIGHT", card, "BOTTOMRIGHT", -16, 8)
+    messages:SetMaxLines(self.CHATMAX)
+    messages:SetFading(false)
+    messages:SetJustifyH("LEFT")
+    Theme:Track(messages, "text", nil, 13)
+    messages:EnableMouseWheel(true)
+    messages:SetScript("OnMouseWheel", function(frame, delta)
+        local atEdge = delta > 0 and frame:AtTop() or delta < 0 and frame:AtBottom()
+        for _ = 1, 3 do
+            if delta > 0 then frame:ScrollUp() else frame:ScrollDown() end
+        end
+
+        if delta > 0 and frame:AtTop() and self:RequestChatHistory() then return end
+        if atEdge then self:ScrollPage(delta) end
+    end)
+    card.messages = messages
+
+    return card
+end
+
+function Dashboard:ResetChatHistory()
+    self.chatHistoryRequested = nil
+    self.chatInitialRequested = nil
+    self.chatHistoryLimit = self.CHATLIMIT
+    self.chatOldest = nil
+end
+
+function Dashboard:RequestChatHistory()
+    if not self.chatOldest or not self.chatClubID or not self.chatStreamID or not C_Club.RequestMoreMessagesBefore
+        or self.chatHistoryLimit >= self.CHATMAX then return false end
+    if C_ChatInfo and C_ChatInfo.InChatMessagingLockdown and C_ChatInfo.InChatMessagingLockdown() then return false end
+    if C_Club.IsBeginningOfStream and C_Club.IsBeginningOfStream(self.chatClubID, self.chatStreamID, self.chatOldest) then return false end
+    if self.chatHistoryRequested and GetTime() - self.chatHistoryRequested < 5 then return true end
+
+    self.chatHistoryLimit = min(self.chatHistoryLimit + self.CHATLIMIT, self.CHATMAX)
+    self.chatHistoryRequested = GetTime()
+    if C_Club.RequestMoreMessagesBefore(self.chatClubID, self.chatStreamID, self.chatOldest, self.CHATLIMIT) then
+        self.chatHistoryRequested = nil
+    end
+
+    self:UpdateChat()
+
+    return true
+end
+
+function Dashboard:GetChatHistory()
+    if not C_Club or not C_Club.GetGuildClubId or not C_Club.GetStreams or not C_Club.GetMessageRanges
+        or not C_Club.GetMessagesBefore or not Enum or not Enum.ClubStreamType then return end
+    if C_ChatInfo and C_ChatInfo.InChatMessagingLockdown and C_ChatInfo.InChatMessagingLockdown() then return end
+
+    local clubID = C_Club.GetGuildClubId()
+    if not GuildHelper:CanAccessValues(clubID) or not clubID then return end
+    local streams = C_Club.GetStreams(clubID)
+    if not GuildHelper:CanAccessValues(streams) or not streams then return end
+
+    local streamID
+    for _, stream in ipairs(streams) do
+        if stream.streamType == Enum.ClubStreamType.Guild then
+            streamID = stream.streamId
+            break
+        end
+    end
+
+    if not streamID then return end
+    if self.chatClubID ~= clubID or self.chatStreamID ~= streamID then
+        self.chatClubID = clubID
+        self.chatStreamID = streamID
+        self:ResetChatHistory()
+    end
+
+    local ranges = C_Club.GetMessageRanges(clubID, streamID)
+    if not GuildHelper:CanAccessValues(ranges) or not ranges then return end
+    local range = ranges[#ranges]
+    local messages, oldest
+    if range then
+        local first, last = range.oldestMessageId, range.newestMessageId
+        if last.epoch > first.epoch or (last.epoch == first.epoch and last.position >= first.position) then
+            messages = C_Club.GetMessagesBefore(clubID, streamID, last, self.chatHistoryLimit)
+            if not GuildHelper:CanAccessValues(messages) then return end
+            oldest = first
+        end
+    end
+
+    if not self.chatInitialRequested and (not messages or #messages < self.CHATLIMIT) and C_Club.RequestMoreMessagesBefore then
+        self.chatInitialRequested = true
+        C_Club.RequestMoreMessagesBefore(clubID, streamID, oldest, self.CHATLIMIT)
+    end
+
+    if not messages then return end
+    self.chatOldest = messages[1] and messages[1].messageId
+    local lines = {}
+    for _, message in ipairs(messages) do
+        if not message.destroyed and message.content and message.author then
+            local sender = message.author.name
+            if not sender and message.author.memberId and C_Club.GetMemberInfo then
+                local member = C_Club.GetMemberInfo(clubID, message.author.memberId)
+                sender = member and member.name
+            end
+
+            if GuildHelper:CanAccessValues(sender, message.content) then
+                local line = (sender or UNKNOWN):gsub("|", "||") .. ": " .. message.content
+                tinsert(lines, line)
+            end
+        end
+    end
+
+    return lines
+end
+
+function Dashboard:UpdateChat()
+    local card = self.chat
+    local lines = self:GetChatHistory() or self.chatMessages or {}
+    local text = table.concat(lines, "\n")
+    local r, g, b = Theme:GetColor("text")
+    local color = ChatTypeInfo and ChatTypeInfo.GUILD
+    if color then r, g, b = color.r, color.g, color.b end
+    if text == card.chatText and r == card.chatR and g == card.chatG and b == card.chatB then return end
+
+    local frame = card.messages
+    local offset = frame.GetScrollOffset and frame:GetScrollOffset() or 0
+    frame:Clear()
+    for _, line in ipairs(lines) do
+        frame:AddMessage(line, r, g, b)
+    end
+
+    if offset > 0 and frame.SetScrollOffset then frame:SetScrollOffset(offset) end
+    card.chatText, card.chatR, card.chatG, card.chatB = text, r, g, b
+end
+
 function Dashboard:Update()
     if not self:IsVisible() then return end
     local inGuild = IsInGuild()
-    for _, region in ipairs({self.motd, self.information, self.news, self.stats, self.side, self.zones}) do
+    for _, region in ipairs({self.motd, self.information, self.news, self.stats, self.side, self.myCard, self.chat}) do
         region:SetShown(inGuild)
     end
 
@@ -580,6 +732,7 @@ function Dashboard:Update()
     self:UpdateZones()
     self:UpdateProfessions()
     self:UpdateMyCard()
+    self:UpdateChat()
 end
 
 function Dashboard:Reset()
@@ -589,6 +742,7 @@ function Dashboard:Reset()
     self.motd = nil
     self.information = nil
     self.news = nil
+    self.chat = nil
     self.stats = nil
     self.side = nil
     self.zones = nil
@@ -599,16 +753,38 @@ end
 Window:OnRebuild(function() Dashboard:Reset() end)
 Theme:OnRefresh(function() Dashboard:Update() end)
 Dashboard.events = CreateFrame("Frame")
-for _, event in ipairs({"PLAYER_LOGIN", "PLAYER_ENTERING_WORLD", "GUILD_ROSTER_UPDATE", "PLAYER_GUILD_UPDATE", "GUILD_MOTD"}) do
+for _, event in ipairs({"PLAYER_LOGIN", "PLAYER_ENTERING_WORLD", "GUILD_ROSTER_UPDATE", "PLAYER_GUILD_UPDATE", "GUILD_MOTD", "CHAT_MSG_GUILD"}) do
     Dashboard.events:RegisterEvent(event)
 end
 
 if Dashboard:HasNews() then Dashboard.events:RegisterEvent("GUILD_NEWS_UPDATE") end
-for _, event in ipairs({"CLUB_ADDED", "CLUB_UPDATED", "INITIAL_CLUBS_LOADED"}) do
+for _, event in ipairs({"CLUB_ADDED", "CLUB_UPDATED", "INITIAL_CLUBS_LOADED", "CLUB_STREAMS_LOADED",
+    "CLUB_MESSAGE_ADDED", "CLUB_MESSAGE_UPDATED", "CLUB_MESSAGE_HISTORY_RECEIVED", "UPDATE_CHAT_COLOR"}) do
     if not C_EventUtils or not C_EventUtils.IsEventValid or C_EventUtils.IsEventValid(event) then Dashboard.events:RegisterEvent(event) end
 end
 
-Dashboard.events:SetScript("OnEvent", function(_, event, text)
+Dashboard.events:SetScript("OnEvent", function(_, event, text, sender)
+    if event == "CLUB_MESSAGE_ADDED" or event == "CLUB_MESSAGE_UPDATED" or event == "CLUB_MESSAGE_HISTORY_RECEIVED" then
+        if GuildHelper:CanAccessValues(text, sender) and text == Dashboard.chatClubID and sender == Dashboard.chatStreamID then
+            if event == "CLUB_MESSAGE_HISTORY_RECEIVED" then Dashboard.chatHistoryRequested = nil end
+            if Dashboard:IsVisible() then Dashboard:UpdateChat() end
+        end
+
+        return
+    end
+
+    if event == "CHAT_MSG_GUILD" then
+        if Dashboard:CheckGuild() and GuildHelper:CanAccessValues(text, sender) and text and sender then
+            local messages = Dashboard.chatMessages
+            if #messages >= Dashboard.CHATLIMIT then table.remove(messages, 1) end
+            local line = sender:gsub("|", "||") .. ": " .. text
+            tinsert(messages, line)
+            if Dashboard:IsVisible() then Dashboard:UpdateChat() end
+        end
+
+        return
+    end
+
     if event == "PLAYER_GUILD_UPDATE" and text and text ~= "player" then return end
     Dashboard:CheckGuild()
     if event == "GUILD_MOTD" and type(text) == "string" and GuildHelper:CanAccessValues(text) then Dashboard.cachedMOTD = text end

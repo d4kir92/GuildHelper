@@ -1643,7 +1643,8 @@ function Members:UpdateDetail()
         local row = self:GetProfessionRow(i)
         row:ClearAllPoints()
         row:SetPoint("TOPLEFT", detail.body, "TOPLEFT", 16, y)
-        row.name:SetText(prof[1])
+        local sync = GuildHelper.Sync
+        row.name:SetText(sync:GetProfessionName(prof[4] or sync:GetProfessionID(prof[1]), prof[1]))
         row.value:SetText(format("%d/%d", prof[2], prof[3]))
         local progress = prof[3] > 0 and min(1, prof[2] / prof[3]) or 0
         row.fill:SetWidth(max(1, 188 * progress))

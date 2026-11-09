@@ -66,6 +66,35 @@ function Sync:GetOwnItemLevel()
     return nil
 end
 
+Sync.professionIDs = {
+    [129] = "First Aid", [164] = "Blacksmithing", [165] = "Leatherworking",
+    [171] = "Alchemy", [182] = "Herbalism", [185] = "Cooking", [186] = "Mining",
+    [197] = "Tailoring", [202] = "Engineering", [333] = "Enchanting", [356] = "Fishing",
+    [393] = "Skinning", [755] = "Jewelcrafting", [773] = "Inscription", [794] = "Archaeology",
+}
+
+function Sync:GetProfessionName(id, fallback)
+    if id and C_TradeSkillUI then
+        local name
+        if C_TradeSkillUI.GetTradeSkillDisplayName then
+            name = C_TradeSkillUI.GetTradeSkillDisplayName(id)
+        elseif C_TradeSkillUI.GetProfessionInfoBySkillLineID then
+            local info = C_TradeSkillUI.GetProfessionInfoBySkillLineID(id)
+            name = info and info.professionName
+        end
+
+        if name and name ~= "" then return name end
+    end
+
+    return fallback
+end
+
+function Sync:GetProfessionID(name)
+    for id, englishName in pairs(self.professionIDs) do
+        if name == englishName or name == self:GetProfessionName(id) then return id end
+    end
+end
+
 function Sync:GetOwnProfessions()
     local list = {}
     if GetProfessions and GetProfessionInfo then
@@ -73,9 +102,9 @@ function Sync:GetOwnProfessions()
         for i = 1, 5 do
             local index = indices[i]
             if index then
-                local name, _, rank, maxRank = GetProfessionInfo(index)
+                local name, _, rank, maxRank, _, _, skillLineID = GetProfessionInfo(index)
                 if name then
-                    tinsert(list, {name, rank or 0, maxRank or 0})
+                    tinsert(list, {name, rank or 0, maxRank or 0, skillLineID or self:GetProfessionID(name)})
                 end
             end
         end
@@ -90,7 +119,7 @@ function Sync:GetOwnProfessions()
         if isHeader then
             header = name
         elseif name and (header == TRADE_SKILLS or (SECONDARY_SKILLS and header == SECONDARY_SKILLS)) then
-            tinsert(list, {name, rank or 0, maxRank or 0})
+            tinsert(list, {name, rank or 0, maxRank or 0, self:GetProfessionID(name)})
         end
     end
 
@@ -100,7 +129,7 @@ end
 function Sync:BuildInfo()
     local parts = {"I", tostring(self:GetOwnItemLevel() or 0)}
     for _, prof in ipairs(self:GetOwnProfessions()) do
-        tinsert(parts, format("%s;%d;%d", prof[1], prof[2], prof[3]))
+        tinsert(parts, format("%s;%d;%d;%s", prof[1], prof[2], prof[3], tostring(prof[4] or "")))
     end
 
     return table.concat(parts, "~")
@@ -175,9 +204,9 @@ function Sync:Parse(shortName, message)
     local parts = {strsplit("~", message)}
     local professions = {}
     for i = 3, #parts do
-        local name, rank, maxRank = strsplit(";", parts[i])
+        local name, rank, maxRank, skillLineID = strsplit(";", parts[i])
         if name and name ~= "" then
-            tinsert(professions, {name, tonumber(rank) or 0, tonumber(maxRank) or 0})
+            tinsert(professions, {name, tonumber(rank) or 0, tonumber(maxRank) or 0, tonumber(skillLineID)})
         end
     end
 
