@@ -9,6 +9,7 @@ GuildHelper.INVITEDEFAULTS = {
 GuildHelper.GuildInvite = GuildHelper:CreateGuildInvite({
     owner = "GuildHelper",
     priority = 20,
+    whisperOnly = true,
     get = function(key)
         local entry = GuildHelper.INVITEDEFAULTS[key]
 
