@@ -5,6 +5,8 @@ Groups.live = {}
 Groups.seen = {}
 Groups.sent = {}
 Groups.applySent = {}
+Groups.signupSnapshots = {}
+Groups.signupSerial = 0
 Groups.mode = "L"
 Groups.role = "DAMAGER"
 Groups.draft = {
@@ -75,6 +77,7 @@ function Groups:CheckGuild()
         self.seen = {}
         self.sent = {}
         self.applySent = {}
+        self.signupSnapshots = {}
         self.selected = nil
         self.editing = nil
         self.lastQuery = nil
@@ -412,18 +415,46 @@ function Groups:LearnSelf(message, sender)
     return echo
 end
 
-function Groups:Broadcast(entry)
+function Groups:Broadcast(entry, syncSignups)
     if entry.kind == "L" then entry.expires = GetTime() + self.TTL end
     local text = table.concat({"L", entry.id, entry.kind, tostring(entry.when or 0), entry.activity, entry.TANK, entry.HEALER, entry.DAMAGER, entry.activityName}, "~")
+    local firstBroadcast = not self.sent[entry.key]
     self.sent[entry.key] = GetTime()
     self:Send(text .. "~" .. self:CleanText(entry.note, 252 - #text), "G" .. entry.id)
+    if firstBroadcast or syncSignups then self:BroadcastSignups(entry) end
+end
+
+function Groups:BroadcastSignups(entry)
+    self.signupSerial = self.signupSerial + 1
+    local header = "R~" .. entry.id .. "~" .. self.signupSerial .. "~"
+    local chunks, payload = {}, ""
+    for _, applicant in pairs(entry.applicants or {}) do
+        if (entry.kind == "P" or (applicant.expires or 0) > GetTime()) and (entry[applicant.role] or 0) > 0 then
+            local record = "~" .. applicant.name .. "~" .. applicant.role
+            if #header + #payload + #record > 235 then
+                chunks[#chunks + 1] = payload
+                payload = ""
+            end
+
+            payload = payload .. record
+        end
+    end
+
+    chunks[#chunks + 1] = payload
+    for index, chunk in ipairs(chunks) do
+        self:Send(header .. index .. "~" .. #chunks .. chunk)
+    end
 end
 
 function Groups:BroadcastOwn()
     local delay = 0
     for _, entry in ipairs(self:GetList()) do
         if self:IsOwn(entry) then
-            C_Timer.After(delay, function() if self:CheckGuild() and self:Find(entry.key) == entry then self:Broadcast(entry) end end)
+            C_Timer.After(delay, function()
+                if self:CheckGuild() and self:Find(entry.key) == entry then
+                    self:Broadcast(entry, true)
+                end
+            end)
             delay = delay + 0.4
         end
     end
@@ -603,6 +634,46 @@ function Groups:ReadListing(owner, sender, parts)
     return true
 end
 
+function Groups:ReadSignupSnapshot(owner, parts)
+    local entry = parts[3] and self:Find(owner .. "#" .. parts[3])
+    local serial, index, total = tonumber(parts[4]), tonumber(parts[5]), tonumber(parts[6])
+    if not entry or self:IsOwn(entry) or not serial or not index or not total or index < 1 or index > total or total ~= floor(total) or #parts % 2 ~= 0 then return false end
+    local snapshot = self.signupSnapshots[entry.key]
+    if index == 1 then
+        snapshot = {serial = serial, next = 1, total = total, applicants = {}, changes = {}, expires = GetTime() + self.TTL}
+        self.signupSnapshots[entry.key] = snapshot
+    end
+
+    if not snapshot or snapshot.serial ~= serial or snapshot.next ~= index or snapshot.total ~= total then return false end
+    for i = 7, #parts, 2 do
+        local name, role = parts[i], parts[i + 1]
+        local key = self:Name(name)
+        if key and not self:IsSelfName(name) and GuildHelper.Specs:GetRole(role) and (entry[role] or 0) > 0 then
+            snapshot.applicants[key] = {
+                name = name,
+                role = role,
+                expires = entry.kind == "L" and GetTime() + self.TTL or nil
+            }
+        end
+    end
+
+    snapshot.next = index + 1
+    if index ~= total then return false end
+    for key in pairs(snapshot.changes) do
+        snapshot.applicants[key] = entry.applicants[key]
+    end
+
+    local me = self:Self()
+    if entry.applied and me and entry.applicants then
+        snapshot.applicants[me] = entry.applicants[me]
+    end
+
+    entry.applicants = snapshot.applicants
+    self.signupSnapshots[entry.key] = nil
+
+    return true
+end
+
 function Groups:ReadApplication(owner, sender, parts)
     local target = self:IsSelfName(parts[3]) and self:Self() or self:Name(parts[3])
     if not target or not parts[4] then return false end
@@ -624,6 +695,9 @@ function Groups:ReadApplication(owner, sender, parts)
     else
         return false
     end
+
+    local snapshot = self.signupSnapshots[entry.key]
+    if snapshot then snapshot.changes[owner] = true end
 
     return true
 end
@@ -654,6 +728,8 @@ function Groups:OnMessage(message, sender)
         changed = self.live[key] ~= nil or planned[key] ~= nil
         self.live[key] = nil
         planned[key] = nil
+    elseif command == "R" then
+        changed = self:ReadSignupSnapshot(owner, parts)
     elseif command == "A" or command == "W" then
         changed = self:ReadApplication(owner, sender, parts)
     end
@@ -693,6 +769,10 @@ end
 function Groups:Tick()
     if not self:CheckGuild() then return end
     local now, stamp = GetTime(), time()
+    for key, snapshot in pairs(self.signupSnapshots) do
+        if snapshot.expires <= now or not self:Find(key) then self.signupSnapshots[key] = nil end
+    end
+
     self:TickOwnLive(now)
     self:TickAnnouncements()
     if not self.rosterReadyAt or now >= self.rosterReadyAt then self.dirty = nil end
