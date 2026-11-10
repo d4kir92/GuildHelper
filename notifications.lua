@@ -64,7 +64,9 @@ function Notifications:Create()
         if self.editing or not self.current then return end
         local notice = self.current
         local feedback = GuildHelper.Feedback
-        if (notice.applicant or notice.group) and notice.guild == GuildHelper.Sync:GetGuildKey() then
+        if notice.order and notice.guild == GuildHelper.Sync:GetGuildKey() then
+            if GuildHelper.Orders:GetOpenIncoming(notice.id) then GuildHelper.Orders:Open(notice.id) end
+        elseif (notice.applicant or notice.group) and notice.guild == GuildHelper.Sync:GetGuildKey() then
             local groups = GuildHelper.Groups
             local entry = groups:Find(notice.id)
             if entry and (notice.group or (entry.applicants and entry.applicants[notice.applicant])) then
@@ -124,14 +126,28 @@ function Notifications:SetEditing(active)
 end
 
 function Notifications:Suppress()
-    wipe(self.queue)
-    if self.current and not self.current.test then self:Dismiss() end
+    for index = #self.queue, 1, -1 do
+        if not self.queue[index].order then table.remove(self.queue, index) end
+    end
+    if self.current and not self.current.test and not self.current.order then self:Dismiss() end
 end
 
 function Notifications:Enqueue(notice)
     local window = GuildHelper.Window.frame
-    if window and window:IsShown() then return end
-    if #self.queue >= 20 then table.remove(self.queue, 1) end
+    if not notice.order then
+        if window and window:IsShown() then return end
+        if #self.queue >= 20 then
+            local removed
+            for index, queued in ipairs(self.queue) do
+                if not queued.order then
+                    table.remove(self.queue, index)
+                    removed = true
+                    break
+                end
+            end
+            if not removed then return end
+        end
+    end
     tinsert(self.queue, notice)
 end
 
@@ -185,6 +201,17 @@ function Notifications:Render()
         self.frame:Show()
         return
     end
+    if self.current.order then
+        local order = GuildHelper.Orders:GetOpenIncoming(self.current.id)
+        if not order then self:Dismiss() return end
+        self:Create()
+        self:ShowGroupAction(false)
+        self.frame.title:SetText(GuildHelper:Trans("LID_ORDER_NOTIFICATION"))
+        self.frame.text:SetText(GuildHelper.Recipes:Name(order.recipe) .. "\n" .. GuildHelper.Orders:ShortName(order.requester))
+        self.frame:Show()
+        order.notified = true
+        return
+    end
     if self.current.category then
         local source = self.current.group and GuildHelper.Groups or GuildHelper.Feedback
         local entry = source:Find(self.current.id)
@@ -231,9 +258,9 @@ function Notifications:Tick()
     if not self.current then
         while #self.queue > 0 do
             local notice = self.queue[1]
-            if notice.guild ~= guild or self:GetDisplayTime() - notice.queued > 180 then
+            if notice.guild ~= guild or (not notice.order and self:GetDisplayTime() - notice.queued > 180) then
                 table.remove(self.queue, 1)
-            elseif not notice.applicant and not notice.category and not GuildHelper.Feedback:Find(notice.id) then
+            elseif not notice.order and not notice.applicant and not notice.category and not GuildHelper.Feedback:Find(notice.id) then
                 if self:GetDisplayTime() - notice.queued < 30 then return end
                 table.remove(self.queue, 1)
             else

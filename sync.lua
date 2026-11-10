@@ -177,11 +177,12 @@ function Sync:GetEntry(shortName)
     return store[key]
 end
 
-function Sync:Store(shortName, ilvl, professions)
+function Sync:Store(shortName, ilvl, professions, own)
     local entry = self:GetEntry(shortName)
     if entry == nil then return end
     entry.ilvl = ilvl and ilvl > 0 and ilvl or nil
     entry.professions = professions
+    if GuildHelper.Recipes then GuildHelper.Recipes:Prune(entry, professions, own) end
     self:Notify()
 end
 
@@ -234,7 +235,7 @@ function Sync:SendSpecs()
     self:Send("M~" .. (main or ""), "M")
 end
 
-function Sync:Parse(shortName, message)
+function Sync:Parse(shortName, message, own)
     local parts = {strsplit("~", message)}
     local professions = {}
     for i = 3, #parts do
@@ -244,7 +245,7 @@ function Sync:Parse(shortName, message)
         end
     end
 
-    self:Store(shortName, tonumber(parts[2]), professions)
+    self:Store(shortName, tonumber(parts[2]), professions, own)
 end
 
 function Sync:Send(message, key, prefix, guild)
@@ -332,8 +333,9 @@ function Sync:SendInfo(force)
     self.lastSend = now
     local message = self:BuildInfo()
     local name = self:GetOwnName()
-    if name then self:Parse(name, message) end
+    if name then self:Parse(name, message, true) end
     self:Send(message, "I")
+    if name and GuildHelper.Recipes then GuildHelper.Recipes:ReplayRemovals(self:GetData(name)) end
     self:SendSpecs()
     self:SendAvatarGender()
 end
@@ -356,6 +358,11 @@ function Sync:OnMessage(message, channel, sender)
     end
     if strsub(message, 1, 2) == "F~" and GuildHelper.Groups then
         GuildHelper.Groups:OnMessage(message, sender)
+
+        return
+    end
+    if strsub(message, 1, 1) == "O" and GuildHelper.Orders then
+        GuildHelper.Orders:OnMessage(message, sender)
 
         return
     end
@@ -431,6 +438,13 @@ function Sync:Init()
         elseif event == "GUILD_ROSTER_UPDATE" then
             if GuildHelper.Specs:MigrateMain() then Sync:SendSpecs() end
         else
+            if event == "SKILL_LINES_CHANGED" and GuildHelper.Recipes then
+                local name = Sync:GetOwnName()
+                local entry = name and Sync:GetData(name)
+                if entry and entry.recipes and next(entry.recipes) and GuildHelper.Recipes:Prune(entry, Sync:GetOwnProfessions(), true) then
+                    Sync:Notify()
+                end
+            end
             Sync:ScheduleInfo(5)
         end
     end)

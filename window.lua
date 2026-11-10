@@ -93,7 +93,8 @@ function Window:FlipTopBorder(frame)
     frame:HookScript("OnShow", layout)
     C_Timer.After(0, layout)
 end
-Window.SIDEBAR = 181
+Window.SIDEBARWIDE = 238
+Window.SIDEBAR = Window.SIDEBARWIDE
 Window.PADDING = 18
 Window.MARGIN = 24
 Window.NAV = {
@@ -112,6 +113,10 @@ Window.NAV = {
     {
         key = "professions",
         label = "LID_PROFESSIONS"
+    },
+    {
+        key = "orders",
+        label = "LID_ORDER_TITLE"
     },
     {
         key = "events",
@@ -149,11 +154,11 @@ Window.FLAVORS = {
 }
 
 Window.builders = {}
-Window.NAVICONS = {dashboard = "INV_Misc_Map_01", members = "INV_Misc_GroupLooking", professions = "Trade_BlackSmithing", events = "INV_Misc_PocketWatch_01", groups = "INV_Misc_GroupNeedMore", chars = "INV_Misc_Head_Human_01", log = "INV_Misc_Book_09", management = "INV_Misc_Gear_01", feedback = "INV_Misc_Note_01", settings = "Trade_Engineering"}
+Window.NAVICONS = {dashboard = "INV_Misc_Map_01", members = "INV_Misc_GroupLooking", professions = "Trade_BlackSmithing", orders = "INV_Misc_Note_01", events = "INV_Misc_PocketWatch_01", groups = "INV_Misc_GroupNeedMore", chars = "INV_Misc_Head_Human_01", log = "INV_Misc_Book_09", management = "INV_Misc_Gear_01", feedback = "INV_Misc_Note_01", settings = "Trade_Engineering"}
 
 function Window:ApplyNavigation()
     local collapsed = GuildHelper:GetConfig("NAVCOLLAPSED", false)
-    self.SIDEBAR = collapsed and 72 or 181
+    self.SIDEBAR = collapsed and 72 or self.SIDEBARWIDE
     self.guildTitle:SetShown(not collapsed)
     self.statusLine:SetShown(not collapsed)
     self.sidebarDivider:SetPoint("TOPLEFT", self.frame, "TOPLEFT", self.SIDEBAR, -1)
@@ -161,6 +166,7 @@ function Window:ApplyNavigation()
     for _, button in ipairs(self.navButtons) do
         button:SetWidth(self.SIDEBAR - 30)
         button.text:SetShown(not collapsed)
+        if button.count then self:PositionOrderCount(button, collapsed) end
     end
     self.navToggle.icon:SetRotation(collapsed and -math.pi / 2 or math.pi / 2)
     self.versionText:SetText(format(collapsed and "v%s" or "GuildHelper v%s", GuildHelper:GetVersion() or ""))
@@ -228,11 +234,26 @@ function Window:UpdateNav()
     end
 end
 
+function Window:PositionOrderCount(button, collapsed)
+    button.count:ClearAllPoints()
+    if collapsed then
+        button.count:SetPoint("BOTTOMRIGHT", 1, -1)
+    else
+        button.count:SetPoint("RIGHT", -5, 0)
+    end
+end
+
+function Window:UpdateOrderCount(count)
+    for _, button in ipairs(self.navButtons) do
+        if button.count then button.count:SetText(format("(%d)", count)) end
+    end
+end
+
 function Window:CreateNavButton(index, entry)
     local frame = self.frame
     local button = CreateFrame("Button", nil, frame)
-    button:SetSize(self.SIDEBAR - 30, 34)
-    button:SetPoint("TOPLEFT", frame, "TOPLEFT", 18, -77 - (index - 1) * 38)
+    button:SetSize(self.SIDEBAR - 30, 32)
+    button:SetPoint("TOPLEFT", frame, "TOPLEFT", 18, -77 - (index - 1) * 34)
     button.entry = entry
     button.bg = Theme:Round(button, "navActive", 7)
     button.dot = button:CreateTexture(nil, "ARTWORK")
@@ -242,9 +263,16 @@ function Window:CreateNavButton(index, entry)
     button.text = Theme:Text(button, 13.5, "navText")
     button.text:SetPoint("LEFT", button, "LEFT", 38, 0)
     Theme:SetTrans(button.text, entry.label)
+    if entry.key == "orders" then
+        button.count = Theme:Text(button, 11, "accent")
+        self:PositionOrderCount(button, GuildHelper:GetConfig("NAVCOLLAPSED", false))
+        button.count:SetText(format("(%d)", GuildHelper.Orders:Count()))
+        button.text:SetPoint("RIGHT", button.count, "LEFT", -4, 0)
+        button.text:SetJustifyH("LEFT")
+    end
     button:SetScript("OnEnter", function(sel)
         Window:UpdateNav()
-        if GuildHelper:GetConfig("NAVCOLLAPSED", false) then
+        if sel.count or GuildHelper:GetConfig("NAVCOLLAPSED", false) then
             GameTooltip:SetOwner(sel, "ANCHOR_RIGHT")
             GameTooltip:SetText(GuildHelper:Trans(entry.label))
             GameTooltip:Show()
@@ -411,7 +439,7 @@ function Window:CreateSidebar()
     self:UpdateLogo()
     local title = Theme:Text(frame, 15, "text")
     title:SetPoint("TOPLEFT", logo, "TOPRIGHT", 10, -1)
-    title:SetWidth(self.SIDEBAR - 76)
+    title:SetWidth(self.SIDEBARWIDE - 76)
     self.guildTitle = title
     local flavor = Theme:Text(frame, 11, "muted")
     flavor:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -3)

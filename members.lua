@@ -470,7 +470,7 @@ function Members:GetMenu()
     return menu
 end
 
-function Members:OpenMenu(anchor, options, current, onSelect)
+function Members:OpenMenu(anchor, options, current, onSelect, atCursor)
     local menu = self:GetMenu()
     if menu:IsShown() and menu.anchor == anchor then
         menu:Hide()
@@ -522,7 +522,19 @@ function Members:OpenMenu(anchor, options, current, onSelect)
 
     menu:SetSize(min(width, 420), menu.visible * 24 + 10)
     menu:ClearAllPoints()
-    menu:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -4)
+    if atCursor then
+        local x, y = GetCursorPosition()
+        local scale = UIParent:GetEffectiveScale()
+        menu:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", x / scale, y / scale)
+        menu:SetScript("OnUpdate", function(frame)
+            if not frame:IsMouseOver() and (IsMouseButtonDown("LeftButton") or IsMouseButtonDown("RightButton")) then
+                frame:Hide()
+            end
+        end)
+    else
+        menu:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -4)
+        menu:SetScript("OnUpdate", nil)
+    end
     self:RenderMenu()
     menu:Show()
 end
@@ -555,12 +567,13 @@ function Members:RenderMenu()
         end
 
         button.header = option.header == true
+        button:SetEnabled(not option.disabled)
         button.value = option.value
         button.text:SetText(option.label)
         if option.color then
             button.text:SetTextColor(option.color.r, option.color.g, option.color.b)
         else
-            button.text:SetTextColor(Theme:GetColor(button.header and "muted" or "text"))
+            button.text:SetTextColor(Theme:GetColor((button.header or option.disabled) and "muted" or "text"))
         end
 
         button.selected = not button.header and option.value == menu.current
@@ -996,37 +1009,25 @@ function Members:ShowTooltip(row)
     GameTooltip:Show()
 end
 
-function Members:OpenPlayerMenu(member, button)
-    local manager = UnitPopupManager
-    local playerMenu = manager and manager.GetMenu and manager:GetMenu("PLAYER")
-    if UnitPopup_OpenMenu and playerMenu and playerMenu.AssembleMenuEntries and manager.RegisterMenu and UnitPopupCopyCharacterNameButtonMixin then
-        local menuKey = "GUILDHELPER_MEMBER"
-        if not manager:GetMenu(menuKey) then
-            manager:RegisterMenu(menuKey, {
-                AssembleMenuEntries = function(_, context)
-                    local entries = {}
-                    local playerEntries = playerMenu:AssembleMenuEntries(context)
-                    local ignore = UnitPopupIgnoreButtonMixin
-                    local addIgnore = ignore and not tContains(playerEntries, ignore)
-                    for _, entry in ipairs(playerEntries) do
-                        if addIgnore and entry == UnitPopupOtherSubsectionTitle then
-                            entries[#entries + 1] = ignore
-                        end
-                        if entry ~= UnitPopupCopyCharacterNameButtonMixin and entry ~= UnitPopupDuelButtonMixin and entry ~= UnitPopupDuelToTheDeathButtonMixin and entry ~= UnitPopupPetBattleDuelButtonMixin then
-                            entries[#entries + 1] = entry
-                        end
-                    end
-                    return entries
-                end,
-            })
+function Members:OpenPlayerMenu(member, anchor)
+    local own = self:IsSelf(member)
+    local r, g, b = self:GetClassColor(member)
+    local options = {
+        {label = member.short, header = true, color = {r = r, g = g, b = b}},
+        {label = GuildHelper:Trans("LID_INVITE"), value = "invite", disabled = own or not member.online},
+        {label = GuildHelper:Trans("LID_WHISPER"), value = "whisper", disabled = own},
+        {label = GuildHelper:Trans("LID_PROFESSIONS"), value = "professions"}
+    }
+    if self.columnMenu then self.columnMenu:Hide() end
+    self:OpenMenu(anchor, options, nil, function(action)
+        if action == "invite" then
+            self:Invite(member)
+        elseif action == "whisper" then
+            self:Whisper(member)
+        elseif action == "professions" then
+            GuildHelper.Professions:Focus(member)
         end
-        local guid = GuildHelper:CanAccessValues(member.guid) and member.guid or nil
-        UnitPopup_OpenMenu(menuKey, {name = member.name, guid = guid})
-        return
-    end
-
-    local link = "player:" .. member.name
-    SetItemRef(link, "|H" .. link .. "|h[" .. member.short .. "]|h", button, DEFAULT_CHAT_FRAME)
+    end, true)
 end
 
 function Members:CreateRow(parent, index)
@@ -1067,8 +1068,9 @@ function Members:CreateRow(parent, index)
         if not member then return end
         if button == "RightButton" then
             GameTooltip:Hide()
-            Members:OpenPlayerMenu(member, button)
+            Members:OpenPlayerMenu(member, sel)
         else
+            if Members.menu then Members.menu:Hide() end
             Members:Select(member)
         end
     end)

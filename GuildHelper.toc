@@ -66,6 +66,7 @@ professions.lua
 announcements.lua
 feedback.lua
 notifications.lua
+orders.lua
 map.lua
 invite.lua
 settings.lua

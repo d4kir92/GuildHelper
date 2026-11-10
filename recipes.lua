@@ -1,7 +1,7 @@
 local _, GuildHelper = ...
 local Sync = GuildHelper.Sync
 local Trade = C_TradeSkillUI
-local Recipes = {pending = {}, sent = {}, names = {}, itemRequests = {}, serial = 0}
+local Recipes = {pending = {}, sent = {}, names = {}, itemRequests = {}, bindingRequests = {}, icons = {}, outputs = {}, materialSearch = {}, verifiedTokenPrefix = "0"}
 GuildHelper.Recipes = Recipes
 
 function Recipes:Name(id)
@@ -15,12 +15,126 @@ function Recipes:Name(id)
     return name or tostring(id)
 end
 
+function Recipes:Output(id)
+    local outputs = GHTAB and GHTAB.RECIPEOUTPUTS
+    if outputs and outputs[id] ~= nil then return outputs[id] end
+    if self.outputs[id] ~= nil then return self.outputs[id] end
+    if Trade and Trade.GetRecipeSchematic then
+        local ok, schematic = pcall(Trade.GetRecipeSchematic, id, false)
+        if ok and schematic then
+            local output = schematic.outputItemID
+            if output == 0 then output = nil end
+            local itemType = Enum and Enum.TradeskillRecipeType and Enum.TradeskillRecipeType.Item or 1
+            if not output and schematic.recipeType ~= itemType then output = 0 end
+            self.outputs[id] = output
+            return output
+        end
+    end
+end
+
+function Recipes:CanShare(id, key)
+    local item = self:Output(id)
+    if item == 0 then return true end
+    if not item then return end
+    local getInfo = C_Item and C_Item.GetItemInfo or GetItemInfo
+    if not getInfo then return end
+    local binding = select(14, getInfo(item))
+    if binding == nil then
+        self.bindingRequests[item] = self.bindingRequests[item] or {}
+        if key then self.bindingRequests[item][key] = true end
+        return
+    end
+    local onAcquire = Enum and Enum.ItemBind and Enum.ItemBind.OnAcquire or 1
+    return binding ~= onAcquire
+end
+
+function Recipes:CanSee(data, key, id)
+    local shareable = self:CanShare(id)
+    if shareable ~= nil then return shareable end
+    return data.recipeVerified and data.recipeVerified[key]
+end
+
+function Recipes:CanOrder(data, id)
+    for key, recipes in pairs(data and data.recipes or {}) do
+        if recipes[id] ~= nil and self:CanSee(data, key, id) then return true end
+    end
+    return false
+end
+
+function Recipes:Icon(id)
+    if self.icons[id] then return self.icons[id] end
+    local item = self:Output(id)
+    local getIcon = C_Item and C_Item.GetItemIconByID or GetItemIcon
+    local icon = item and item > 0 and getIcon and getIcon(item)
+    if not icon then
+        local getSpellIcon = C_Spell and C_Spell.GetSpellTexture or GetSpellTexture
+        if getSpellIcon then icon = getSpellIcon(id) end
+    end
+    self.icons[id] = icon
+    return icon or 134400
+end
+
+function Recipes:IsNewer(token, previous)
+    if not previous then return true end
+    local stamp, serial = token:match("^(%d+)%.(%d+)$")
+    local oldStamp, oldSerial = previous:match("^(%d+)%.(%d+)$")
+    stamp, oldStamp = tonumber(stamp), tonumber(oldStamp)
+    return stamp > oldStamp or (stamp == oldStamp and tonumber(serial) > tonumber(oldSerial))
+end
+
+function Recipes:NextToken(entry)
+    local stamp, serial = time(), 1
+    if entry.recipeClock then
+        local oldStamp, oldSerial = entry.recipeClock:match("^(%d+)%.(%d+)$")
+        oldStamp = tonumber(oldStamp)
+        if oldStamp >= stamp then stamp, serial = oldStamp, tonumber(oldSerial) + 1 end
+    end
+    entry.recipeClock = format("%d.%d", stamp, serial)
+    return entry.recipeClock
+end
+
+function Recipes:Prune(entry, professions, own)
+    if not entry or not entry.recipes then return end
+    local active = {}
+    for _, profession in ipairs(professions) do
+        active[tostring(Sync:GetProfessionID(profession[1], profession[4]) or profession[1])] = true
+    end
+    local changed = false
+    for key in pairs(entry.recipes) do
+        if not active[key] then
+            entry.recipes[key] = nil
+            if entry.recipeVerified then entry.recipeVerified[key] = nil end
+            changed = true
+            if own then
+                entry.recipeRemovals = entry.recipeRemovals or {}
+                local token = self:NextToken(entry)
+                entry.recipeRemovals[key] = token
+                self:SendRemoval(key, token)
+            end
+        end
+    end
+    return changed
+end
+
+function Recipes:SendRemoval(key, token)
+    local guild = Sync:GetGuildKey()
+    if guild then Sync:Send(format("P!~%s~%s", key, token), nil, nil, guild) end
+end
+
+function Recipes:ReplayRemovals(entry)
+    for key, token in pairs(entry and entry.recipeRemovals or {}) do
+        self:SendRemoval(key, token)
+    end
+end
+
 function Recipes:Publish(key, recipes)
     local guild = Sync:GetGuildKey()
     if not guild then return end
     local records, packets = {}, {}
     for id, materials in pairs(recipes) do
-        tinsert(records, tostring(id) .. (materials ~= true and ":" .. materials or ""))
+        if self:CanShare(id, key) then
+            tinsert(records, tostring(id) .. (materials ~= true and ":" .. materials or ""))
+        end
     end
     table.sort(records)
     local payload = ""
@@ -35,8 +149,10 @@ function Recipes:Publish(key, recipes)
     end
     tinsert(packets, payload)
     if #packets > 256 then return end
-    self.serial = self.serial + 1
-    local token = tostring(time()) .. "." .. tostring(self.serial)
+    local name = Sync:GetOwnName()
+    local entry = name and Sync:GetEntry(name)
+    if not entry then return end
+    local token = self.verifiedTokenPrefix .. self:NextToken(entry)
     for index, packet in ipairs(packets) do
         Sync:Send(format("P~%s~%s~%d~%d~%s", key, token, index, #packets, packet), nil, nil, guild)
     end
@@ -58,6 +174,7 @@ function Recipes:Respond()
         if Sync:GetGuildKey() ~= guild then return end
         local name = Sync:GetOwnName()
         local data = name and Sync:GetData(name)
+        self:ReplayRemovals(data)
         local sent = self.sent[guild] or {}
         for key, recipes in pairs(data and data.recipes or {}) do
             if not sent[key] or GetTime() - sent[key] >= 300 then self:Publish(key, recipes) end
@@ -65,8 +182,30 @@ function Recipes:Respond()
     end)
 end
 
+function Recipes:StoreSnapshot(sender, key, token, recipes)
+    local entry = Sync:GetEntry(sender)
+    if not entry then return end
+    entry.recipeVersions = entry.recipeVersions or {}
+    entry.recipeVersions[key] = token
+    entry.recipeVerified = entry.recipeVerified or {}
+    entry.recipeVerified[key] = recipes ~= nil and token:sub(1, 1) == self.verifiedTokenPrefix or nil
+    entry.recipes = entry.recipes or {}
+    local previous = entry.recipes[key]
+    entry.recipes[key] = recipes
+    if previous or recipes then Sync:Notify() end
+end
+
 function Recipes:OnMessage(message, sender)
     if message == "P?" then return self:Respond() end
+    local removedKey, removedToken = message:match("^P!~([^~]+)~(%d+%.%d+)$")
+    if removedKey then
+        local entry = Sync:GetData(sender)
+        local applied = entry and entry.recipeVersions and entry.recipeVersions[removedKey]
+        if #removedKey <= 60 and #message <= 255 and self:IsNewer(removedToken, applied) then
+            self:StoreSnapshot(sender, removedKey, removedToken, nil)
+        end
+        return
+    end
     local key, token, part, total, payload = message:match("^P~([^~]+)~(%d+%.%d+)~(%d+)~(%d+)~([%d:.,%-]*)$")
     part, total = tonumber(part), tonumber(total)
     if not key or #key > 60 or not part or not total or total > 256 or part < 1 or part > total or #message > 255 then return end
@@ -76,8 +215,12 @@ function Recipes:OnMessage(message, sender)
         self.pendingGuild = guild
         wipe(self.pending)
     end
-    local bucket = sender .. "~" .. key
+    local entry = Sync:GetData(sender)
+    local applied = entry and entry.recipeVersions and entry.recipeVersions[key]
+    if not self:IsNewer(token, applied) then return end
+    local bucket = Sync:GetKey(sender) .. "~" .. key
     local pending = self.pending[bucket]
+    if pending and pending.token ~= token and not self:IsNewer(token, pending.token) then return end
     if not pending or pending.token ~= token or GetTime() - pending.started > 600 then
         pending = {token = token, total = total, started = GetTime(), parts = {}, count = 0}
         self.pending[bucket] = pending
@@ -97,11 +240,7 @@ function Recipes:OnMessage(message, sender)
             recipes[id] = materials or true
         end
     end
-    local entry = Sync:GetEntry(sender)
-    if not entry then return end
-    entry.recipes = entry.recipes or {}
-    entry.recipes[key] = recipes
-    Sync:Notify()
+    self:StoreSnapshot(sender, key, token, recipes)
 end
 
 function Recipes:CaptureModern()
@@ -147,6 +286,16 @@ function Recipes:CaptureClassic(craft)
             local id = link and tonumber(link:match("|Henchant:(%d+)") or link:match("|Hspell:(%d+)") or link:match("|Htrade:(%d+)"))
             if id then
                 self.names[id] = name
+                local getItem = craft and GetCraftItemLink or GetTradeSkillItemLink
+                local itemLink = getItem and getItem(index)
+                local output = itemLink and tonumber(itemLink:match("|Hitem:(%d+)"))
+                local getIcon = C_Item and C_Item.GetItemIconByID or GetItemIcon
+                if output or (craft and getItem) then
+                    GHTAB = GHTAB or {}
+                    GHTAB.RECIPEOUTPUTS = GHTAB.RECIPEOUTPUTS or {}
+                    GHTAB.RECIPEOUTPUTS[id] = output or 0
+                end
+                if output and getIcon then self.icons[id] = getIcon(output) or self.icons[id] end
                 local materials = {}
                 for reagent = 1, getReagentCount(index) do
                     local _, _, quantity = getReagentInfo(index, reagent)
@@ -204,16 +353,35 @@ function Recipes:Capture(craft)
     if changed then Sync:Notify() end
 end
 
+function Recipes:QueueItemRefresh(keys)
+    self.bindingKeys = self.bindingKeys or {}
+    for key in pairs(keys or {}) do self.bindingKeys[key] = true end
+    if self.bindingPending then return end
+    self.bindingPending = true
+    local guild = Sync:GetGuildKey()
+    C_Timer.After(0.5, function()
+        local updates = self.bindingKeys
+        self.bindingKeys, self.bindingPending = nil, nil
+        if not guild or guild ~= Sync:GetGuildKey() then return end
+        local name = Sync:GetOwnName()
+        local data = name and Sync:GetData(name)
+        for key in pairs(updates) do
+            local recipes = data and data.recipes and data.recipes[key]
+            if recipes then self:Publish(key, recipes) end
+        end
+        if self.onItemLoaded then self.onItemLoaded() end
+    end)
+end
+
 function Recipes:ItemName(id)
     local getInfo = C_Item and C_Item.GetItemInfo or GetItemInfo
     local name = getInfo and getInfo(id)
     if not name then self.itemRequests[id] = true end
-    return name or ("#" .. id)
+    return name or ("#" .. id), name ~= nil
 end
 
-function Recipes:Materials(id, materials)
-    local rows = {}
-    wipe(self.itemRequests)
+function Recipes:Requirements(id, materials)
+    local requirements = {}
     if materials == true then
         if not Trade or not Trade.GetRecipeSchematic then return end
         local ok, schematic = pcall(Trade.GetRecipeSchematic, id, false)
@@ -221,35 +389,89 @@ function Recipes:Materials(id, materials)
         if not schematic or not schematic.reagentSlotSchematics then return end
         for _, slot in ipairs(schematic.reagentSlotSchematics) do
             if slot.required and not slot.hiddenInCraftingForm then
-                local options, seen = {}, {}
+                local options = {}
                 for _, reagent in ipairs(slot.reagents) do
-                    local name
                     if reagent.itemID then
-                        name = self:ItemName(reagent.itemID)
+                        tinsert(options, reagent.itemID)
                     elseif reagent.currencyID then
-                        local currency = C_CurrencyInfo and C_CurrencyInfo.GetCurrencyInfo(reagent.currencyID)
-                        name = currency and currency.name or ("#" .. reagent.currencyID)
-                    end
-                    if name and not seen[name] then
-                        tinsert(options, name)
-                        seen[name] = true
+                        tinsert(options, -reagent.currencyID)
                     end
                 end
                 if #options == 0 then return end
-                tinsert(rows, {label = format("%d x %s", slot.quantityRequired, options[1])})
-                for index = 2, #options do
-                    tinsert(rows, {label = "    / " .. options[index]})
-                end
+                tinsert(requirements, {quantity = slot.quantityRequired, options = options})
             end
         end
-    elseif materials ~= "-" then
+    elseif type(materials) == "string" and materials ~= "-" then
         for item, quantity in materials:gmatch("(%d+)%.(%d+)") do
-            tinsert(rows, {label = quantity .. " x " .. self:ItemName(tonumber(item))})
+            tinsert(requirements, {quantity = tonumber(quantity), options = {tonumber(item)}})
         end
     else
         return
     end
-    return rows
+    return requirements
+end
+
+function Recipes:MaterialIcon(id)
+    if id > 0 then
+        local getIcon = C_Item and C_Item.GetItemIconByID or GetItemIcon
+        if getIcon then return getIcon(id) or 134400 end
+    else
+        local currency = C_CurrencyInfo and C_CurrencyInfo.GetCurrencyInfo(-id)
+        if currency then return currency.iconFileID or 134400 end
+    end
+    return 134400
+end
+
+function Recipes:MaterialNames(requirement)
+    local names, seen, ids, complete = {}, {}, {}, true
+    for _, id in ipairs(requirement.options) do
+        local name
+        if id > 0 then
+            local loaded
+            name, loaded = self:ItemName(id)
+            if not loaded then complete = false end
+        else
+            local currency = C_CurrencyInfo and C_CurrencyInfo.GetCurrencyInfo(-id)
+            name = currency and currency.name or ("#" .. -id)
+            if not currency or not currency.name then complete = false end
+        end
+        if not seen[name] then
+            seen[name] = true
+            tinsert(names, name)
+            tinsert(ids, id)
+        end
+    end
+    return names, ids, complete
+end
+
+function Recipes:MatchesMaterials(id, materials, query)
+    local cached = self.materialSearch[id]
+    if cached and cached.materials == materials then return cached.text:find(query, 1, true) ~= nil end
+    local requirements = self:Requirements(id, materials)
+    if not requirements then return false end
+    local terms, complete = {}, true
+    for _, requirement in ipairs(requirements) do
+        local names, _, loaded = self:MaterialNames(requirement)
+        if not loaded then complete = false end
+        tinsert(terms, table.concat(names, "\n"))
+    end
+    local text = strlower(table.concat(terms, "\n"))
+    if complete then self.materialSearch[id] = {materials = materials, text = text} end
+    return text:find(query, 1, true) ~= nil
+end
+
+function Recipes:Materials(id, materials)
+    local requirements = self:Requirements(id, materials)
+    if not requirements then return end
+    local rows = {}
+    for _, requirement in ipairs(requirements) do
+        local names, ids = self:MaterialNames(requirement)
+        tinsert(rows, {label = names[1], prefix = format("%dx", requirement.quantity), icon = self:MaterialIcon(ids[1])})
+        for index = 2, #names do
+            tinsert(rows, {label = names[index], prefix = "/", icon = self:MaterialIcon(ids[index])})
+        end
+    end
+    return rows, requirements
 end
 
 local events = CreateFrame("Frame")
@@ -269,10 +491,10 @@ Register("CRAFT_CLOSE")
 Register("GET_ITEM_INFO_RECEIVED")
 events:SetScript("OnEvent", function(_, event, itemID, success)
     if event == "GET_ITEM_INFO_RECEIVED" then
-        if Recipes.itemRequests[itemID] then
-            Recipes.itemRequests[itemID] = nil
-            if success and Recipes.onItemLoaded then Recipes.onItemLoaded() end
-        end
+        local keys = Recipes.bindingRequests[itemID]
+        local requested = Recipes.itemRequests[itemID]
+        Recipes.bindingRequests[itemID], Recipes.itemRequests[itemID] = nil, nil
+        if success and (keys or requested) then Recipes:QueueItemRefresh(keys) end
         return
     end
     if event == "TRADE_SKILL_CLOSE" or event == "CRAFT_CLOSE" then
