@@ -146,32 +146,6 @@ function Groups:ChatRoleIcons(_, _, message, ...)
     return false, formatted, ...
 end
 
-function Groups:InstallChatRoleDisplay()
-    self.chatDisplayHooks = self.chatDisplayHooks or {}
-    for index = 1, NUM_CHAT_WINDOWS or 10 do
-        local frame = _G["ChatFrame" .. index]
-        if frame and index ~= 2 and type(frame.AddMessage) == "function" then
-            local hooks = self.chatDisplayHooks[frame]
-            if not hooks then
-                hooks = {wrappers = {}, originals = {}}
-                self.chatDisplayHooks[frame] = hooks
-            end
-            local original = frame.AddMessage
-            if not hooks.wrappers[original] then
-                local wrapper = hooks.originals[original]
-                if not wrapper then
-                    wrapper = function(chatFrame, message, ...)
-                        return original(chatFrame, Groups:FormatChatRoles(message), ...)
-                    end
-                    hooks.originals[original] = wrapper
-                    hooks.wrappers[wrapper] = true
-                end
-                frame.AddMessage = wrapper
-            end
-        end
-    end
-end
-
 function Groups:RegisterChatRoleIcons()
     if self.chatRoleFilterRegistered then return end
     local register = (ChatFrameUtil and ChatFrameUtil.AddMessageEventFilter) or ChatFrame_AddMessageEventFilter

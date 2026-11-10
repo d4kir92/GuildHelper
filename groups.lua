@@ -1297,9 +1297,6 @@ Groups.events:RegisterEvent("GROUP_ROSTER_UPDATE")
 if not C_EventUtils or not C_EventUtils.IsEventValid or C_EventUtils.IsEventValid("ROLE_CHANGED_INFORM") then Groups.events:RegisterEvent("ROLE_CHANGED_INFORM") end
 if C_EventUtils == nil or C_EventUtils.IsEventValid == nil or C_EventUtils.IsEventValid("PLAYER_ROLES_ASSIGNED") then Groups.events:RegisterEvent("PLAYER_ROLES_ASSIGNED") end
 Groups.events:SetScript("OnEvent", function(_, event)
-    if event == "PLAYER_LOGIN" or event == "PLAYER_ENTERING_WORLD" then
-        C_Timer.After(1, function() Groups:InstallChatRoleDisplay() end)
-    end
     if event == "PLAYER_LOGOUT" then
         for _, entry in pairs(Groups.live) do
             Groups:Withdraw(entry)
