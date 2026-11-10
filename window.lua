@@ -106,16 +106,16 @@ Window.NAV = {
         label = "LID_MEMBERS"
     },
     {
+        key = "groups",
+        label = "LID_GROUPFINDER"
+    },
+    {
         key = "professions",
         label = "LID_PROFESSIONS"
     },
     {
         key = "events",
         label = "LID_EVENTS"
-    },
-    {
-        key = "groups",
-        label = "LID_GROUPFINDER"
     },
     {
         key = "chars",

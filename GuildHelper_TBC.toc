@@ -53,6 +53,8 @@ specs.lua
 members.lua
 dashboard.lua
 groups.lua
+recipes.lua
+professions.lua
 announcements.lua
 feedback.lua
 notifications.lua

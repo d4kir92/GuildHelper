@@ -247,10 +247,10 @@ function Sync:Parse(shortName, message)
     self:Store(shortName, tonumber(parts[2]), professions)
 end
 
-function Sync:Send(message, key, prefix)
+function Sync:Send(message, key, prefix, guild)
     if not IsInGuild() or type(message) ~= "string" or #message > 255 then return end
     for _, item in ipairs(self.queue) do
-        if item.prefix == (prefix or self.PREFIX) and ((key and item.key == key) or item.message == message) then
+        if item.guild == guild and item.prefix == (prefix or self.PREFIX) and ((key and item.key == key) or item.message == message) then
             item.message = message
             item.tries = 0
 
@@ -262,6 +262,7 @@ function Sync:Send(message, key, prefix)
         message = message,
         prefix = prefix or self.PREFIX,
         key = key,
+        guild = guild,
         tries = 0
     })
 
@@ -297,16 +298,18 @@ function Sync:Pump(elapsed)
 
     while self.tokens >= 1 and #self.queue > 0 do
         local item = self.queue[1]
-        if not self:Transmit(item.message, item.prefix) then
+        if item.guild and item.guild ~= self:GetGuildKey() then
+            tremove(self.queue, 1)
+        elseif not self:Transmit(item.message, item.prefix) then
             item.tries = item.tries + 1
             if item.tries >= self.MAXTRIES then tremove(self.queue, 1) end
             self.tokens = 0
 
             return
+        else
+            tremove(self.queue, 1)
+            self.tokens = self.tokens - 1
         end
-
-        tremove(self.queue, 1)
-        self.tokens = self.tokens - 1
     end
 end
 
@@ -391,6 +394,8 @@ function Sync:OnMessage(message, channel, sender)
             entry.portraitGender = gender
             self:Notify()
         end
+    elseif kind == "P" and GuildHelper.Recipes then
+        GuildHelper.Recipes:OnMessage(message, shortName)
     elseif kind == "Q" then
         self:ScheduleInfo(max(0, self.ANSWER_THROTTLE - (GetTime() - self.lastSend)) + random(2, 12))
     end
