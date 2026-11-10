@@ -116,6 +116,38 @@ function Feedback:CheckGuild()
     return guild ~= nil
 end
 
+function Feedback:GetUnread()
+    if not self.guild then return end
+    GHTABPC = GHTABPC or {}
+    GHTABPC.FEEDBACKUNREAD = GHTABPC.FEEDBACKUNREAD or {}
+    GHTABPC.FEEDBACKUNREAD[self.guild] = GHTABPC.FEEDBACKUNREAD[self.guild] or {entries = {}, comments = {}}
+    return GHTABPC.FEEDBACKUNREAD[self.guild]
+end
+
+function Feedback:CountUnread()
+    if not self:CheckGuild() then return 0 end
+    local unread = self:GetUnread()
+    local store = self:GetStore()
+    local count = 0
+    for id in pairs(unread.entries) do
+        if self:Find(id) then count = count + 1 else unread.entries[id] = nil end
+    end
+    for id, comments in pairs(unread.comments) do
+        local entry = self:Find(id)
+        local subscribed = entry and self:IsSubscribed(entry)
+        for cid in pairs(comments) do
+            local comment = store.comments[id] and store.comments[id][cid]
+            if not comment or comment.deleted then
+                comments[cid] = nil
+            elseif subscribed then
+                count = count + 1
+            end
+        end
+        if not next(comments) then unread.comments[id] = nil end
+    end
+    return count
+end
+
 function Feedback:GetStore()
     if not self.guild then return nil end
     GHTAB = GHTAB or {}
@@ -463,6 +495,7 @@ function Feedback:Commit(entry)
     if not store or not self:Accepts(entry) then return end
     local isNew = store.entries[entry.id] == nil
     store.entries[entry.id] = entry
+    if isNew and not GuildHelper.Groups:IsSelfName(entry.owner) then self:GetUnread().entries[entry.id] = true end
     if isNew and GuildHelper.Notifications then
         GuildHelper.Notifications:NewEntry(entry.id, entry.owner, entry.created, entry.kind == "B" and "NEWBUG" or "NEWIDEA")
     end
@@ -533,6 +566,11 @@ function Feedback:ReadComment(parts)
         text = text
     }
 
+    if not GuildHelper.Groups:IsSelfName(owner) and (not entry or self:IsSubscribed(entry)) then
+        local comments = self:GetUnread().comments
+        comments[id] = comments[id] or {}
+        comments[id][cid] = true
+    end
     if GuildHelper.Notifications then GuildHelper.Notifications:Comment(id, store.comments[id][cid]) end
     self:Changed()
 end
@@ -1332,8 +1370,10 @@ function Feedback:RefreshList()
     end
 
     local list = self:GetList(self.filter)
+    local unread = self:GetUnread()
     if not self:Find(self.selected) then self.selected = list[1] and list[1].id end
     for index, entry in ipairs(list) do
+        if unread then unread.entries[entry.id] = nil end
         self:FillRow(self:GetRow(index), entry)
     end
 
@@ -1394,10 +1434,15 @@ function Feedback:RefreshDetail()
     GuildHelper.Theme:SetTrans(self.delete.text, self.confirm and "LID_FBCONFIRM" or "LID_FBDELETE")
     self.send:SetEnabled(IsInGuild() and GuildHelper.Groups:CleanText(self.commentBox:GetText(), 254) ~= "")
     self:RefreshComments(entry)
+    local unread = self:GetUnread()
+    if unread then unread.comments[entry.id] = nil end
 end
 
 function Feedback:Refresh()
-    if not self.content or not self.content:IsVisible() or not self.list then return end
+    if not self.content or not self.content:IsVisible() or not self.list then
+        GuildHelper.Window:UpdateNavCount("feedback", self:CountUnread())
+        return
+    end
     self:CheckGuild()
     if self.editing and not self:IsOwn(self:Find(self.editing)) then
         self:StopEditing()
@@ -1414,6 +1459,7 @@ function Feedback:Refresh()
     else
         self:RefreshDetail()
     end
+    GuildHelper.Window:UpdateNavCount("feedback", self:CountUnread())
 end
 
 GuildHelper.Window:SetPageBuilder("feedback", function(content) Feedback:Build(content) end)

@@ -298,7 +298,7 @@ end
 
 function Orders:Refresh()
     local store = self:GetStore()
-    Window:UpdateOrderCount(self:Count())
+    Window:UpdateNavCount("orders", self:Count())
     self:Notify()
     local page = self.page
     if not page or not page:IsVisible() then return end

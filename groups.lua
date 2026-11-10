@@ -81,10 +81,44 @@ function Groups:CheckGuild()
         self.selected = nil
         self.editing = nil
         self.lastQuery = nil
+        self.viewedListings = nil
         self.announcements = {}
     end
 
     return guild ~= nil
+end
+
+function Groups:GetViewedListings()
+    if not self.guild then return end
+    if not self.viewedListings then
+        GHTABPC = GHTABPC or {}
+        GHTABPC.GROUPSVIEWED = GHTABPC.GROUPSVIEWED or {}
+        GHTABPC.GROUPSVIEWED[self.guild] = GHTABPC.GROUPSVIEWED[self.guild] or {}
+        self.viewedListings = GHTABPC.GROUPSVIEWED[self.guild]
+        local cutoff = time() - (self.DAYS + 2) * 86400
+        for key, stamp in pairs(self.viewedListings) do
+            if stamp < cutoff then self.viewedListings[key] = nil end
+        end
+    end
+    return self.viewedListings
+end
+
+function Groups:CountUnread()
+    if not self:CheckGuild() then return 0 end
+    local viewed = self:GetViewedListings()
+    local count = 0
+    for _, listings in ipairs({self.live, self:GetPlanned()}) do
+        for key, entry in pairs(listings) do
+            if self:IsOwn(entry) then
+                for _, applicant in pairs(entry.applicants or {}) do
+                    if applicant.unread then count = count + 1 end
+                end
+            elseif not viewed[key] then
+                count = count + 1
+            end
+        end
+    end
+    return count
 end
 
 function Groups:GetPlanned()
@@ -683,13 +717,16 @@ function Groups:ReadApplication(owner, sender, parts)
     if parts[2] == "W" and #parts == 4 then
         entry.applicants[owner] = nil
     elseif parts[2] == "A" and #parts == 5 and GuildHelper.Specs:GetRole(parts[5]) and (entry[parts[5]] or 0) > 0 then
-        local isNew = entry.applicants[owner] == nil
+        local previous = entry.applicants[owner]
+        local isNew = previous == nil
+        local own = self:IsOwn(entry)
         entry.applicants[owner] = {
             name = sender,
             role = parts[5],
+            unread = own and (isNew or previous.unread) or nil,
             expires = entry.kind == "L" and GetTime() + self.TTL or nil
         }
-        if isNew and self:IsOwn(entry) and GuildHelper.Notifications then
+        if isNew and own and GuildHelper.Notifications then
             GuildHelper.Notifications:Application(entry.key, owner, sender)
         end
     else
@@ -1305,8 +1342,10 @@ end
 
 function Groups:RefreshList()
     local list = self:GetList(self.mode)
+    local viewed = self:GetViewedListings()
     if not self:Find(self.selected) or self:Find(self.selected).kind ~= self.mode then self.selected = list[1] and list[1].key end
     for index, entry in ipairs(list) do
+        if viewed and not self:IsOwn(entry) and not viewed[entry.key] then viewed[entry.key] = time() end
         local row = self:GetRow(index)
         row.key = entry.key
         row.title:SetText(self:GetActivityName(entry))
@@ -1346,7 +1385,12 @@ function Groups:RefreshDetail()
     self.rolePill:SetShown(foreign)
     self.apply:SetShown(foreign)
     self.whisper:SetShown(foreign)
-    if entry then self:RefreshRequests(entry) end
+    if entry then
+        self:RefreshRequests(entry)
+        if own then
+            for _, applicant in pairs(entry.applicants or {}) do applicant.unread = nil end
+        end
+    end
     if not foreign then return end
     local applied = entry.applied
     GuildHelper.Members:SetPillText(self.rolePill, GuildHelper.Specs:Format({
@@ -1359,10 +1403,12 @@ function Groups:RefreshDetail()
 end
 
 function Groups:Refresh()
-    if not self.content or not self.content:IsVisible() or not self.list then return end
-    self:RefreshForm()
-    self:RefreshList()
-    self:RefreshDetail()
+    if self.content and self.content:IsVisible() and self.list then
+        self:RefreshForm()
+        self:RefreshList()
+        self:RefreshDetail()
+    end
+    GuildHelper.Window:UpdateNavCount("groups", self:CountUnread())
 end
 
 GuildHelper.Window:SetPageBuilder("groups", function(content) Groups:Build(content) end)

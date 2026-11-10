@@ -93,7 +93,7 @@ function Window:FlipTopBorder(frame)
     frame:HookScript("OnShow", layout)
     C_Timer.After(0, layout)
 end
-Window.SIDEBARWIDE = 238
+Window.SIDEBARWIDE = 228
 Window.SIDEBAR = Window.SIDEBARWIDE
 Window.PADDING = 18
 Window.MARGIN = 24
@@ -166,7 +166,7 @@ function Window:ApplyNavigation()
     for _, button in ipairs(self.navButtons) do
         button:SetWidth(self.SIDEBAR - 30)
         button.text:SetShown(not collapsed)
-        if button.count then self:PositionOrderCount(button, collapsed) end
+        if button.count then self:PositionNavCount(button, collapsed) end
     end
     self.navToggle.icon:SetRotation(collapsed and -math.pi / 2 or math.pi / 2)
     self.versionText:SetText(format(collapsed and "v%s" or "GuildHelper v%s", GuildHelper:GetVersion() or ""))
@@ -234,18 +234,33 @@ function Window:UpdateNav()
     end
 end
 
-function Window:PositionOrderCount(button, collapsed)
-    button.count:ClearAllPoints()
+function Window:PositionNavCount(button, collapsed)
+    button.countBadge:ClearAllPoints()
     if collapsed then
-        button.count:SetPoint("BOTTOMRIGHT", 1, -1)
+        button.countBadge:SetPoint("CENTER", button.dot, "BOTTOMRIGHT")
     else
-        button.count:SetPoint("RIGHT", -5, 0)
+        button.countBadge:SetPoint("RIGHT", button, "RIGHT", -5, 0)
     end
 end
 
-function Window:UpdateOrderCount(count)
+function Window:SetNavCount(button, count)
+    local visible = count > 0
+    if button.navCount == count then return end
+    button.navCount = count
+    button.count:SetText(tostring(count))
+    button.count:SetShown(visible)
+    button.countBadge:SetShown(visible)
+    local size = max(16, ceil(button.count:GetStringWidth()) + 6)
+    button.countBadge:SetSize(size, size)
+    button.text:SetPoint("RIGHT", visible and button.countBadge or button, visible and "LEFT" or "RIGHT", visible and -4 or -5, 0)
+end
+
+function Window:UpdateNavCount(key, count)
     for _, button in ipairs(self.navButtons) do
-        if button.count then button.count:SetText(format("(%d)", count)) end
+        if button.entry.key == key and button.count then
+            self:SetNavCount(button, count)
+            return
+        end
     end
 end
 
@@ -263,11 +278,21 @@ function Window:CreateNavButton(index, entry)
     button.text = Theme:Text(button, 13.5, "navText")
     button.text:SetPoint("LEFT", button, "LEFT", 38, 0)
     Theme:SetTrans(button.text, entry.label)
-    if entry.key == "orders" then
-        button.count = Theme:Text(button, 11, "accent")
-        self:PositionOrderCount(button, GuildHelper:GetConfig("NAVCOLLAPSED", false))
-        button.count:SetText(format("(%d)", GuildHelper.Orders:Count()))
-        button.text:SetPoint("RIGHT", button.count, "LEFT", -4, 0)
+    if entry.key == "orders" or entry.key == "groups" or entry.key == "feedback" then
+        button.countBadge = Theme:Icon(button, "circle", 16, "online")
+        button.countBadge:SetDrawLayer("ARTWORK", 1)
+        button.count = Theme:Text(button, 11, "window")
+        button.count:SetPoint("CENTER", button.countBadge, "CENTER")
+        self:PositionNavCount(button, GuildHelper:GetConfig("NAVCOLLAPSED", false))
+        local count
+        if entry.key == "orders" then
+            count = GuildHelper.Orders:Count()
+        elseif entry.key == "groups" then
+            count = GuildHelper.Groups:CountUnread()
+        else
+            count = GuildHelper.Feedback:CountUnread()
+        end
+        self:SetNavCount(button, count)
         button.text:SetJustifyH("LEFT")
     end
     button:SetScript("OnEnter", function(sel)
