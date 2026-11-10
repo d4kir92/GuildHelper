@@ -29,17 +29,24 @@ end
 
 function Dashboard:GetMOTD()
     if not self:CheckGuild() then return "" end
-    local text = GetGuildRosterMOTD and GetGuildRosterMOTD()
+    if self.cachedMOTD ~= nil then return self.cachedMOTD end
+    local text
+    if not (C_GuildInfo and C_GuildInfo.GetMOTD) and not GuildHelper:IsForever() and GetGuildRosterMOTD then
+        text = GetGuildRosterMOTD()
+    end
+
     if not GuildHelper:CanAccessValues(text) then text = nil end
     if (not text or text == "") and C_Club and C_Club.GetGuildClubId and C_Club.GetClubInfo then
         local id = C_Club.GetGuildClubId()
-        local info = id and C_Club.GetClubInfo(id)
-        text = info and info.broadcast
+        if GuildHelper:CanAccessValues(id) and id then
+            local info = C_Club.GetClubInfo(id)
+            if GuildHelper:CanAccessValues(info) and info then text = info.broadcast end
+        end
     end
 
-    if type(text) == "string" and GuildHelper:CanAccessValues(text) and text ~= "" then self.cachedMOTD = text end
+    if type(text) == "string" and GuildHelper:CanAccessValues(text) and text ~= "" then return text end
 
-    return self.cachedMOTD or ""
+    return ""
 end
 
 function Dashboard:RequestData()
