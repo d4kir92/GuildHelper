@@ -50,10 +50,13 @@ end
 function Groups:IsSelfName(name)
     local key = self:Name(name)
     if not key then return false end
-    if key == self:Self() or key == self.selfSender then return true end
+    local own = self:Self()
+    if key == own or key == self.selfSender then return true end
     local member = GuildHelper.Members.GetSelf and GuildHelper.Members:GetSelf()
+    if member and key == self:Name(member.name) then return true end
 
-    return member ~= nil and key == self:Name(member.name)
+    local short = own and strsplit("-", own)
+    return short ~= nil and key:sub(1, #short) == short and key == self:Name(GuildHelper.Sync:GetOwnName())
 end
 
 function Groups:IsOwn(entry)
