@@ -226,6 +226,13 @@ Settings.MAPOPTIONS = {
         requires = "GUILDMEMBERPINS"
     },
     {
+        key = "GUILDMEMBERZONES",
+        default = true,
+        label = "LID_GUILDMEMBERZONES",
+        desc = "LID_GUILDMEMBERZONESDESC",
+        requires = "GUILDMEMBERPINS"
+    },
+    {
         key = "GUILDMEMBERSHARE",
         default = true,
         label = "LID_GUILDMEMBERSHARE",

@@ -116,6 +116,8 @@ GuildHelper:AddTrans("ruRU", "LID_GUILDMEMBERPINSDESC", "Показывает ч
 GuildHelper:AddTrans("ruRU", "LID_GUILDMEMBERSEEN", "Обновлено %d с назад")
 GuildHelper:AddTrans("ruRU", "LID_GUILDMEMBERSHARE", "Делиться своей позицией с гильдией")
 GuildHelper:AddTrans("ruRU", "LID_GUILDMEMBERSHAREDESC", "Отправляет вашу позицию на карте только гильдии: не чаще раза в 5 секунд в движении и раз в 30 секунд на месте. В подземельях ничего не отправляется.")
+GuildHelper:AddTrans("ruRU", "LID_GUILDMEMBERZONES", "Согильдийцы по зонам без отслеживания аддоном")
+GuildHelper:AddTrans("ruRU", "LID_GUILDMEMBERZONESDESC", "Группирует в указанной зоне участников гильдии, которые в сети и не делятся координатами.")
 GuildHelper:AddTrans("ruRU", "LID_GUILDNEWS", "Новости гильдии")
 GuildHelper:AddTrans("ruRU", "LID_GUILDPROFESSIONS", "Профессии гильдии")
 GuildHelper:AddTrans("ruRU", "LID_HIDEALTS", "Скрыть альтов")

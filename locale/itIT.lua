@@ -116,6 +116,8 @@ GuildHelper:AddTrans("itIT", "LID_GUILDMEMBERPINSDESC", "Mostra i membri della g
 GuildHelper:AddTrans("itIT", "LID_GUILDMEMBERSEEN", "Aggiornato %d s fa")
 GuildHelper:AddTrans("itIT", "LID_GUILDMEMBERSHARE", "Condividi la mia posizione con la gilda")
 GuildHelper:AddTrans("itIT", "LID_GUILDMEMBERSHAREDESC", "Invia la tua posizione sulla mappa solo alla tua gilda, al massimo ogni 5 secondi in movimento e ogni 30 secondi da fermo. Nelle istanze non viene inviato nulla.")
+GuildHelper:AddTrans("itIT", "LID_GUILDMEMBERZONES", "Membri per zona senza tracciamento tramite addon")
+GuildHelper:AddTrans("itIT", "LID_GUILDMEMBERZONESDESC", "Raggruppa nella loro zona i membri online che non condividono la posizione.")
 GuildHelper:AddTrans("itIT", "LID_GUILDNEWS", "Notizie di gilda")
 GuildHelper:AddTrans("itIT", "LID_GUILDPROFESSIONS", "Professioni della gilda")
 GuildHelper:AddTrans("itIT", "LID_HIDEALTS", "Nascondi alt")

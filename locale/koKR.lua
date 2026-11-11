@@ -116,6 +116,8 @@ GuildHelper:AddTrans("koKR", "LID_GUILDMEMBERPINSDESC", "파티에 없는 길드
 GuildHelper:AddTrans("koKR", "LID_GUILDMEMBERSEEN", "%d초 전 업데이트")
 GuildHelper:AddTrans("koKR", "LID_GUILDMEMBERSHARE", "길드와 내 위치 공유")
 GuildHelper:AddTrans("koKR", "LID_GUILDMEMBERSHAREDESC", "지도 위치를 길드에만 보냅니다. 이동 중에는 최대 5초마다, 정지 중에는 30초마다 보냅니다. 인스턴스 안에서는 아무것도 보내지 않습니다.")
+GuildHelper:AddTrans("koKR", "LID_GUILDMEMBERZONES", "애드온 추적이 없는 길드원 (지역별)")
+GuildHelper:AddTrans("koKR", "LID_GUILDMEMBERZONESDESC", "위치를 공유하지 않는 접속 중인 길드원을 현재 지역별로 묶어 표시합니다.")
 GuildHelper:AddTrans("koKR", "LID_GUILDNEWS", "길드 소식")
 GuildHelper:AddTrans("koKR", "LID_GUILDPROFESSIONS", "길드 전문 기술")
 GuildHelper:AddTrans("koKR", "LID_HIDEALTS", "부캐 숨기기")

@@ -116,6 +116,8 @@ GuildHelper:AddTrans("esMX", "LID_GUILDMEMBERPINSDESC", "Muestra a los miembros 
 GuildHelper:AddTrans("esMX", "LID_GUILDMEMBERSEEN", "Actualizado hace %d s")
 GuildHelper:AddTrans("esMX", "LID_GUILDMEMBERSHARE", "Compartir mi posición con la hermandad")
 GuildHelper:AddTrans("esMX", "LID_GUILDMEMBERSHAREDESC", "Envía tu posición en el mapa solo a tu hermandad, como máximo cada 5 segundos en movimiento y cada 30 segundos detenido. No se envía nada dentro de instancias.")
+GuildHelper:AddTrans("esMX", "LID_GUILDMEMBERZONES", "Miembros por zona sin seguimiento de addons")
+GuildHelper:AddTrans("esMX", "LID_GUILDMEMBERZONESDESC", "Agrupa en su zona a los miembros conectados que no comparten su posición.")
 GuildHelper:AddTrans("esMX", "LID_GUILDNEWS", "Noticias de la hermandad")
 GuildHelper:AddTrans("esMX", "LID_GUILDPROFESSIONS", "Profesiones de la hermandad")
 GuildHelper:AddTrans("esMX", "LID_HIDEALTS", "Ocultar alters")

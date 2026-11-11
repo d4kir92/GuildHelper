@@ -116,6 +116,8 @@ GuildHelper:AddTrans("deDE", "LID_GUILDMEMBERPINSDESC", "Zeigt Gildenmitglieder 
 GuildHelper:AddTrans("deDE", "LID_GUILDMEMBERSEEN", "Aktualisiert vor %d s")
 GuildHelper:AddTrans("deDE", "LID_GUILDMEMBERSHARE", "Meine Position mit der Gilde teilen")
 GuildHelper:AddTrans("deDE", "LID_GUILDMEMBERSHAREDESC", "Sendet deine Kartenposition nur an deine Gilde, höchstens alle 5 Sekunden in Bewegung und alle 30 Sekunden im Stillstand. In Instanzen wird nichts gesendet.")
+GuildHelper:AddTrans("deDE", "LID_GUILDMEMBERZONES", "Gildenmitglieder ohne Addon-Tracking nach Zone")
+GuildHelper:AddTrans("deDE", "LID_GUILDMEMBERZONESDESC", "Zeigt Online-Mitglieder ohne geteilte Position gesammelt in ihrer gemeldeten Zone.")
 GuildHelper:AddTrans("deDE", "LID_GUILDNEWS", "Gildennews")
 GuildHelper:AddTrans("deDE", "LID_GUILDPROFESSIONS", "Berufe der Gilde")
 GuildHelper:AddTrans("deDE", "LID_HIDEALTS", "Twinks ausblenden")

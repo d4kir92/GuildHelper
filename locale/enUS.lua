@@ -116,6 +116,8 @@ GuildHelper:AddTrans("enUS", "LID_GUILDMEMBERPINSDESC", "Shows guild members out
 GuildHelper:AddTrans("enUS", "LID_GUILDMEMBERSEEN", "Updated %d s ago")
 GuildHelper:AddTrans("enUS", "LID_GUILDMEMBERSHARE", "Share my position with the guild")
 GuildHelper:AddTrans("enUS", "LID_GUILDMEMBERSHAREDESC", "Sends your map position to your guild only, at most every 5 seconds while moving and every 30 seconds while standing still. Nothing is sent inside instances.")
+GuildHelper:AddTrans("enUS", "LID_GUILDMEMBERZONES", "Guild members by zone without addon tracking")
+GuildHelper:AddTrans("enUS", "LID_GUILDMEMBERZONESDESC", "Groups online guild members without a shared position in their reported zone.")
 GuildHelper:AddTrans("enUS", "LID_GUILDNEWS", "Guild news")
 GuildHelper:AddTrans("enUS", "LID_GUILDPROFESSIONS", "Guild professions")
 GuildHelper:AddTrans("enUS", "LID_HIDEALTS", "Hide alts")

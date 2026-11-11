@@ -116,6 +116,8 @@ GuildHelper:AddTrans("zhCN", "LID_GUILDMEMBERPINSDESC", "在世界地图上以�
 GuildHelper:AddTrans("zhCN", "LID_GUILDMEMBERSEEN", "%d 秒前更新")
 GuildHelper:AddTrans("zhCN", "LID_GUILDMEMBERSHARE", "与公会分享我的位置")
 GuildHelper:AddTrans("zhCN", "LID_GUILDMEMBERSHAREDESC", "仅向你的公会发送地图位置，移动时最多每 5 秒一次，静止时每 30 秒一次。在副本中不会发送。")
+GuildHelper:AddTrans("zhCN", "LID_GUILDMEMBERZONES", "按区域显示未被插件追踪的公会成员")
+GuildHelper:AddTrans("zhCN", "LID_GUILDMEMBERZONESDESC", "按所在区域汇总显示未共享坐标的在线公会成员。")
 GuildHelper:AddTrans("zhCN", "LID_GUILDNEWS", "公会新闻")
 GuildHelper:AddTrans("zhCN", "LID_GUILDPROFESSIONS", "公会专业")
 GuildHelper:AddTrans("zhCN", "LID_HIDEALTS", "隐藏小号")
