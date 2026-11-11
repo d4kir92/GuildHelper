@@ -97,7 +97,7 @@ function Groups:BuildAnnouncementOptions(form)
             self:Refresh()
         end)
     end)
-    self.chatRepeatLabel = self:Text(form, "LID_GROUPCHATREPEAT", 360, -119)
+    self.chatRepeatLabel = self:Text(form, "LID_GROUPCHATREPEAT", 14, -153)
     self.chatRepeat = Members:CreatePill(form, "")
     self.chatRepeat:SetScript("OnClick", function(button)
         local options = {}
@@ -115,7 +115,7 @@ end
 
 function Groups:RefreshAnnouncementOptions(planned)
     local draft = self.draft[self.mode]
-    local y = planned and -153 or -119
+    local y = planned and -177 or -119
     self.chatLabel:ClearAllPoints()
     self.chatLabel:SetPoint("TOPLEFT", self.form, "TOPLEFT", 14, y)
     self.chatLanguage:ClearAllPoints()
@@ -123,7 +123,7 @@ function Groups:RefreshAnnouncementOptions(planned)
     GuildHelper.Members:SetPillText(self.chatLanguage, GuildHelper:Trans("LID_LANG" .. strupper(draft.chatLanguage or GuildHelper:GetLanguage())))
     self.chatRepeatLabel:SetShown(not planned)
     self.chatRepeat:SetShown(not planned)
-    self.chatRepeat:SetPoint("TOPLEFT", self.form, "TOPLEFT", 540, -112)
+    self.chatRepeat:SetPoint("TOPLEFT", self.form, "TOPLEFT", 150, -146)
     GuildHelper.Members:SetPillText(self.chatRepeat, format(GuildHelper:Trans("LID_GROUPCHATMINUTES"), draft.chatInterval or 15))
 end
 
