@@ -177,7 +177,7 @@ function Notifications:Comment(id, comment)
     self.seen[key] = true
     local entry = GuildHelper.Feedback:Find(id)
     if entry and not GuildHelper.Feedback:IsSubscribed(entry) then return end
-    self:Enqueue({id = id, guild = guild, author = comment.author or comment.owner, queued = self:GetDisplayTime()})
+    self:Enqueue({id = id, guild = guild, author = comment.author or comment.owner, owner = comment.owner, queued = self:GetDisplayTime()})
 end
 
 function Notifications:Test()
@@ -207,7 +207,7 @@ function Notifications:Render()
         self:Create()
         self:ShowGroupAction(false)
         self.frame.title:SetText(GuildHelper:Trans("LID_ORDER_NOTIFICATION"))
-        self.frame.text:SetText(GuildHelper.Recipes:Name(order.recipe) .. "\n" .. GuildHelper.Orders:ShortName(order.requester))
+        self.frame.text:SetText(GuildHelper.Recipes:Name(order.recipe) .. "\n" .. GuildHelper.Orders:ContactLabel(order.requester, nil, true))
         self.frame:Show()
         order.notified = true
         return
@@ -242,7 +242,8 @@ function Notifications:Render()
     self:Create()
     self:ShowGroupAction(false)
     self.frame.title:SetText(GuildHelper:Trans("LID_NOTIFICATIONCOMMENT"))
-    self.frame.text:SetText(format(GuildHelper:Trans("LID_NOTIFICATIONCOMMENTTEXT"), self.current.author, entry.title))
+    local author = GuildHelper.Feedback:AuthorLabel(self.current)
+    self.frame.text:SetText(format(GuildHelper:Trans("LID_NOTIFICATIONCOMMENTTEXT"), author, entry.title))
     self.frame:Show()
 end
 

@@ -641,6 +641,20 @@ function Feedback:NewId(used)
     return id
 end
 
+function Feedback:AuthorLabel(entry, avatar)
+    local Members = GuildHelper.Members
+    local name = entry.author and entry.author ~= "" and entry.author or entry.owner or "?"
+    local member = Members:FindByName(entry.owner) or Members:FindByName(name)
+    local label = member and member.short or (Ambiguate and Ambiguate(name, "guild") or name)
+    label = Members:NameWithTwitch(member, label)
+    if avatar then
+        local portrait = member or {short = label}
+        local r, g, b = Members:GetClassColor(portrait)
+        Members:FillAvatar(avatar, portrait, member and Members:GetData(member), r, g, b)
+    end
+    return label
+end
+
 function Feedback:GetAuthor()
     local member = GuildHelper.Members.GetSelf and GuildHelper.Members:GetSelf()
     if member and member.name then return member.name end
@@ -1082,7 +1096,9 @@ function Feedback:BuildDetail(side)
     self.detailTitle:SetWordWrap(true)
     self.detailTitle:SetHeight(38)
     self.detailTitle:SetJustifyV("TOP")
-    self.detailMeta = self:Text(detail, nil, 16, -100, 12)
+    self.detailAvatar = Members:CreateAvatar(detail, 16, 9)
+    self.detailAvatar:SetPoint("TOPLEFT", 16, -98)
+    self.detailMeta = self:Text(detail, nil, 37, -100, 12)
     self.detailMeta:SetPoint("RIGHT", detail, "RIGHT", -16, 0)
     self.body = Dashboard:CreateTextCard(detail, "LID_FBTEXT")
     self.body:SetPoint("TOPLEFT", detail, "TOPLEFT", 8, -124)
@@ -1193,7 +1209,9 @@ function Feedback:GetCommentRow(index)
     end)
 
     row.remove:SetScript("OnClick", function() self:DeleteComment(self.selected, row.cid) end)
-    row.head = self:Text(row, nil, 10, -4, 11)
+    row.avatar = GuildHelper.Members:CreateAvatar(row, 15, 9)
+    row.avatar:SetPoint("TOPLEFT", 10, -2)
+    row.head = self:Text(row, nil, 30, -4, 11)
     row.head:SetPoint("RIGHT", row.remove, "LEFT", -6, 0)
     row.text = self:Text(row, nil, 10, -20, 12.5, "text")
     row.text:SetWordWrap(true)
@@ -1214,7 +1232,7 @@ function Feedback:RefreshComments(entry)
         row:ClearAllPoints()
         row:SetPoint("TOPLEFT", body, "TOPLEFT", 0, -y)
         row:SetPoint("TOPRIGHT", body, "TOPRIGHT", 0, -y)
-        row.head:SetText((Ambiguate and Ambiguate(comment.author or "", "guild") or comment.author or "") .. " · " .. self:FormatDate(comment.created))
+        row.head:SetText(self:AuthorLabel(comment, row.avatar) .. " · " .. self:FormatDate(comment.created))
         row.text:SetWidth(width)
         row.text:SetText(comment.text)
         row.remove:SetShown(self:IsOwnComment(comment))
@@ -1278,6 +1296,8 @@ function Feedback:Build(content)
     self:BuildForm(self.side)
     self:BuildDetail(self.side)
     content.OnPageShow = function()
+        Members:Scan()
+        Members:RequestRoster()
         self:Request()
         self:Refresh()
     end
@@ -1315,7 +1335,9 @@ function Feedback:GetRow(index)
     row.upCount:SetPoint("RIGHT", row.downIcon, "LEFT", -12, 0)
     row.upIcon = Theme:Icon(row, "thumbup", 13, "muted")
     row.upIcon:SetPoint("RIGHT", row.upCount, "LEFT", -4, 0)
-    row.info = self:Text(row, nil, 10, -32, 12)
+    row.avatar = GuildHelper.Members:CreateAvatar(row, 17, 9)
+    row.avatar:SetPoint("TOPLEFT", 10, -30)
+    row.info = self:Text(row, nil, 32, -32, 12)
     row.info:SetPoint("RIGHT", row.upIcon, "LEFT", -12, 0)
     row:SetScript("OnClick", function(sel)
         self.selected = sel.id
@@ -1337,7 +1359,7 @@ function Feedback:FillRow(row, entry)
     row.id = entry.id
     row.title:SetText(entry.title)
     row.tag:SetText(GuildHelper:Trans(bug and "LID_FBBUG" or "LID_FBIDEA"))
-    local info = {Ambiguate and Ambiguate(entry.author or "", "guild") or entry.author or "", "v" .. (entry.version or "?"), self:FormatDate(entry.created)}
+    local info = {self:AuthorLabel(entry, row.avatar), "v" .. (entry.version or "?"), self:FormatDate(entry.created)}
     local comments = #self:GetComments(entry.id)
     if comments > 0 then tinsert(info, format(GuildHelper:Trans("LID_FBCOMMENTCOUNT"), comments)) end
     row.info:SetText(table.concat(info, " · "))
@@ -1406,7 +1428,7 @@ function Feedback:RefreshDetail()
     local entry = self:Find(self.selected)
     local shown = entry ~= nil
     self.noSelection:SetShown(not shown)
-    for _, region in ipairs({self.detailKind, self.detailDate, self.detailTitle, self.detailMeta, self.body, self.comments, self.commentBox, self.send, self.subscribe}) do
+    for _, region in ipairs({self.detailKind, self.detailDate, self.detailTitle, self.detailAvatar, self.detailMeta, self.body, self.comments, self.commentBox, self.send, self.subscribe}) do
         region:SetShown(shown)
     end
 
@@ -1422,7 +1444,7 @@ function Feedback:RefreshDetail()
     self.detailKind:SetText(GuildHelper:Trans(entry.kind == "B" and "LID_FBBUG" or "LID_FBIDEA"))
     self.detailDate:SetText(self:FormatDate(entry.created))
     self.detailTitle:SetText(entry.title)
-    local meta = format(GuildHelper:Trans("LID_FBBY"), entry.author or "?") .. " · " .. format(GuildHelper:Trans("LID_FBVERSION"), entry.version or "?")
+    local meta = format(GuildHelper:Trans("LID_FBBY"), self:AuthorLabel(entry, self.detailAvatar)) .. " · " .. format(GuildHelper:Trans("LID_FBVERSION"), entry.version or "?")
     if entry.edited then meta = meta .. " · " .. format(GuildHelper:Trans("LID_FBEDITED"), self:FormatDate(entry.edited)) end
     self.detailMeta:SetText(meta)
     self.body.text:SetText(entry.text ~= "" and entry.text or "-")
@@ -1471,14 +1493,26 @@ GuildHelper.Window:OnRebuild(function()
 end)
 
 GuildHelper.Theme:OnRefresh(function() Feedback:Refresh() end)
+GuildHelper.Sync:OnUpdate(function()
+    if Feedback.content and Feedback.content:IsVisible() then Feedback:Refresh() end
+end)
 Feedback.events = CreateFrame("Frame")
 Feedback.events:RegisterEvent("PLAYER_LOGIN")
 Feedback.events:RegisterEvent("PLAYER_GUILD_UPDATE")
+Feedback.events:RegisterEvent("GUILD_ROSTER_UPDATE")
 Feedback.events:RegisterEvent("CHAT_MSG_ADDON")
 Feedback.events:SetScript("OnEvent", function(_, event, prefix, message, channel, sender)
     if event == "CHAT_MSG_ADDON" then
         if prefix == Feedback.PREFIX then Feedback:OnMessage(message, channel, sender) end
 
+        return
+    end
+
+    if event == "GUILD_ROSTER_UPDATE" then
+        if Feedback.content and Feedback.content:IsVisible() then
+            GuildHelper.Members:Scan()
+            Feedback:Refresh()
+        end
         return
     end
 

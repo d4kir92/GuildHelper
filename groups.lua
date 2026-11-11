@@ -32,6 +32,7 @@ Groups.MAXPLANNED = 5
 Groups.CATEGORY = 2
 Groups.serial = 0
 Groups.ROW = 66
+Groups.roleOrder = {TANK = 1, HEALER = 2, DAMAGER = 3, NONE = 4}
 Groups.WEEKDAYS = {"WEEKDAY_SUNDAY", "WEEKDAY_MONDAY", "WEEKDAY_TUESDAY", "WEEKDAY_WEDNESDAY", "WEEKDAY_THURSDAY", "WEEKDAY_FRIDAY", "WEEKDAY_SATURDAY"}
 function Groups:Name(name)
     if type(name) ~= "string" or name == "" or #name > 96 or name:find("[~|%c#]") then return nil end
@@ -337,14 +338,7 @@ function Groups:GetActivityName(entry)
     return activity and activity.label or entry.activityName or "?"
 end
 
-function Groups:GetLiveNeeds(size)
-    size = size or 5
-    local needs = {
-        TANK = size <= 5 and 1 or 2,
-        HEALER = size <= 5 and 1 or max(2, floor(size / 5))
-    }
-
-    needs.DAMAGER = max(0, size - needs.TANK - needs.HEALER)
+function Groups:GetGroupUnits()
     local units = {"player"}
     if IsInRaid and IsInRaid() then
         units = {}
@@ -357,10 +351,74 @@ function Groups:GetLiveNeeds(size)
         end
     end
 
-    local loose = 0
+    return units
+end
+
+function Groups:IsSolo()
+    local units = self:GetGroupUnits()
+    return #units == 1 and units[1] == "player"
+end
+
+function Groups:GetLiveRole(unit, own, solo, soloRole)
+    local role = UnitGroupRolesAssigned and UnitGroupRolesAssigned(unit)
+    if not GuildHelper:CanAccessValues(role) or not self.roleOrder[role] then role = "NONE" end
+    if own and soloRole and (solo or role == "NONE") then return soloRole end
+    return role
+end
+
+function Groups:SortRoster(roster)
+    table.sort(roster, function(a, b)
+        if a.role ~= b.role then return self.roleOrder[a.role] < self.roleOrder[b.role] end
+        return a.name < b.name
+    end)
+end
+
+function Groups:GetLiveRoster(soloRole)
+    local units = self:GetGroupUnits()
+    local solo = #units == 1 and units[1] == "player"
+    local roster, guildMembers = {}, {}
+    for _, member in ipairs(GuildHelper.Members.list) do
+        if GuildHelper:CanAccessValues(member.guid) and member.guid then guildMembers[member.guid] = member end
+    end
     for _, unit in ipairs(units) do
         if UnitExists(unit) then
-            local role = UnitGroupRolesAssigned and UnitGroupRolesAssigned(unit)
+            local name, realm = (UnitFullName or UnitName)(unit)
+            if GuildHelper:CanAccessValues(name, realm) and name and name ~= "" then
+                if realm and realm ~= "" then name = name .. "-" .. realm end
+                local guid = UnitGUID and UnitGUID(unit)
+                local member = GuildHelper:CanAccessValues(guid) and guildMembers[guid]
+                local own = unit == "player" or (member and GuildHelper.Members:IsSelf(member))
+                local rosterName = member and member.name or (own and GuildHelper.Sync:GetOwnName())
+                name = self:CleanText(rosterName or name, 96)
+                if self:Name(name) then
+                    local role = self:GetLiveRole(unit, own, solo, soloRole)
+                    if own and role == "NONE" then
+                        local primary = GuildHelper.Specs:GetOwn()[1]
+                        if primary and self.roleOrder[primary.role] then role = primary.role end
+                    end
+                    tinsert(roster, {name = name, role = role})
+                end
+            end
+        end
+    end
+    self:SortRoster(roster)
+    return roster
+end
+
+function Groups:GetLiveNeeds(size, soloRole)
+    size = size or 5
+    local needs = {
+        TANK = size <= 5 and 1 or 2,
+        HEALER = size <= 5 and 1 or max(2, floor(size / 5))
+    }
+    needs.DAMAGER = max(0, size - needs.TANK - needs.HEALER)
+    local loose = 0
+    local units = self:GetGroupUnits()
+    local solo = #units == 1 and units[1] == "player"
+    for _, unit in ipairs(units) do
+        if UnitExists(unit) then
+            local own = unit == "player" or (UnitIsUnit and UnitIsUnit(unit, "player"))
+            local role = self:GetLiveRole(unit, own, solo, soloRole)
             if needs[role] and needs[role] > 0 then
                 needs[role] = needs[role] - 1
             else
@@ -456,6 +514,33 @@ function Groups:Broadcast(entry, syncSignups)
     self.sent[entry.key] = GetTime()
     self:Send(text .. "~" .. self:CleanText(entry.note, 252 - #text), "G" .. entry.id)
     if firstBroadcast or syncSignups then self:BroadcastSignups(entry) end
+    if entry.kind == "L" then self:BroadcastRoster(entry, firstBroadcast or syncSignups) end
+end
+
+function Groups:BroadcastRoster(entry, force)
+    local roster = self:GetLiveRoster(entry.soloRole)
+    local records = {}
+    for _, member in ipairs(roster) do
+        tinsert(records, "~" .. member.name .. "~" .. member.role)
+    end
+    local signature = table.concat(records)
+    if not force and entry.rosterSignature == signature then return end
+    entry.roster, entry.rosterSignature = roster, signature
+
+    self.signupSerial = self.signupSerial + 1
+    local header = "M~" .. entry.id .. "~" .. self.signupSerial .. "~"
+    local chunks, payload = {}, ""
+    for _, record in ipairs(records) do
+        if #header + #payload + #record > 240 then
+            tinsert(chunks, payload)
+            payload = ""
+        end
+        payload = payload .. record
+    end
+    tinsert(chunks, payload)
+    for index, chunk in ipairs(chunks) do
+        self:Send(header .. index .. "~" .. #chunks .. chunk)
+    end
 end
 
 function Groups:BroadcastSignups(entry)
@@ -499,7 +584,8 @@ function Groups:Validate()
     local draft = self.draft[self.mode]
     if not self:GetActivity(draft.activity) then return false, "LID_GROUPCHOOSE" end
     if self.mode == "L" then
-        if self:Total(self:GetLiveNeeds(self:GetActivity(draft.activity).size)) == 0 then return false, "LID_GROUPFULL" end
+        if self:IsSolo() and not GuildHelper.Specs:GetRole(draft.soloRole) then return false, "LID_GROUPCHOOSEROLE" end
+        if self:Total(self:GetLiveNeeds(self:GetActivity(draft.activity).size, draft.soloRole)) == 0 then return false, "LID_GROUPFULL" end
 
         return true, self:GetOwnLive() and "LID_GROUPACTIVE" or "LID_GROUPDRAFT"
     end
@@ -540,7 +626,8 @@ function Groups:Publish()
         if self.mode == "P" then self.editing = entry.key end
     end
 
-    local counts = self.mode == "L" and self:GetLiveNeeds(activity.size) or draft
+    if self.mode == "L" then entry.soloRole = draft.soloRole end
+    local counts = self.mode == "L" and self:GetLiveNeeds(activity.size, entry.soloRole) or draft
     for _, role in ipairs(GuildHelper.Specs.ROLES) do
         entry[role.value] = counts[role.value]
     end
@@ -556,6 +643,40 @@ function Groups:Publish()
     self:QueueAnnouncement(entry)
     self:TickAnnouncements()
     self:Refresh()
+end
+
+function Groups:SaveLiveForReload()
+    local entry = self:GetOwnLive()
+    local saved = entry and {guild = self.guild, entry = entry, serial = self.serial, signupSerial = self.signupSerial}
+    GuildHelper:SetConfig("GROUPLIVERELOAD", saved)
+end
+
+function Groups:RestoreLiveAfterReload()
+    if not self.reloadReadyAt or GetTime() < self.reloadReadyAt then return end
+    self.reloadReadyAt = nil
+    local saved = GuildHelper:GetConfig("GROUPLIVERELOAD")
+    GuildHelper:SetConfig("GROUPLIVERELOAD", nil)
+    if not saved or saved.guild ~= self.guild or self:GetOwnLive() then return end
+    local entry = saved.entry
+    if not self:IsOwn(entry) then return end
+
+    local activity = self:GetActivity(entry.activity)
+    local needs = self:GetLiveNeeds(activity and activity.size, entry.soloRole)
+    if self:Total(needs) == 0 then return end
+    for _, role in ipairs(GuildHelper.Specs.ROLES) do
+        entry[role.value] = needs[role.value]
+    end
+
+    self.serial = max(self.serial, saved.serial)
+    self.signupSerial = max(self.signupSerial, saved.signupSerial)
+    self.live[entry.key] = entry
+    self.selected = entry.key
+    local draft = self.draft.L
+    draft.activity, draft.note, draft.soloRole = entry.activity, entry.note, entry.soloRole
+    draft.chatLanguage, draft.chatInterval = entry.chatLanguage, entry.chatInterval
+    if self.mode == "L" then self:SyncNote() end
+    self:Broadcast(entry, true)
+    self:QueueAnnouncement(entry)
 end
 
 function Groups:Close(entry)
@@ -668,6 +789,30 @@ function Groups:ReadListing(owner, sender, parts)
     return true
 end
 
+function Groups:ReadRoster(owner, parts)
+    local entry = parts[3] and self.live[owner .. "#" .. parts[3]]
+    local serial, index, total = tonumber(parts[4]), tonumber(parts[5]), tonumber(parts[6])
+    if not entry or not serial or serial <= (entry.rosterSerial or 0) or serial ~= floor(serial) or not index or not total
+        or index < 1 or index > total or total > 40 or index ~= floor(index) or total ~= floor(total)
+        or #parts % 2 ~= 0 then return false end
+    if index == 1 then entry.rosterSnapshot = {serial = serial, next = 1, total = total, members = {}} end
+    local snapshot = entry.rosterSnapshot
+    if not snapshot or snapshot.serial ~= serial or snapshot.next ~= index or snapshot.total ~= total then return false end
+    for i = 7, #parts, 2 do
+        local name, role = parts[i], parts[i + 1]
+        if #snapshot.members >= 40 or not self:Name(name) or not self.roleOrder[role] then
+            entry.rosterSnapshot = nil
+            return false
+        end
+        tinsert(snapshot.members, {name = name, role = role})
+    end
+    snapshot.next = index + 1
+    if index ~= total then return false end
+    self:SortRoster(snapshot.members)
+    entry.roster, entry.rosterSerial, entry.rosterSnapshot = snapshot.members, serial, nil
+    return true
+end
+
 function Groups:ReadSignupSnapshot(owner, parts)
     local entry = parts[3] and self:Find(owner .. "#" .. parts[3])
     local serial, index, total = tonumber(parts[4]), tonumber(parts[5]), tonumber(parts[6])
@@ -767,6 +912,8 @@ function Groups:OnMessage(message, sender)
         planned[key] = nil
     elseif command == "R" then
         changed = self:ReadSignupSnapshot(owner, parts)
+    elseif command == "M" then
+        changed = self:ReadRoster(owner, parts)
     elseif command == "A" or command == "W" then
         changed = self:ReadApplication(owner, sender, parts)
     end
@@ -779,7 +926,7 @@ function Groups:TickOwnLive(now)
     if not own then return end
 
     if self.dirty and (not self.rosterReadyAt or now >= self.rosterReadyAt) then
-        local needs = self:GetLiveNeeds((self:GetActivity(own.activity) or {}).size)
+        local needs = self:GetLiveNeeds((self:GetActivity(own.activity) or {}).size, own.soloRole)
         if self:Total(needs) == 0 then
             self:Close(own)
 
@@ -797,6 +944,8 @@ function Groups:TickOwnLive(now)
         if changed then
             self:Broadcast(own)
             self:QueueAnnouncement(own)
+        else
+            self:BroadcastRoster(own)
         end
     end
 
@@ -805,6 +954,7 @@ end
 
 function Groups:Tick()
     if not self:CheckGuild() then return end
+    self:RestoreLiveAfterReload()
     local now, stamp = GetTime(), time()
     for key, snapshot in pairs(self.signupSnapshots) do
         if snapshot.expires <= now or not self:Find(key) then self.signupSnapshots[key] = nil end
@@ -1013,6 +1163,17 @@ function Groups:BuildForm(content)
 
     self:Text(self.form, "LID_GROUPNEEDS", 14, -51)
     self.liveNeeds = self:Text(self.form, nil, 150, -51, 12, "text")
+    self.soloRolePill = Members:CreatePill(self.form, "")
+    self.soloRolePill:SetPoint("LEFT", self.liveNeeds, "RIGHT", 16, 0)
+    self.soloRolePill:SetScript("OnClick", function(button)
+        local draft = self.draft.L
+        local options = GuildHelper.Specs:GetRoleOptions()
+        table.remove(options, 1)
+        Members:OpenMenu(button, options, draft.soloRole, function(value)
+            draft.soloRole = value
+            self:Refresh()
+        end)
+    end)
     self.countLabels = {}
     self.countBoxes = {}
     for index, role in ipairs(GuildHelper.Specs.ROLES) do
@@ -1140,6 +1301,10 @@ function Groups:BuildDetail(content)
         end
     end)
 
+    self.roster = Dashboard:CreateList(Dashboard:CreateCard(self.detail, "LID_MEMBERS"))
+    self.roster:SetPoint("TOPLEFT", self.detail, "TOPLEFT", 6, -156)
+    self.roster:SetPoint("TOPRIGHT", self.detail, "TOPRIGHT", -6, -156)
+    self.roster:SetHeight(110)
     self.requests = Dashboard:CreateList(Dashboard:CreateCard(self.detail, "LID_GROUPAPPLICANTS"))
     self.requests:SetPoint("TOPLEFT", self.detail, "TOPLEFT", 6, -156)
     self.requests:SetPoint("BOTTOMRIGHT", self.detail, "BOTTOMRIGHT", -6, 6)
@@ -1180,7 +1345,9 @@ function Groups:Build(content)
     self.list = Dashboard:CreateList(Dashboard:CreateCard(body, "LID_GROUPLIST"))
     self.list.scrollPage = function(delta) self:ScrollPage(delta) end
     self.requests.scrollPage = self.list.scrollPage
+    self.roster.scrollPage = self.list.scrollPage
     GuildHelper.Feedback:AddThumb(self.list.scroll, -4)
+    GuildHelper.Feedback:AddThumb(self.roster.scroll, -4)
     GuildHelper.Feedback:AddThumb(self.requests.scroll, -4)
     self.list:SetPoint("TOPLEFT", self.form, "BOTTOMLEFT", 0, -12)
     self.list:SetPoint("BOTTOMRIGHT", self.detail, "BOTTOMLEFT", -12, 0)
@@ -1189,6 +1356,8 @@ function Groups:Build(content)
     self.empty:SetWordWrap(true)
     self.rows = {}
     content.OnPageShow = function()
+        Members:Scan()
+        Members:RequestRoster()
         self:Request()
         self:SyncNote()
         self:Refresh()
@@ -1210,6 +1379,24 @@ end
 function Groups:ScrollPage(delta)
     local scroll = self.pageScroll
     if scroll then scroll:SetVerticalScroll(min(max(scroll:GetVerticalScroll() - delta * 40, 0), scroll:GetVerticalScrollRange())) end
+end
+
+function Groups:RefreshRoster(entry)
+    local Dashboard, Members = GuildHelper.Dashboard, GuildHelper.Members
+    local roster = entry.roster or {}
+    local count = #roster
+    self.roster:SetHeight(42 + min(3, max(1, count)) * Dashboard.LINE)
+    if count == 0 then
+        Dashboard:SetLine(self.roster, 1, GuildHelper:Trans("LID_NODATA"), nil, nil, true)
+    else
+        for index, member in ipairs(roster) do
+            local role = GuildHelper.Specs:Format(member, true)
+            local guildMember = Members:FindByName(member.name)
+            local name = Members:NameWithTwitch(guildMember, member.name)
+            Dashboard:SetLine(self.roster, index, (role and role .. "  " or "") .. Members:RaceIconMarkup(guildMember, 14) .. name)
+        end
+    end
+    Dashboard:FinishList(self.roster, max(1, count))
 end
 
 function Groups:RefreshRequests(entry)
@@ -1276,7 +1463,16 @@ function Groups:RefreshForm()
     Members:SetPillText(self.activityPill, activity and activity.label or GuildHelper:Trans(activities.count > 0 and "LID_GROUPCHOOSE" or "LID_GROUPNOACTIVITIES"))
     self.activityPill:SetEnabled(activities.count > 0)
     self.liveNeeds:SetShown(not planned)
-    if not planned then self.liveNeeds:SetText(self:Needs(self:GetLiveNeeds(activity and activity.size)) .. "   " .. GuildHelper:Trans("LID_GROUPFROMGROUP")) end
+    local showSoloRole = not planned and self:IsSolo()
+    self.soloRolePill:SetShown(showSoloRole)
+    if showSoloRole then
+        Members:SetPillText(self.soloRolePill, GuildHelper.Specs:Format({role = draft.soloRole}) or GuildHelper:Trans("LID_GROUPCHOOSEROLE"))
+    end
+    if not planned then
+        local needs = self:Needs(self:GetLiveNeeds(activity and activity.size, draft.soloRole))
+        if not showSoloRole then needs = needs .. "   " .. GuildHelper:Trans("LID_GROUPFROMGROUP") end
+        self.liveNeeds:SetText(needs)
+    end
     for index, role in ipairs(GuildHelper.Specs.ROLES) do
         self.countLabels[index]:SetText(GuildHelper.Specs:Format({
             role = role.value
@@ -1378,9 +1574,18 @@ function Groups:RefreshDetail()
     self.detailInfo:SetText(entry and ((entry.name or "") .. " · " .. (entry.kind == "P" and self:FormatWhen(entry.when) or GuildHelper:Trans("LID_GROUPLIVE"))) or "")
     self.detailNeeds:SetText(entry and self:Needs(entry) or "")
     self.detailNote:SetText(entry and entry.note or "")
+    local showRoster = entry ~= nil and entry.kind == "L"
+    self.roster:SetShown(showRoster)
+    local rosterOffset = 0
+    if showRoster then
+        self:RefreshRoster(entry)
+        rosterOffset = self.roster:GetHeight() + 8
+    end
+    self.rolePill:SetPoint("TOPLEFT", self.detail, "TOPLEFT", 14, -158 - rosterOffset)
+    self.apply:SetPoint("TOPLEFT", self.detail, "TOPLEFT", 14, -194 - rosterOffset)
     self.requests:SetShown(entry ~= nil)
     self.requests:ClearAllPoints()
-    self.requests:SetPoint("TOPLEFT", self.detail, "TOPLEFT", 6, own and -156 or -236)
+    self.requests:SetPoint("TOPLEFT", self.detail, "TOPLEFT", 6, (own and -156 or -236) - rosterOffset)
     self.requests:SetPoint("BOTTOMRIGHT", self.detail, "BOTTOMRIGHT", -6, 6)
     self.rolePill:SetShown(foreign)
     self.apply:SetShown(foreign)
@@ -1420,20 +1625,35 @@ Groups.events:RegisterEvent("PLAYER_ENTERING_WORLD")
 Groups.events:RegisterEvent("PLAYER_GUILD_UPDATE")
 Groups.events:RegisterEvent("PLAYER_LOGOUT")
 Groups.events:RegisterEvent("GROUP_ROSTER_UPDATE")
+Groups.events:RegisterEvent("GUILD_ROSTER_UPDATE")
 if not C_EventUtils or not C_EventUtils.IsEventValid or C_EventUtils.IsEventValid("ROLE_CHANGED_INFORM") then Groups.events:RegisterEvent("ROLE_CHANGED_INFORM") end
 if C_EventUtils == nil or C_EventUtils.IsEventValid == nil or C_EventUtils.IsEventValid("PLAYER_ROLES_ASSIGNED") then Groups.events:RegisterEvent("PLAYER_ROLES_ASSIGNED") end
-Groups.events:SetScript("OnEvent", function(_, event)
+Groups.events:SetScript("OnEvent", function(_, event, _, reloadingUI)
     if event == "PLAYER_LOGOUT" then
+        Groups:SaveLiveForReload()
         for _, entry in pairs(Groups.live) do
             Groups:Withdraw(entry)
         end
 
         Groups:Close(Groups:GetOwnLive())
+    elseif event == "GUILD_ROSTER_UPDATE" then
+        if Groups.content and Groups.content:IsVisible() then
+            GuildHelper.Members:Scan()
+            Groups:Refresh()
+        end
     elseif event == "GROUP_ROSTER_UPDATE" or event == "PLAYER_ROLES_ASSIGNED" or event == "ROLE_CHANGED_INFORM" then
         Groups.dirty = true
         Groups.rosterReadyAt = GetTime() + 2
     else
         Groups:CheckGuild()
+        if event == "PLAYER_ENTERING_WORLD" and not Groups.enteredWorld then
+            Groups.enteredWorld = true
+            if reloadingUI then
+                Groups.reloadReadyAt = GetTime() + 2
+            else
+                GuildHelper:SetConfig("GROUPLIVERELOAD", nil)
+            end
+        end
         if event == "PLAYER_LOGIN" then
             Groups:RegisterChatRoleIcons()
             C_Timer.After(10, function() Groups:Request() end)

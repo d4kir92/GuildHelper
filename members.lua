@@ -278,7 +278,7 @@ function Members:Scan()
 
             local clubInfo
             if GuildHelper:CanAccessValues(guid) and guid then
-                clubInfo = clubRoster[guid]
+                clubInfo = clubRoster[guid] or clubRoster[name]
             else
                 clubInfo = clubRoster[name]
                 if clubInfo and GuildHelper:CanAccessValues(clubInfo.guid) then member.guid = clubInfo.guid end
@@ -319,6 +319,21 @@ function Members:GetTwitchName(member)
     local data = self:GetData(member)
 
     return data and type(data.twitch) == "string" and data.twitch or ""
+end
+
+function Members:FindByName(name)
+    local Groups = GuildHelper.Groups
+    local key = Groups:Name(name)
+    if not key then return end
+    for _, member in ipairs(self.list) do
+        if Groups:Name(member.name) == key then return member end
+    end
+end
+
+function Members:NameWithTwitch(member, fallback)
+    if not member then return fallback end
+    local twitch = self:GetTwitchName(member)
+    return twitch and twitch ~= "" and (member.short .. " (" .. twitch .. ")") or member.short
 end
 
 function Members:GetSortValue(member, key)
@@ -1141,13 +1156,25 @@ function Members:CreateAvatar(parent, size, fontSize)
     return avatar
 end
 
-function Members:SetRacePortrait(portrait, race, gender)
-    if not race or not gender or not portrait.SetAtlas or not C_Texture or not C_Texture.GetAtlasInfo then return false end
+function Members:GetRaceAtlas(race, gender)
+    if not race or not C_Texture or not C_Texture.GetAtlasInfo then return end
     local atlasRace = race == "scourge" and "undead" or race
-    local suffix = atlasRace .. "-" .. gender
+    local suffix = atlasRace .. "-" .. (gender or "male")
     local atlas = "raceicon128-" .. suffix
-    if not C_Texture.GetAtlasInfo(atlas) then atlas = "raceicon-" .. suffix end
-    if not C_Texture.GetAtlasInfo(atlas) then return false end
+    if C_Texture.GetAtlasInfo(atlas) then return atlas end
+    atlas = "raceicon-" .. suffix
+    if C_Texture.GetAtlasInfo(atlas) then return atlas end
+end
+
+function Members:RaceIconMarkup(member, size)
+    if not member or not CreateAtlasMarkup then return "" end
+    local atlas = self:GetRaceAtlas(self:GetRaceAvatar(member, self:GetData(member)))
+    return atlas and (CreateAtlasMarkup(atlas, size, size) .. " ") or ""
+end
+
+function Members:SetRacePortrait(portrait, race, gender)
+    local atlas = self:GetRaceAtlas(race, gender)
+    if not atlas or not portrait.SetAtlas then return false end
     return pcall(portrait.SetAtlas, portrait, atlas)
 end
 
@@ -1753,6 +1780,7 @@ function Members:UpdateDetail()
     for _, row in ipairs(detail.professions) do
         row:Hide()
     end
+    if detail.profDivider then detail.profDivider:Hide() end
 
     local viewOfficer = self:CanViewOfficerNote()
     self:UpdateNoteEditor(detail.noteHit, member, self:CanEditPublicNote(member))
@@ -1780,7 +1808,10 @@ function Members:UpdateDetail()
     end
 
     detail.rank.value:SetText(member.rank)
-    local professions = data and data.professions or {}
+    local sync = GuildHelper.Sync
+    local professions, split = sync:GroupProfessions(data and data.professions or {}, function(prof)
+        return sync:GetProfessionID(prof[1], prof[4])
+    end)
     local y = -136
     local hasSpecs = data ~= nil and data.specs ~= nil
     detail.specHeader:SetShown(hasSpecs)
@@ -1800,10 +1831,18 @@ function Members:UpdateDetail()
     y = y - 20
     local step = #professions > 3 and 26 or 31
     for i, prof in ipairs(professions) do
+        if i == split then
+            if not detail.profDivider then
+                detail.profDivider = Theme:Line(detail.body, "divider")
+                detail.profDivider:SetSize(188, 1)
+            end
+            detail.profDivider:SetPoint("TOPLEFT", detail.body, "TOPLEFT", 16, y - 5)
+            detail.profDivider:Show()
+            y = y - 16
+        end
         local row = self:GetProfessionRow(i)
         row:ClearAllPoints()
         row:SetPoint("TOPLEFT", detail.body, "TOPLEFT", 16, y)
-        local sync = GuildHelper.Sync
         row.name:SetText(sync:GetProfessionName(sync:GetProfessionID(prof[1], prof[4]), prof[1]))
         row.value:SetText(format("%d/%d", prof[2], prof[3]))
         local progress = prof[3] > 0 and min(1, prof[2] / prof[3]) or 0

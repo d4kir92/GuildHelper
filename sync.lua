@@ -127,6 +127,18 @@ function Sync:GetProfessionID(name, id)
     end
 end
 
+function Sync:GroupProfessions(entries, getID)
+    local primary, secondary = {}, {}
+    for _, entry in ipairs(entries) do
+        local id = getID(entry)
+        local group = (id == 129 or id == 185 or id == 356) and secondary or primary
+        tinsert(group, entry)
+    end
+    local split = #primary > 0 and #secondary > 0 and #primary + 1 or nil
+    for _, entry in ipairs(secondary) do tinsert(primary, entry) end
+    return primary, split
+end
+
 function Sync:GetOwnProfessions()
     local list = {}
     if GetProfessions and GetProfessionInfo then

@@ -562,6 +562,9 @@ function Dashboard:UpdateProfessions()
         return names[a] < names[b]
     end)
 
+    for _, line in ipairs(self.professions.lines) do
+        if line.professionDivider then line.professionDivider:Hide() end
+    end
     if #order == 0 then
         self:SetLine(self.professions, 1, GuildHelper:Trans("LID_NODATA"), nil, nil, true)
         self:FinishList(self.professions, 1)
@@ -569,11 +572,25 @@ function Dashboard:UpdateProfessions()
         return
     end
 
+    local split
+    order, split = sync:GroupProfessions(order, function(key) return key end)
     for i, key in ipairs(order) do
-        self:SetLine(self.professions, i, format("%s |cff888888(%d)|r", names[key], best[key]), tostring(counts[key]))
+        if i == split then
+            self:SetLine(self.professions, i, "")
+            local line = self:GetLine(self.professions, i)
+            if not line.professionDivider then
+                line.professionDivider = Theme:Line(line, "divider")
+                line.professionDivider:SetPoint("LEFT", 10, 0)
+                line.professionDivider:SetPoint("RIGHT", -10, 0)
+                line.professionDivider:SetHeight(1)
+            end
+            line.professionDivider:Show()
+        end
+        local index = split and i >= split and i + 1 or i
+        self:SetLine(self.professions, index, format("%s |cff888888(%d)|r", names[key], best[key]), tostring(counts[key]))
     end
 
-    self:FinishList(self.professions, #order)
+    self:FinishList(self.professions, #order + (split and 1 or 0))
 end
 
 function Dashboard:CreateChat(parent)

@@ -127,7 +127,7 @@ function Recipes:ReplayRemovals(entry)
     end
 end
 
-function Recipes:Publish(key, recipes)
+function Recipes:Publish(key, recipes, response)
     local guild = Sync:GetGuildKey()
     if not guild then return end
     local records, packets = {}, {}
@@ -138,7 +138,7 @@ function Recipes:Publish(key, recipes)
     end
     table.sort(records)
     local payload = ""
-    local limit = 205 - #key
+    local limit = (response and 175 or 205) - #key
     for _, record in ipairs(records) do
         if #record > limit then return end
         if #payload + #record + 1 > limit then
@@ -154,8 +154,14 @@ function Recipes:Publish(key, recipes)
     if not entry then return end
     local token = self.verifiedTokenPrefix .. self:NextToken(entry)
     for index, packet in ipairs(packets) do
-        Sync:Send(format("P~%s~%s~%d~%d~%s", key, token, index, #packets, packet), nil, nil, guild)
+        local message = format("P~%s~%s~%d~%d~%s", key, token, index, #packets, packet)
+        if response then
+            tinsert(response, message)
+        else
+            Sync:Send(message, nil, nil, guild)
+        end
     end
+    return #records
 end
 
 function Recipes:Request()
@@ -182,6 +188,86 @@ function Recipes:Respond()
     end)
 end
 
+function Recipes:PlayerRequestKey(name)
+    local guild = Sync:GetGuildKey()
+    return guild and (guild .. "~" .. Sync:GetKey(name))
+end
+
+function Recipes:RequestPlayer(member)
+    if not member or not member.online or GuildHelper.Members:IsSelf(member) then return end
+    local key = self:PlayerRequestKey(member.short)
+    if not key then return end
+    local cooldowns = GuildHelper:GetConfig("RECIPE_REQUEST_TIMES", {})
+    local now = time()
+    if cooldowns[key] and now - cooldowns[key] < 3600 then return end
+    for target, stamp in pairs(cooldowns) do
+        if now - stamp >= 3600 then cooldowns[target] = nil end
+    end
+    cooldowns[key] = now
+    self.playerRequests = self.playerRequests or {}
+    local request = {id = format("%d.%09d", now, random(1, 999999999)), received = 0, deadline = GetTime() + 120, status = "waiting", seen = {}}
+    self.playerRequests[key] = request
+    local function expire()
+        if self.playerRequests[key] ~= request or (request.status ~= "waiting" and request.status ~= "receiving") then return end
+        local remaining = request.deadline - GetTime()
+        if remaining > 0 then
+            C_Timer.After(remaining, expire)
+        else
+            request.status = request.total and "incomplete" or "timeout"
+            request.seen = nil
+            if self.onProgress then self.onProgress() end
+        end
+    end
+    C_Timer.After(120, expire)
+    Sync:Send(format("P?~%s~%s", Sync:GetKey(member.short), request.id), nil, nil, Sync:GetGuildKey())
+    if self.onProgress then self.onProgress() end
+end
+
+function Recipes:RespondToPlayer(sender, target, id)
+    local own = Sync:GetOwnName()
+    if not own or Sync:GetKey(own) ~= target then return end
+    local key = self:PlayerRequestKey(sender)
+    if not key then return end
+    self.playerAnswers = self.playerAnswers or {}
+    local now = GetTime()
+    if self.playerAnswers[key] and now - self.playerAnswers[key] < 3600 then return end
+    self.playerAnswers[key] = now
+    local guild = Sync:GetGuildKey()
+    local data = Sync:GetData(own)
+    local packets = {}
+    for skill, token in pairs(data and data.recipeRemovals or {}) do
+        tinsert(packets, format("P!~%s~%s", skill, token))
+    end
+    local shared = 0
+    for skill, recipes in pairs(data and data.recipes or {}) do
+        if (self:Publish(skill, recipes, packets) or 0) > 0 then shared = shared + 1 end
+    end
+    Sync:Send(format("PA~%s~%d~%d", id, #packets, shared), nil, nil, guild)
+    for _, packet in ipairs(packets) do
+        Sync:Send(format("PX~%s~%s", id, packet), nil, nil, guild)
+    end
+end
+
+function Recipes:ReceivePlayerResponse(sender, id, total, shared, packet)
+    local key = self:PlayerRequestKey(sender)
+    local request = self.playerRequests and self.playerRequests[key]
+    if not request or request.id ~= id then return end
+    if total then
+        if request.status ~= "waiting" or total > 4096 or shared > total then return end
+        request.total, request.shared = total, shared
+        request.status = total > 0 and "receiving" or "empty"
+    else
+        if request.status ~= "receiving" or request.seen[packet] then return end
+        if not packet:match("^P[!~]") or not self:OnMessage(packet, sender, true) then return end
+        request.seen[packet] = true
+        request.received = request.received + 1
+        if request.received == request.total then request.status = request.shared > 0 and "complete" or "empty" end
+    end
+    request.deadline = GetTime() + 120
+    if request.status ~= "receiving" then request.seen = nil end
+    if self.onProgress then self.onProgress() end
+end
+
 function Recipes:StoreSnapshot(sender, key, token, recipes)
     local entry = Sync:GetEntry(sender)
     if not entry then return end
@@ -195,8 +281,17 @@ function Recipes:StoreSnapshot(sender, key, token, recipes)
     if previous or recipes then Sync:Notify() end
 end
 
-function Recipes:OnMessage(message, sender)
-    if message == "P?" then return self:Respond() end
+function Recipes:OnMessage(message, sender, response)
+    if #message > 255 then return end
+    if not response then
+        if message == "P?" then return self:Respond() end
+        local target, id = message:match("^P%?~([^~]+)~(%d+%.%d+)$")
+        if target and #id <= 23 then return self:RespondToPlayer(sender, target, id) end
+        local ack, total, shared = message:match("^PA~(%d+%.%d+)~(%d+)~(%d+)$")
+        if ack then return self:ReceivePlayerResponse(sender, ack, tonumber(total), tonumber(shared)) end
+        local transfer, packet = message:match("^PX~(%d+%.%d+)~(.+)$")
+        if transfer then return self:ReceivePlayerResponse(sender, transfer, nil, nil, packet) end
+    end
     local removedKey, removedToken = message:match("^P!~([^~]+)~(%d+%.%d+)$")
     if removedKey then
         local entry = Sync:GetData(sender)
@@ -204,7 +299,7 @@ function Recipes:OnMessage(message, sender)
         if #removedKey <= 60 and #message <= 255 and self:IsNewer(removedToken, applied) then
             self:StoreSnapshot(sender, removedKey, removedToken, nil)
         end
-        return
+        return #removedKey <= 60
     end
     local key, token, part, total, payload = message:match("^P~([^~]+)~(%d+%.%d+)~(%d+)~(%d+)~([%d:.,%-]*)$")
     part, total = tonumber(part), tonumber(total)
@@ -217,10 +312,10 @@ function Recipes:OnMessage(message, sender)
     end
     local entry = Sync:GetData(sender)
     local applied = entry and entry.recipeVersions and entry.recipeVersions[key]
-    if not self:IsNewer(token, applied) then return end
+    if not self:IsNewer(token, applied) then return true end
     local bucket = Sync:GetKey(sender) .. "~" .. key
     local pending = self.pending[bucket]
-    if pending and pending.token ~= token and not self:IsNewer(token, pending.token) then return end
+    if pending and pending.token ~= token and not self:IsNewer(token, pending.token) then return true end
     if not pending or pending.token ~= token or GetTime() - pending.started > 600 then
         pending = {token = token, total = total, started = GetTime(), parts = {}, count = 0}
         self.pending[bucket] = pending
@@ -228,7 +323,7 @@ function Recipes:OnMessage(message, sender)
     if pending.total ~= total or pending.parts[part] then return end
     pending.parts[part] = payload
     pending.count = pending.count + 1
-    if pending.count ~= total then return end
+    if pending.count ~= total then return true end
     self.pending[bucket] = nil
     local recipes = {}
     for _, chunk in ipairs(pending.parts) do
@@ -241,6 +336,7 @@ function Recipes:OnMessage(message, sender)
         end
     end
     self:StoreSnapshot(sender, key, token, recipes)
+    return true
 end
 
 function Recipes:CaptureModern()
