@@ -2,6 +2,7 @@ local _, GuildHelper = ...
 local Window, Theme, Members, Sync = GuildHelper.Window, GuildHelper.Theme, GuildHelper.Members, GuildHelper.Sync
 local Groups, Recipes, Professions = GuildHelper.Groups, GuildHelper.Recipes, GuildHelper.Professions
 local Orders = {pending = {}, heard = {}, answers = {}, queued = {}, states = {O = 1, C = 2, D = 3}}
+Orders.retention = 7 * 86400
 GuildHelper.Orders = Orders
 
 function Orders:GetStore()
@@ -20,7 +21,30 @@ end
 
 function Orders:Find(id)
     local store = self:GetStore()
-    return store and store[id]
+    return store and store[id] or nil
+end
+
+function Orders:Prune(store)
+    local now = time()
+    local changed
+    for id, order in pairs(store or {}) do
+        if order and order.status ~= "O" then
+            order.archivedAt = order.archivedAt or now
+            if now - (order.closedAt or order.archivedAt) >= self.retention then
+                store[id] = false
+                changed = true
+            end
+        end
+    end
+    return changed
+end
+
+function Orders:Delete(order)
+    local store = self:GetStore()
+    if not store or store[order.id] ~= order or order.status == "O" then return end
+    if not (self:IsIncoming(order) or Groups:IsSelfName(order.requester)) then return end
+    store[order.id] = false
+    self:Refresh()
 end
 
 function Orders:IsIncoming(order)
@@ -35,7 +59,7 @@ end
 function Orders:Count()
     local count = 0
     for _, order in pairs(self:GetStore() or {}) do
-        if order.status == "O" and self:IsIncoming(order) then count = count + 1 end
+        if order and order.status == "O" and self:IsIncoming(order) then count = count + 1 end
     end
     return count
 end
@@ -99,9 +123,13 @@ function Orders:Send(order, relay)
     local size = 200
     local total = ceil(#payload / size)
     if total > 16 then return end
+    local mode = relay and "R" or "S"
     for part = 1, total do
-        local message = format("O~%s~%s~%d~%d~%s", order.id, relay and "R" or "S", part, total, payload:sub((part - 1) * size + 1, part * size))
+        local message = format("O~%s~%s~%d~%d~%s", order.id, mode, part, total, payload:sub((part - 1) * size + 1, part * size))
         Sync:Send(message, nil, nil, guild)
+    end
+    if order.closedAt then
+        Sync:Send(format("OT~%s~%s~%s~%d", order.id, mode, order.status, order.closedAt), nil, nil, guild)
     end
     return true
 end
@@ -114,7 +142,7 @@ end
 function Orders:Digest(store, participant)
     local states = {}
     for id, order in pairs(store) do
-        if order.requester == participant or order.crafter == participant then
+        if order and (order.requester == participant or order.crafter == participant) then
             tinsert(states, id .. order.status)
             for key in pairs(order.comments or {}) do tinsert(states, id .. "~" .. key) end
         end
@@ -126,6 +154,7 @@ end
 function Orders:Request()
     local store = self:GetStore()
     if not store or (self.lastRequest and GetTime() - self.lastRequest < 45) then return end
+    if self:Prune(store) then self:Refresh() end
     self.lastRequest = GetTime()
     Sync:Send("O?~" .. self:Digest(store, self:SelfName()), nil, nil, self.guild)
 end
@@ -136,9 +165,11 @@ function Orders:OnRequest(sender, digest)
     self.answers[sender] = requested
     C_Timer.After(random(2, 15), function()
         local store = self:GetStore()
-        if not store or self.guild ~= guild or digest == self:Digest(store, sender) then return end
+        if not store or self.guild ~= guild then return end
+        if self:Prune(store) then self:Refresh() end
+        if digest == self:Digest(store, sender) then return end
         for id, order in pairs(store) do
-            if order.requester == sender or order.crafter == sender then
+            if order and (order.requester == sender or order.crafter == sender) then
                 local heard = self.heard[id]
                 if not heard or heard.at < requested or heard.status ~= order.status then self:Send(order, true) end
                 self:SendComments(order)
@@ -201,6 +232,18 @@ function Orders:OnMessage(message, sender)
     local digest = message:match("^O%?~(%d+)$")
     if digest and #digest <= 10 then return self:OnRequest(sender, digest) end
     if #message > 255 then return end
+    local closedID, closedMode, closedStatus, stamp = message:match("^OT~(%d+%.%d+)~([SR])~([CD])~(%d+)$")
+    if closedID then
+        local order = store[closedID]
+        if not order or order.status ~= closedStatus then return end
+        if closedMode == "S" and sender ~= (closedStatus == "D" and order.crafter or order.requester) then return end
+        local closedAt = tonumber(stamp)
+        if closedAt < tonumber(closedID:match("^%d+")) or closedAt > time() + 86400 then return end
+        if order.closedAt and (closedMode == "R" or order.closedAt == closedAt) then return end
+        order.closedAt = closedAt
+        self:Refresh()
+        return
+    end
     local orderID, commentID, text = message:match("^OC~(%d+%.%d+)~(%d+%.%d+)~(.+)$")
     if orderID then
         local order = store[orderID]
@@ -212,7 +255,7 @@ function Orders:OnMessage(message, sender)
     end
     local id, mode, part, total, chunk = message:match("^O~(%d+%.%d+)~([SR])~(%d+)~(%d+)~(.*)$")
     part, total = tonumber(part), tonumber(total)
-    if not id or #id > 23 or not part or not total or part < 1 or part > total or total > 16 or #chunk > 200 then return end
+    if not id or #id > 23 or not part or not total or part < 1 or part > total or total > 16 or #chunk > 200 or store[id] == false then return end
     local key = sender .. "~" .. id .. "~" .. mode
     local state = self.pending[key]
     if not state or state.total ~= total or GetTime() - state.at > 120 or (part == 1 and state.parts[1] and state.parts[1] ~= chunk) then
@@ -233,6 +276,7 @@ function Orders:OnMessage(message, sender)
     if previous and self.states[previous.status] >= self.states[order.status] then return end
     if previous then
         previous.status = order.status
+        previous.closedAt, previous.archivedAt = nil, nil
         previous.note = previous.note or order.note
     else
         store[id] = order
@@ -243,7 +287,7 @@ end
 function Orders:Notify()
     local notifications = GuildHelper.Notifications
     for id, order in pairs(self:GetStore() or {}) do
-        if order.status == "O" and self:IsIncoming(order) and not order.notified and not self.queued[id] then
+        if order and order.status == "O" and self:IsIncoming(order) and not order.notified and not self.queued[id] then
             self.queued[id] = true
             notifications:Enqueue({id = id, order = true, guild = self.guild, queued = notifications:GetDisplayTime()})
         end
@@ -251,10 +295,11 @@ function Orders:Notify()
 end
 
 function Orders:SetStatus(order, status)
-    if order.status ~= "O" then return end
+    if order.status ~= "O" or (status ~= "C" and status ~= "D") then return end
     if status == "D" and not self:IsIncoming(order) then return end
     if status == "C" and not Groups:IsSelfName(order.requester) then return end
     order.status = status
+    order.closedAt = time()
     self:Send(order)
     self:Refresh()
 end
@@ -308,7 +353,7 @@ function Orders:Submit()
     self:UpdateAmount(self.page, draft)
     draft.note = self:CleanText(self.page.note:GetText(), 240)
     draft.id = format("%d.%09d", time(), random(1, 999999999))
-    if not Recipes:CanOrder(Sync:GetData(draft.crafterName), draft.recipe) or store[draft.id] or not self:Decode(draft.id, self:Encode(draft)) or not self:Send(draft) then
+    if not Recipes:CanOrder(Sync:GetData(draft.crafterName), draft.recipe) or store[draft.id] ~= nil or not self:Decode(draft.id, self:Encode(draft)) or not self:Send(draft) then
         self.page.error:SetText(GuildHelper:Trans("LID_ORDER_ERROR"))
         return
     end
@@ -421,26 +466,35 @@ end
 
 function Orders:Refresh()
     local store = self:GetStore()
+    self:Prune(store)
     Window:UpdateNavCount("orders", self:Count())
     self:Notify()
     local page = self.page
     if not page or not page:IsVisible() then return end
-    local entries, selected = {}, nil
+    local entries, archived, selected = {}, {}, nil
     local incoming = self.mode ~= "outgoing"
     for _, order in pairs(store or {}) do
-        if (incoming and self:IsIncoming(order)) or (not incoming and Groups:IsSelfName(order.requester)) then
-            local contact = incoming and order.requester or order.crafter
-            local label = format("%s  |cffaaaaaa%s|r", Recipes:Name(order.recipe), self:ContactLabel(contact, nil, true))
-            tinsert(entries, {key = order.id, label = label, id = order.recipe, order = order})
+        if order and ((incoming and self:IsIncoming(order)) or (not incoming and Groups:IsSelfName(order.requester))) then
+            local item = Recipes:Output(order.recipe)
+            local name, loaded
+            local hasItem = item and item > 0
+            if hasItem then name, loaded = Recipes:ItemName(item) end
+            local list = order.status == "O" and entries or archived
+            tinsert(list, {key = order.id, label = loaded and name or Recipes:Name(order.recipe),
+                icon = hasItem and Recipes:MaterialIcon(item) or Recipes:Icon(order.recipe),
+                order = order, prefix = format("%dx", order.amount or 1)})
             if order.id == self.selected then selected = order end
         end
     end
-    table.sort(entries, function(a, b)
-        local aa, bb = a.order.status == "O", b.order.status == "O"
-        if aa ~= bb then return aa end
+    table.sort(entries, function(a, b) return a.key > b.key end)
+    table.sort(archived, function(a, b)
+        local aTime = a.order.closedAt or a.order.archivedAt
+        local bTime = b.order.closedAt or b.order.archivedAt
+        if aTime ~= bTime then return aTime > bTime end
         return a.key > b.key
     end)
-    selected = selected or (entries[1] and entries[1].order)
+    local first = entries[1] or archived[1]
+    selected = selected or (first and first.order)
     self.selected = selected and selected.id
     if page.commentOrder ~= self.selected or self.draft then
         page.commentOrder = self.selected
@@ -449,11 +503,16 @@ function Orders:Refresh()
     end
     page.incoming:SetAlpha(incoming and 1 or 0.65)
     page.outgoing:SetAlpha(incoming and 0.65 or 1)
-    Professions:ShowRows(page.list, entries, function(id)
+    local function selectOrder(id)
         self.draft, self.selected = nil, id
         page.detail.scroll:SetVerticalScroll(0)
         self:Refresh()
-    end, self.selected)
+    end
+    local showArchive = #archived > 0
+    page.list:SetPoint("BOTTOMLEFT", page, showArchive and "LEFT" or "BOTTOMLEFT", 0, 0)
+    page.archive:SetShown(showArchive)
+    Professions:ShowRows(page.list, entries, selectOrder, self.selected)
+    Professions:ShowRows(page.archive, archived, selectOrder, self.selected)
     page.empty:SetShown(#entries == 0)
     local draft = self.draft
     page.form:SetShown(draft ~= nil)
@@ -473,7 +532,7 @@ function Orders:Refresh()
     page.ready:Hide()
     page.error:SetShown(draft ~= nil)
     page.detail:SetShown(draft == nil and selected ~= nil)
-    page.action:SetShown(draft == nil and selected ~= nil and selected.status == "O")
+    page.action:SetShown(draft == nil and selected ~= nil)
     page.whisper:SetShown(draft == nil and selected ~= nil)
     page.title:SetShown(draft ~= nil or selected ~= nil)
     page.icon:SetShown(draft ~= nil or selected ~= nil)
@@ -536,8 +595,13 @@ function Orders:Refresh()
             end)
         end
         Professions:ShowRows(page.detail, rows)
-        Theme:SetTrans(page.action.text, incoming and "LID_ORDER_COMPLETE" or "LID_FBCANCEL")
-        page.action:SetScript("OnClick", function() self:SetStatus(selected, incoming and "D" or "C") end)
+        if selected.status == "O" then
+            Theme:SetTrans(page.action.text, incoming and "LID_ORDER_COMPLETE" or "LID_FBCANCEL")
+            page.action:SetScript("OnClick", function() self:SetStatus(selected, incoming and "D" or "C") end)
+        else
+            Theme:SetTrans(page.action.text, "LID_FBDELETE")
+            page.action:SetScript("OnClick", function() self:Delete(selected) end)
+        end
         page.whisper:SetScript("OnClick", function()
             local target = contact
             for _, member in ipairs(Members.list) do
@@ -566,6 +630,7 @@ function Orders:Build(content)
         button:SetScript("OnClick", function()
             self.mode, self.draft, self.selected = mode, nil, nil
             page.list.scroll:SetVerticalScroll(0)
+            page.archive.scroll:SetVerticalScroll(0)
             page.detail.scroll:SetVerticalScroll(0)
             self:Refresh()
         end)
@@ -577,6 +642,15 @@ function Orders:Build(content)
     page.empty = Theme:Text(page.list, 13, "muted")
     Theme:SetTrans(page.empty, "LID_NODATA")
     page.empty:SetPoint("CENTER")
+    page.archive = Professions:CreateList(page)
+    page.archive:SetPoint("TOPLEFT", page, "LEFT", 0, -10)
+    page.archive:SetPoint("BOTTOMLEFT", page, "BOTTOMLEFT", 0, 0)
+    page.archive:SetWidth(300)
+    page.archive.scroll:SetPoint("TOPLEFT", 8, -31)
+    local archiveTitle = Theme:Text(page.archive, 12, "muted")
+    archiveTitle:SetPoint("TOPLEFT", 12, -9)
+    Theme:SetTrans(archiveTitle, "LID_ORDER_CLOSED")
+    page.archive:Hide()
     local side = CreateFrame("Frame", nil, page)
     side:SetPoint("TOPLEFT", page.list, "TOPRIGHT", 12, 0)
     side:SetPoint("BOTTOMRIGHT")
