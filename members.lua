@@ -141,9 +141,20 @@ end
 
 function Members:FindMainInNote(member, note, byName)
     if note == nil or note == "" then return nil end
-    for word in string.gmatch(note, "[^%s%p%d]+") do
-        local target = byName[strlower(word)]
+    note = strlower(note)
+    for first, last in note:gmatch("()[^%s%p%d]+()") do
+        local target = byName[note:sub(first, last - 1)]
         if target and target ~= member then return target end
+        if GuildHelper:IsForever() then
+            local name = note:sub(first, last - 1)
+            local word, nextWord = note:match("^%s+([^%s%p%d]+)()", last)
+            while word do
+                name = name .. " " .. word
+                target = byName[name]
+                if target and target ~= member then return target end
+                word, nextWord = note:match("^%s+([^%s%p%d]+)()", nextWord)
+            end
+        end
     end
 
     return nil

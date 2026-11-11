@@ -658,6 +658,10 @@ end
 function Feedback:GetAuthor()
     local member = GuildHelper.Members.GetSelf and GuildHelper.Members:GetSelf()
     if member and member.name then return member.name end
+    if GuildHelper:IsForever() then
+        local fullName = GuildHelper.Sync:GetOwnName()
+        if fullName then return fullName end
+    end
     local name, realm = (UnitFullName or UnitName)("player")
 
     return name and (realm and realm ~= "" and (name .. "-" .. realm) or name) or ""

@@ -293,6 +293,10 @@ function Sync:Transmit(message, prefix)
     if (prefix or self.PREFIX) == self.PREFIX and strsub(message, 1, 2) == "M~" then
         self:Trace("Versand:", message, ok and "API-Ergebnis:" or "API-Fehler:", tostring(result))
     end
+    if self.debug then
+        local command, id = message:match("^F~([AW])~[^~]+~([^~]+)")
+        if command then self:Trace("Gruppenanmeldung Versand:", command, id, ok and "API-Ergebnis:" or "API-Fehler:", ok and tostring(result) or "") end
+    end
     if not ok or result == false then return false end
     local codes = Enum and Enum.SendAddonMessageResult
     if type(result) == "number" and codes then return result == codes.Success end

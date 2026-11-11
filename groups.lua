@@ -30,7 +30,6 @@ Groups.KEEP = 3600
 Groups.DAYS = 14
 Groups.MAXPLANNED = 5
 Groups.CATEGORY = 2
-Groups.serial = 0
 Groups.ROW = 66
 Groups.roleOrder = {TANK = 1, HEALER = 2, DAMAGER = 3, NONE = 4}
 Groups.WEEKDAYS = {"WEEKDAY_SUNDAY", "WEEKDAY_MONDAY", "WEEKDAY_TUESDAY", "WEEKDAY_WEDNESDAY", "WEEKDAY_THURSDAY", "WEEKDAY_FRIDAY", "WEEKDAY_SATURDAY"}
@@ -614,13 +613,17 @@ function Groups:Publish()
     local activity = self:GetActivity(draft.activity)
     local entry = self:GetCurrent()
     if not entry then
-        self.serial = self.serial + 1
-        local id = tostring(time()) .. ":" .. self.serial
+        local stamp = time()
+        local id
+        repeat
+            id = stamp .. ":" .. random(100000000, 999999999)
+        until not self:Find(owner .. "#" .. id)
         entry = {
             id = id,
             key = owner .. "#" .. id,
+            routeByID = true,
             owner = owner,
-            name = UnitName("player"),
+            name = GuildHelper.Sync:GetOwnName() or UnitName("player"),
             kind = self.mode,
             applicants = {}
         }
@@ -650,7 +653,7 @@ end
 
 function Groups:SaveLiveForReload()
     local entry = self:GetOwnLive()
-    local saved = entry and {guild = self.guild, entry = entry, serial = self.serial, signupSerial = self.signupSerial}
+    local saved = entry and {guild = self.guild, entry = entry, signupSerial = self.signupSerial}
     GuildHelper:SetConfig("GROUPLIVERELOAD", saved)
 end
 
@@ -670,7 +673,6 @@ function Groups:RestoreLiveAfterReload()
         entry[role.value] = needs[role.value]
     end
 
-    self.serial = max(self.serial, saved.serial)
     self.signupSerial = max(self.signupSerial, saved.signupSerial)
     self.live[entry.key] = entry
     self.selected = entry.key
@@ -715,7 +717,7 @@ function Groups:SendApplication(entry)
     self.applySent[entry.key] = GetTime()
     entry.applicants = entry.applicants or {}
     entry.applicants[self:Self()] = {
-        name = UnitName("player"),
+        name = GuildHelper.Sync:GetOwnName() or UnitName("player"),
         role = entry.applied,
         expires = entry.kind == "L" and GetTime() + self.TTL or nil
     }
@@ -857,10 +859,18 @@ function Groups:ReadSignupSnapshot(owner, parts)
 end
 
 function Groups:ReadApplication(owner, sender, parts)
-    local target = self:IsSelfName(parts[3]) and self:Self() or self:Name(parts[3])
-    if not target or not parts[4] then return false end
-    local entry = self:Find(target .. "#" .. parts[4])
-    if not entry or self:IsSelfName(sender) then return false end
+    local target, id = self:Name(parts[3]), parts[4]
+    if not target or not id or not id:match("^%d+:%d+$") then return false end
+    local ownName = self:Self()
+    local entry = self:Find((self:IsSelfName(target) and ownName or target) .. "#" .. id)
+    if not entry and ownName and GuildHelper:IsForever() then
+        local listing = self:Find(ownName .. "#" .. id)
+        if listing and (listing.routeByID or self:Name(listing.name) == target) then entry = listing end
+    end
+    if not entry then
+        GuildHelper.Sync:Trace("Gruppenanmeldung empfangen, Gruppen-ID nicht zugeordnet:", id)
+        return false
+    end
     entry.applicants = entry.applicants or {}
     if parts[2] == "W" and #parts == 4 then
         entry.applicants[owner] = nil
@@ -921,6 +931,9 @@ function Groups:OnMessage(message, sender)
         changed = self:ReadApplication(owner, sender, parts)
     end
 
+    if command == "A" or command == "W" then
+        GuildHelper.Sync:Trace(changed and "Gruppenanmeldung verarbeitet:" or "Gruppenanmeldung verworfen:", command, parts[4])
+    end
     if changed then self:Refresh() end
 end
 

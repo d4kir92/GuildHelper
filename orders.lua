@@ -136,7 +136,9 @@ end
 
 function Orders:SelfName()
     local member = Members:GetSelf()
-    return member and Groups:Name(member.name) or Groups:Self()
+    if member then return Groups:Name(member.name) end
+    if GuildHelper:IsForever() then return Groups:Name(Sync:GetOwnName()) end
+    return Groups:Self()
 end
 
 function Orders:Digest(store, participant)
@@ -602,12 +604,11 @@ function Orders:Refresh()
             Theme:SetTrans(page.action.text, "LID_FBDELETE")
             page.action:SetScript("OnClick", function() self:Delete(selected) end)
         end
+        local target = Members:FindByName(contact)
+        if not target and not GuildHelper:IsForever() then target = {name = contact} end
+        page.whisper:SetEnabled(target ~= nil)
         page.whisper:SetScript("OnClick", function()
-            local target = contact
-            for _, member in ipairs(Members.list) do
-                if Groups:Name(member.name) == contact then target = member.name break end
-            end
-            Members:Whisper({name = target})
+            if target then Members:Whisper(target) end
         end)
     end
 end
@@ -798,6 +799,7 @@ function Orders:Build(content)
     end)
     content.OnPageShow = function()
         Members:Scan()
+        Members:RequestRoster()
         self:Request()
         self:Refresh()
     end
@@ -818,10 +820,18 @@ end)
 local events = CreateFrame("Frame")
 events:RegisterEvent("PLAYER_LOGIN")
 events:RegisterEvent("PLAYER_GUILD_UPDATE")
+if GuildHelper:IsForever() then events:RegisterEvent("GUILD_ROSTER_UPDATE") end
 for _, event in ipairs({"BAG_UPDATE_DELAYED", "PLAYERBANKSLOTS_CHANGED", "BANKFRAME_OPENED", "BANKFRAME_CLOSED", "CURRENCY_DISPLAY_UPDATE"}) do
     pcall(events.RegisterEvent, events, event)
 end
 events:SetScript("OnEvent", function(_, event)
+    if event == "GUILD_ROSTER_UPDATE" then
+        if Orders.page and Orders.page:IsVisible() then
+            Members:Scan()
+            Orders:Refresh()
+        end
+        return
+    end
     if event ~= "PLAYER_LOGIN" and event ~= "PLAYER_GUILD_UPDATE" then
         if Orders.page and Orders.page:IsVisible() then Orders:Refresh() end
         return
