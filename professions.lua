@@ -91,7 +91,7 @@ function Professions:ShowRows(panel, entries, onClick, selected, split)
             row.text:SetPoint("RIGHT", -8, 0)
         end
         if row.value then row.value:SetShown(entry.value ~= nil) end
-        local texture = entry.icon or (entry.id and Recipes:Icon(entry.id))
+        local texture = entry.icon or (entry.material and Recipes:MaterialIcon(entry.material)) or (entry.id and Recipes:Icon(entry.id))
         if entry.prefix then
             if not row.prefix then
                 row.prefix = Theme:Text(row, 13, "text")
@@ -149,6 +149,8 @@ function Professions:ShowRows(panel, entries, onClick, selected, split)
                 Theme:SetKey(row.fill, row.selected and "rowSelected" or (row:IsMouseOver() and "hover" or "control"))
             end
         end
+        if panel.readOnly then row:EnableMouse(entry.material ~= nil) end
+        Recipes:SetTooltip(row, entry.id or entry.order and entry.order.recipe, entry.material)
         row:Show()
     end
     for index = #entries + 1, #panel.rows do panel.rows[index]:Hide() end
@@ -305,6 +307,7 @@ function Professions:Update()
     local recipe = selected and selected.id
     local panel = page.details
     panel.recipeHeader:SetShown(recipe ~= nil)
+    Recipes:SetTooltip(panel.recipeOutput, recipe)
     page.crafters:SetShown(recipe ~= nil)
     panel.scroll:SetPoint("TOPLEFT", 8, recipe and -196 or -8)
     panel.scroll:SetShown(byRecipe and true or false)
@@ -316,8 +319,9 @@ function Professions:Update()
     panel:SetPoint("BOTTOMRIGHT", page.order, "TOPRIGHT", 0, 8)
     page.orderRecipe, page.orderRequirements = recipe, nil
     if recipe then
-        panel.recipeTitle:SetText(selected.recipe)
-        panel.recipeIcon:SetTexture(Recipes:Icon(recipe))
+        local name, icon = Recipes:OutputDisplay(recipe)
+        panel.recipeTitle:SetText(name)
+        panel.recipeIcon:SetTexture(icon)
         table.sort(selected.crafters, byMember)
         self:ShowRows(page.crafters, selected.crafters, function(key)
             page.selectedCrafter = key
@@ -592,6 +596,11 @@ function Professions:Build(content)
     recipeTitle:SetJustifyV("TOP")
     recipeTitle:SetWordWrap(true)
     page.details.recipeTitle = recipeTitle
+    local output = CreateFrame("Frame", nil, header)
+    output:SetPoint("TOPLEFT", recipeIcon)
+    output:SetPoint("BOTTOMRIGHT", recipeTitle)
+    output:EnableMouse(true)
+    page.details.recipeOutput = output
     local crafter = Theme:Text(header, 12, "muted")
     crafter:SetPoint("TOPLEFT", 0, -52)
     Theme:SetTrans(crafter, "LID_ORDER_CRAFTERS")

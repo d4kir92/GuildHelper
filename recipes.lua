@@ -476,6 +476,60 @@ function Recipes:ItemName(id)
     return name or ("#" .. id), name ~= nil
 end
 
+function Recipes:OutputDisplay(id)
+    local item = self:Output(id)
+    if item and item > 0 then
+        local name, loaded = self:ItemName(item)
+        return loaded and name or self:Name(id), self:MaterialIcon(item)
+    end
+    return self:Name(id), self:Icon(id)
+end
+
+function Recipes:OutputLink(id)
+    local item = self:Output(id)
+    local link
+    if Trade and Trade.GetRecipeOutputItemData then
+        local ok, output = pcall(Trade.GetRecipeOutputItemData, id)
+        local hyperlink = ok and output and output.hyperlink
+        if hyperlink and hyperlink:find("|Hitem:", 1, true) then link = hyperlink end
+    end
+    return link or (item and item > 0 and ("item:" .. item))
+end
+
+function Recipes.ShowTooltip(owner)
+    local material, recipe = owner.ghTooltipMaterial, owner.ghTooltipRecipe
+    local link = recipe and Recipes:OutputLink(recipe)
+    local currency = material and material < 0 and GameTooltip.SetCurrencyByID and -material
+    if material and material > 0 then link = "item:" .. material end
+    if not link and not currency then return end
+    if not GameTooltip:IsOwned(owner) then GameTooltip:SetOwner(owner, "ANCHOR_RIGHT") end
+    if currency then
+        GameTooltip:SetCurrencyByID(currency)
+    else
+        GameTooltip:SetHyperlink(link)
+    end
+    GameTooltip:Show()
+end
+
+function Recipes:SetTooltip(owner, recipe, material)
+    if owner.ghTooltipRecipe == recipe and owner.ghTooltipMaterial == material then return end
+    owner.ghTooltipRecipe, owner.ghTooltipMaterial = recipe, material
+    if (recipe or material) and not owner.ghTooltipBound then
+        owner.ghTooltipBound = true
+        owner:HookScript("OnEnter", Recipes.ShowTooltip)
+        local function hideTooltip(frame)
+            if GameTooltip:IsOwned(frame) then GameTooltip:Hide() end
+        end
+        owner:HookScript("OnLeave", hideTooltip)
+        owner:HookScript("OnHide", hideTooltip)
+        if not GameTooltip.supportsItemComparison then owner.UpdateTooltip = Recipes.ShowTooltip end
+    end
+    if GameTooltip:IsOwned(owner) then
+        GameTooltip:Hide()
+        Recipes.ShowTooltip(owner)
+    end
+end
+
 function Recipes:Requirements(id, materials)
     local requirements = {}
     if materials == true then
@@ -531,8 +585,8 @@ function Recipes:MaterialNames(requirement)
             name = currency and currency.name or ("#" .. -id)
             if not currency or not currency.name then complete = false end
         end
-        if not seen[name] then
-            seen[name] = true
+        if not seen[id] then
+            seen[id] = true
             tinsert(names, name)
             tinsert(ids, id)
         end
@@ -562,9 +616,9 @@ function Recipes:Materials(id, materials)
     local rows = {}
     for _, requirement in ipairs(requirements) do
         local names, ids = self:MaterialNames(requirement)
-        tinsert(rows, {label = names[1], prefix = format("%dx", requirement.quantity), icon = self:MaterialIcon(ids[1])})
+        tinsert(rows, {label = names[1], prefix = format("%dx", requirement.quantity), material = ids[1]})
         for index = 2, #names do
-            tinsert(rows, {label = names[index], prefix = "/", icon = self:MaterialIcon(ids[index])})
+            tinsert(rows, {label = names[index], prefix = "/", material = ids[index]})
         end
     end
     return rows, requirements

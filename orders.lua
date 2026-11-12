@@ -306,10 +306,6 @@ function Orders:SetStatus(order, status)
     self:Refresh()
 end
 
-function Orders:MaterialText(row)
-    return table.concat(Recipes:MaterialNames(row), " / ")
-end
-
 function Orders:ContactLabel(name, member, withIcon)
     member = member or Members:FindByName(name)
     local label = Members:NameWithTwitch(member, self:ShortName(name))
@@ -420,8 +416,6 @@ function Orders:RenderDraft(page, draft)
     page.amount:ClearFocus()
     page.amount:SetText(tostring(draft.amount))
     page.form.scroll:SetVerticalScroll(0)
-    page.title:SetText(Recipes:Name(draft.recipe))
-    page.icon:SetTexture(Recipes:Icon(draft.recipe))
     self:ShowContact(page, draft.crafter)
     page.mail:SetAlpha(draft.delivery == "M" and 1 or 0.65)
     page.trade:SetAlpha(draft.delivery == "T" and 1 or 0.65)
@@ -429,30 +423,18 @@ function Orders:RenderDraft(page, draft)
         local row = page.inputs[index]
         if not row then
             row = CreateFrame("Frame", nil, page.form.body)
-            row:SetPoint("TOPLEFT", 0, -(index - 1) * 40)
-            row:SetPoint("TOPRIGHT", 0, -(index - 1) * 40)
-            row:SetHeight(38)
+            row.options = {}
             row.box = Groups:CreateBox(row, 6, true)
-            row.box:SetPoint("RIGHT", -8, 0)
+            row.box:SetPoint("TOPRIGHT", -8, -5)
             row.box:SetWidth(65)
-            row.icon = row:CreateTexture(nil, "ARTWORK")
-            row.icon:SetSize(20, 20)
-            row.icon:SetPoint("LEFT", 69, 0)
             row.quantity = Theme:Text(row, 13, "text")
-            row.quantity:SetPoint("LEFT", 8, 0)
+            row.quantity:SetPoint("TOPLEFT", 8, 0)
+            row.quantity:SetHeight(38)
             row.quantity:SetWidth(56)
             row.quantity:SetJustifyH("RIGHT")
-            row.label = Theme:Text(row, 13, "text")
-            row.label:SetPoint("LEFT", 96, 0)
-            row.label:SetPoint("RIGHT", row.box, "LEFT", -8, 0)
-            row.label:SetHeight(36)
-            row.label:SetJustifyH("LEFT")
-            row.label:SetWordWrap(true)
             page.inputs[index] = row
         end
-        row.icon:SetTexture(Recipes:MaterialIcon(material.options[1]))
         row.quantity:SetText(format("%dx", material.quantity))
-        row.label:SetText(self:MaterialText(material))
         row.box:SetScript("OnTextChanged", nil)
         row.box:SetText(tostring(material.owned))
         row.box:SetScript("OnTextChanged", function(box)
@@ -461,9 +443,47 @@ function Orders:RenderDraft(page, draft)
             material.owned = value
             if entered ~= value then box:SetText(tostring(value)) end
         end)
-        row:Show()
     end
-    page.form.body:SetHeight(max(1, #draft.materials * 40))
+end
+
+function Orders:RenderDraftMaterials(page, draft)
+    local offset = 0
+    for index, material in ipairs(draft.materials) do
+        local row = page.inputs[index]
+        local names, ids = Recipes:MaterialNames(material)
+        for option, id in ipairs(ids) do
+            local entry = row.options[option]
+            if not entry then
+                entry = CreateFrame("Frame", nil, row)
+                entry:SetPoint("TOPLEFT", 69, -(option - 1) * 38)
+                entry:SetPoint("TOPRIGHT", -81, -(option - 1) * 38)
+                entry:SetHeight(38)
+                entry:EnableMouse(true)
+                entry.icon = entry:CreateTexture(nil, "ARTWORK")
+                entry.icon:SetSize(20, 20)
+                entry.icon:SetPoint("LEFT")
+                entry.label = Theme:Text(entry, 13, "text")
+                entry.label:SetPoint("LEFT", 27, 0)
+                entry.label:SetPoint("RIGHT")
+                entry.label:SetHeight(36)
+                entry.label:SetJustifyH("LEFT")
+                entry.label:SetWordWrap(true)
+                row.options[option] = entry
+            end
+            entry.icon:SetTexture(Recipes:MaterialIcon(id))
+            entry.label:SetText(option == 1 and names[option] or "/ " .. names[option])
+            Recipes:SetTooltip(entry, nil, id)
+            entry:Show()
+        end
+        for option = #ids + 1, #row.options do row.options[option]:Hide() end
+        row:SetPoint("TOPLEFT", 0, -offset)
+        row:SetPoint("TOPRIGHT", 0, -offset)
+        local height = #ids * 38
+        row:SetHeight(height)
+        row:Show()
+        offset = offset + height + 2
+    end
+    page.form.body:SetHeight(max(1, offset))
 end
 
 function Orders:Refresh()
@@ -477,14 +497,9 @@ function Orders:Refresh()
     local incoming = self.mode ~= "outgoing"
     for _, order in pairs(store or {}) do
         if order and ((incoming and self:IsIncoming(order)) or (not incoming and Groups:IsSelfName(order.requester))) then
-            local item = Recipes:Output(order.recipe)
-            local name, loaded
-            local hasItem = item and item > 0
-            if hasItem then name, loaded = Recipes:ItemName(item) end
+            local name, icon = Recipes:OutputDisplay(order.recipe)
             local list = order.status == "O" and entries or archived
-            tinsert(list, {key = order.id, label = loaded and name or Recipes:Name(order.recipe),
-                icon = hasItem and Recipes:MaterialIcon(item) or Recipes:Icon(order.recipe),
-                order = order, prefix = format("%dx", order.amount or 1)})
+            tinsert(list, {key = order.id, label = name, icon = icon, order = order, prefix = format("%dx", order.amount or 1)})
             if order.id == self.selected then selected = order end
         end
     end
@@ -536,19 +551,21 @@ function Orders:Refresh()
     page.detail:SetShown(draft == nil and selected ~= nil)
     page.action:SetShown(draft == nil and selected ~= nil)
     page.whisper:SetShown(draft == nil and selected ~= nil)
-    page.title:SetShown(draft ~= nil or selected ~= nil)
-    page.icon:SetShown(draft ~= nil or selected ~= nil)
+    local order = draft or selected
+    page.output:SetShown(order ~= nil)
+    Recipes:SetTooltip(page.output, order and order.recipe)
+    if order then
+        local name, icon = Recipes:OutputDisplay(order.recipe)
+        page.title:SetText(name)
+        page.icon:SetTexture(icon)
+    end
     page.subtitle:SetShown(draft ~= nil or selected ~= nil)
     if not draft and not selected then page.avatar:Hide() end
     self:RenderDraft(page, draft)
     if draft then
-        for index, material in ipairs(draft.materials) do
-            page.inputs[index].label:SetText(self:MaterialText(material))
-        end
+        self:RenderDraftMaterials(page, draft)
     elseif selected then
         local contact = incoming and selected.requester or selected.crafter
-        page.title:SetText(Recipes:Name(selected.recipe))
-        page.icon:SetTexture(Recipes:Icon(selected.recipe))
         self:ShowContact(page, contact)
         local rows = {
             {label = GuildHelper:Trans(self:DeliveryLabel(selected.delivery)) .. "  ·  " .. GuildHelper:Trans("LID_ORDER_STATUS_" .. selected.status)},
@@ -556,13 +573,17 @@ function Orders:Refresh()
         }
         local available, ready = {}, true
         for _, material in ipairs(selected.materials) do
-            local label = self:MaterialText(material) .. "\n" .. format(GuildHelper:Trans("LID_ORDER_PROVIDED"), material.owned, material.quantity)
+            local names, ids = Recipes:MaterialNames(material)
+            local label = names[1] .. "\n" .. format(GuildHelper:Trans("LID_ORDER_PROVIDED"), material.owned, material.quantity)
             if incoming then
                 local bags, bank, missing = self:Inventory(material, available)
                 label = label .. "\n" .. format(GuildHelper:Trans("LID_ORDER_INVENTORY"), bags, bank, missing)
                 ready = ready and missing == 0
             end
-            tinsert(rows, {label = label, icon = Recipes:MaterialIcon(material.options[1])})
+            tinsert(rows, {label = label, material = ids[1]})
+            for option = 2, #ids do
+                tinsert(rows, {label = "/ " .. names[option], material = ids[option]})
+            end
         end
         if selected.note and selected.note ~= "" then
             tinsert(rows, {label = GuildHelper:Trans("LID_NOTE") .. "\n" .. selected.note, gap = 8})
@@ -657,8 +678,13 @@ function Orders:Build(content)
     side:SetPoint("BOTTOMRIGHT")
     Theme:Panel(side, "panel", "border", 7)
 
-    page.title = Theme:Text(side, 17, "text")
-    page.icon = side:CreateTexture(nil, "ARTWORK")
+    page.output = CreateFrame("Frame", nil, side)
+    page.output:SetPoint("TOPLEFT")
+    page.output:SetPoint("TOPRIGHT")
+    page.output:SetHeight(32)
+    page.output:EnableMouse(true)
+    page.title = Theme:Text(page.output, 17, "text")
+    page.icon = page.output:CreateTexture(nil, "ARTWORK")
     page.icon:SetSize(22, 22)
     page.icon:SetPoint("TOPLEFT", 14, -9)
     page.title:SetPoint("TOPLEFT", 44, -10)
