@@ -332,13 +332,31 @@ function Members:GetTwitchName(member)
     return data and type(data.twitch) == "string" and data.twitch or ""
 end
 
+function Members:ForeverSurnameAlias(name)
+    if not GuildHelper:IsForever() or type(name) ~= "string" then return end
+    local character, suffix = name:match("^([^%-]+)%-(.+)$")
+    local surname = character and character:match("%s+(%S+)$")
+    if surname and strlower(surname) == strlower(suffix) then
+        return strlower(character:gsub("%s", ""))
+    end
+end
+
 function Members:FindByName(name)
     local Groups = GuildHelper.Groups
     local key = Groups:Name(name)
     if not key then return end
+    local alias = self:ForeverSurnameAlias(name)
+    local match, ambiguous
     for _, member in ipairs(self.list) do
-        if Groups:Name(member.name) == key then return member end
+        local memberKey = Groups:Name(member.name)
+        if memberKey == key then return member end
+        if alias and memberKey and self:ShortName(memberKey) == alias then
+            if match then ambiguous = true end
+            match = member
+        end
     end
+    if ambiguous then return nil, true end
+    return match
 end
 
 function Members:NameWithTwitch(member, fallback)

@@ -370,7 +370,7 @@ function Events:RefreshDetail()
     if #comments == 0 then tinsert(items, {text = GuildHelper:Trans("LID_FBNOCOMMENTS"), color = "muted"}) end
     for _, row in ipairs(comments) do
         local item = {author = row, meta = "  ·  " .. Feedback:FormatDate(row.revision), text = row.text}
-        if Groups:IsSelfName(row.author) then
+        if self:IsOwn(row) then
             item.tooltip = GuildHelper:Trans("LID_FBDELETECOMMENT")
             item.action = function()
                 if detail.confirmComment == row.comment then

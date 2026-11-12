@@ -88,19 +88,34 @@ function Events:GetIcon(id)
     return bucket and bucket.icon and bucket.icon.icon
 end
 
+function Events:ForeverPlayerName()
+    if not GuildHelper:IsForever() then return end
+    local name = GetUnitName and GetUnitName("player", false)
+    if GuildHelper:CanAccessValues(name) and name and name:find("%s") then return GuildHelper.Members:ShortName(name) end
+    local first, surname = UnitName("player")
+    if not GuildHelper:CanAccessValues(first, surname) or not first then return end
+    if first:find("%s") then return GuildHelper.Members:ShortName(first) end
+    if surname and surname ~= "" then return first .. " " .. surname end
+end
+
 function Events:IsOwn(event)
     if not event then return false end
     if Groups:IsSelfName(event.author) then return true end
-    if not GuildHelper:IsForever() or not event.name then return false end
+    local Members = GuildHelper.Members
+    local fullName = self:ForeverPlayerName()
+    if fullName and Groups:Name(fullName) == event.author then return true end
+    local alias = Members:ForeverSurnameAlias(event.name)
+    if not alias then return false end
 
-    local character, suffix = event.name:match("^([^%-]+)%-(.+)$")
-    local surname = character and character:match("%s+(%S+)$")
-    if not surname or strlower(surname) ~= strlower(suffix) then return false end
+    local member, ambiguous = Members:FindByName(event.name)
+    if member then return Members:IsSelf(member) end
+    if ambiguous then return false end
 
-    local key = Sync:GetKey(character)
-    local unitName = UnitName("player")
-    local fullName = UnitFullName and UnitFullName("player")
-    return (unitName and Sync:GetKey(unitName) == key) or (fullName and Sync:GetKey(fullName) == key) or false
+    local function matches(name)
+        local key = Groups:Name(name)
+        return key ~= nil and Members:ShortName(key) == alias
+    end
+    return matches(fullName) or matches(Groups:Self()) or matches(Sync:GetOwnName()) or matches(UnitName("player"))
 end
 
 function Events:GetLeader()
@@ -135,7 +150,12 @@ function Events:NewId()
 end
 
 function Events:Author()
-    local name = Sync:GetOwnName() or UnitName("player") or ""
+    local fullName = self:ForeverPlayerName()
+    if fullName then
+        local name = fullName .. "-" .. (GetRealmName() or ""):gsub("%s", "")
+        return name, Groups:Name(name)
+    end
+    local name = Feedback:GetAuthor()
     if not Groups:IsSelfName(name) then name = Groups:Self() or name end
     if name ~= "" and not name:find("-", 1, true) then
         local _, realm = (UnitFullName or UnitName)("player")
@@ -149,8 +169,8 @@ end
 function Events:GetResponse(bucket)
     local _, author = self:Author()
     if bucket and bucket.responses[author] then return bucket.responses[author] end
-    for key, response in pairs(bucket and bucket.responses or {}) do
-        if Groups:IsSelfName(key) then return response end
+    for _, response in pairs(bucket and bucket.responses or {}) do
+        if self:IsOwn(response) then return response end
     end
 end
 
@@ -409,7 +429,7 @@ function Events:Comment(id, value, comment)
     if not bucket or not bucket.event or not author then return end
     local text = Groups:CleanText(value, 240)
     local previous = comment and bucket.comments[comment]
-    if comment and (not previous or not Groups:IsSelfName(previous.author)) then return end
+    if comment and (not previous or not self:IsOwn(previous)) then return end
     if not comment and text == "" then return end
     local revision = max(GetServerTime(), previous and previous.revision + 1 or 0)
     local row = {kind = "C", id = id, name = previous and previous.name or name, author = previous and previous.author or author,
