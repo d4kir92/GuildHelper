@@ -179,6 +179,7 @@ function Professions:Update()
     for _, member in ipairs(roster) do
         local data = Members:GetData(member)
         local skills, seen = {}, {}
+        local highestRank = 0
         local own = Members:IsSelf(member)
         local professions = data and data.professions
         if own then professions = Sync:GetOwnProfessions() end
@@ -194,14 +195,17 @@ function Professions:Update()
                 tinsert(filters, counts[key])
             end
             if not seen[key] then counts[key].count = counts[key].count + 1 end
-            seen[key] = format("%d/%d", skill[2] or 0, skill[3] or 0)
-            tinsert(skills, {label = name, key = key, icon = counts[key].icon, rank = skill[2] or 0, cap = skill[3] or 0, value = seen[key]})
+            local rank, cap = skill[2] or 0, skill[3] or 0
+            local entry = {label = name, key = key, icon = counts[key].icon, rank = rank, cap = cap, value = format("%d/%d", rank, cap)}
+            if not seen[key] or rank > seen[key].rank then seen[key] = entry end
+            highestRank = max(highestRank, rank)
+            tinsert(skills, entry)
         end
         if #skills > 0 and (not page.online:GetChecked() or member.online) then
             local status = member.online and GuildHelper:Trans("LID_ONLINE") or (FRIENDS_LIST_OFFLINE or PLAYER_OFFLINE or "")
             local label = Members:NameWithTwitch(member) .. "  |cffaaaaaa" .. status .. "|r"
             if byRecipe then
-                for key in pairs(seen) do
+                for key, skill in pairs(seen) do
                     if not page.filter or page.filter == key then
                         local known = data and data.recipes and data.recipes[tostring(key)]
                         if known then captured = true else missing = true end
@@ -220,10 +224,13 @@ function Professions:Update()
                                         tinsert(results, result)
                                     end
                                     if materials ~= "-" then result.materials = materials end
-                                    if not result.members[member.name] then
-                                        local crafter = {key = member.name, label = label, member = member, materials = materials}
+                                    local crafter = result.members[member.name]
+                                    if not crafter then
+                                        crafter = {key = member.name, label = label, member = member, materials = materials, rank = skill.rank, value = skill.value}
                                         result.members[member.name] = crafter
                                         tinsert(result.crafters, crafter)
+                                    elseif skill.rank > crafter.rank then
+                                        crafter.rank, crafter.value, crafter.materials = skill.rank, skill.value, materials
                                     end
                                 end
                             end
@@ -231,7 +238,7 @@ function Professions:Update()
                     end
                 end
             elseif strlower(member.name):find(query, 1, true) or strlower(member.short):find(query, 1, true) then
-                tinsert(results, {key = member.name, label = label, member = member, skills = skills, seen = seen})
+                tinsert(results, {key = member.name, label = label, member = member, skills = skills, seen = seen, rank = highestRank})
             end
         end
     end
@@ -244,15 +251,16 @@ function Professions:Update()
     for index = #results, 1, -1 do
         local result = results[index]
         if page.filter and not byRecipe then
-            local rank = result.seen[page.filter]
-            if rank then
-                result.label = result.label .. "    " .. rank
+            local skill = result.seen[page.filter]
+            if skill then
+                result.rank, result.value = skill.rank, skill.value
             else
                 table.remove(results, index)
             end
         end
     end
     local function byMember(a, b)
+        if a.rank ~= b.rank then return a.rank > b.rank end
         if a.member.online ~= b.member.online then return a.member.online end
         return a.key < b.key
     end
