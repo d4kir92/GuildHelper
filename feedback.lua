@@ -646,11 +646,12 @@ function Feedback:AuthorLabel(entry, avatar)
     local name = entry.author and entry.author ~= "" and entry.author or entry.owner or "?"
     local member = Members:FindByName(entry.owner) or Members:FindByName(name)
     local label = member and member.short or (Ambiguate and Ambiguate(name, "guild") or name)
-    label = Members:NameWithTwitch(member, label)
+    local portrait = member or {short = label, key = GuildHelper.Sync:GetKey(name)}
+    label = Members:NameWithTwitch(portrait, label)
     if avatar then
-        local portrait = member or {short = label}
         local r, g, b = Members:GetClassColor(portrait)
-        Members:FillAvatar(avatar, portrait, member and Members:GetData(member), r, g, b)
+        local data = member and Members:GetData(member) or GuildHelper.Sync:GetData(name)
+        Members:FillAvatar(avatar, portrait, data, r, g, b)
     end
     return label
 end

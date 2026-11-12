@@ -123,6 +123,10 @@ Window.NAV = {
         label = "LID_EVENTS"
     },
     {
+        key = "calendar",
+        label = "LID_CALENDAR"
+    },
+    {
         key = "chars",
         label = "LID_MYCHARS"
     },
@@ -154,7 +158,7 @@ Window.FLAVORS = {
 }
 
 Window.builders = {}
-Window.NAVICONS = {dashboard = "INV_Misc_Map_01", members = "INV_Misc_GroupLooking", professions = "Trade_BlackSmithing", orders = "INV_Misc_Note_01", events = "INV_Misc_PocketWatch_01", groups = "INV_Misc_GroupNeedMore", chars = "INV_Misc_Head_Human_01", log = "INV_Misc_Book_09", management = "INV_Misc_Gear_01", feedback = "INV_Misc_Note_01", settings = "Trade_Engineering"}
+Window.NAVICONS = {dashboard = "INV_Misc_Map_01", members = "INV_Misc_GroupLooking", professions = "Trade_BlackSmithing", orders = "INV_Misc_Note_01", events = "INV_Misc_PocketWatch_01", groups = "INV_Misc_GroupNeedMore", calendar = "INV_Misc_PocketWatch_02", chars = "INV_Misc_Head_Human_01", log = "INV_Misc_Book_09", management = "INV_Misc_Gear_01", feedback = "INV_Misc_Note_01", settings = "Trade_Engineering"}
 
 function Window:ApplyNavigation()
     local collapsed = GuildHelper:GetConfig("NAVCOLLAPSED", false)
@@ -267,8 +271,8 @@ end
 function Window:CreateNavButton(index, entry)
     local frame = self.frame
     local button = CreateFrame("Button", nil, frame)
-    button:SetSize(self.SIDEBAR - 30, 32)
-    button:SetPoint("TOPLEFT", frame, "TOPLEFT", 18, -77 - (index - 1) * 34)
+    button:SetSize(self.SIDEBAR - 30, 29)
+    button:SetPoint("TOPLEFT", frame, "TOPLEFT", 18, -77 - (index - 1) * 32)
     button.entry = entry
     button.bg = Theme:Round(button, "navActive", 7)
     button.dot = button:CreateTexture(nil, "ARTWORK")
@@ -353,6 +357,7 @@ function Window:SelectPage(key)
 end
 
 Window.GUILDFREE = {
+    calendar = true,
     settings = true
 }
 

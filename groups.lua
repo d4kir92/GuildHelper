@@ -1642,6 +1642,7 @@ function Groups:Refresh()
         self:RefreshDetail()
     end
     GuildHelper.Window:UpdateNavCount("groups", self:CountUnread())
+    if GuildHelper.Calendar then GuildHelper.Calendar:QueueRefresh() end
 end
 
 GuildHelper.Window:SetPageBuilder("groups", function(content) Groups:Build(content) end)

@@ -330,11 +330,17 @@ function Sync:Pump(elapsed)
     end
 end
 
-function Sync:SendAvatarGender()
+function Sync:SendAvatar()
     local sex = UnitSex("player")
     if not GuildHelper:CanAccessValues(sex) or (sex ~= 2 and sex ~= 3) then return end
-    self:Trace("Volksavatar-Geschlecht senden:", sex)
-    self:Send(format("R~%d", sex), "R")
+    local _, race = UnitRace("player")
+    if GuildHelper:CanAccessValues(race) and type(race) == "string" and race:match("^[A-Za-z]+$") and #race <= 32 then
+        race = race:lower()
+        self:Trace("Volksavatar senden:", race, sex)
+        self:Send(format("R~%s~%d", race, sex), "R")
+    else
+        self:Send(format("R~%d", sex), "R")
+    end
 end
 
 function Sync:SendInfo(force)
@@ -353,7 +359,7 @@ function Sync:SendInfo(force)
     self:Send(message, "I")
     if name and GuildHelper.Recipes then GuildHelper.Recipes:ReplayRemovals(self:GetData(name)) end
     self:SendSpecs()
-    self:SendAvatarGender()
+    self:SendAvatar()
 end
 
 function Sync:ScheduleInfo(delay)
@@ -369,6 +375,11 @@ function Sync:OnMessage(message, channel, sender)
     if channel ~= "GUILD" or type(message) ~= "string" or type(sender) ~= "string" then return end
     if not GuildHelper:CanAccessValues(message, sender) then
         self:Trace("Gildennachricht vom Client gesperrt")
+
+        return
+    end
+    if strsub(message, 1, 3) == "EV~" and GuildHelper.Events then
+        GuildHelper.Events:OnMessage(message, sender)
 
         return
     end
@@ -408,12 +419,15 @@ function Sync:OnMessage(message, channel, sender)
             self:Notify()
         end
     elseif kind == "R" then
-        local sex = message:match("^R~([23])$") or message:match("^R~[a-z]+~([23])$")
-        if not sex or #message > 36 then return end
+        if #message > 36 then return end
+        local race, sex = message:match("^R~([a-z]+)~([23])$")
+        sex = sex or message:match("^R~([23])$")
+        if not sex then return end
         local entry = self:GetEntry(shortName)
         local gender = sex == "2" and "male" or "female"
-        self:Trace("Volksavatar-Geschlecht empfangen:", shortName, gender)
-        if entry and entry.portraitGender ~= gender then
+        self:Trace("Volksavatar empfangen:", shortName, race, gender)
+        if entry and (entry.portraitGender ~= gender or (race and entry.portraitRace ~= race)) then
+            entry.portraitRace = race or entry.portraitRace
             entry.portraitGender = gender
             self:Notify()
         end
@@ -430,7 +444,7 @@ function Sync:Init()
         print("[GuildHelper Sync]", Sync.debug and "Debug an" or "Debug aus")
         if Sync.debug then
             Sync:SendSpecs()
-            Sync:SendAvatarGender()
+            Sync:SendAvatar()
             Sync:Send("Q")
         end
     end)

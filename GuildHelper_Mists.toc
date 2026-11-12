@@ -62,3 +62,7 @@ orders.lua
 map.lua
 invite.lua
 settings.lua
+events.lua
+eventpage.lua
+eventicons.lua
+calendar.lua

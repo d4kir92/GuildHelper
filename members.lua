@@ -1167,14 +1167,24 @@ function Members:CreateAvatar(parent, size, fontSize)
     return avatar
 end
 
+Members.raceAtlasAliases = {
+    scourge = "undead",
+    highmountaintauren = "highmountain",
+    lightforgeddraenei = "lightforged",
+    zandalaritroll = "zandalari",
+    harronir = "haranir",
+    earthendwarf = "earthen",
+}
+
 function Members:GetRaceAtlas(race, gender)
     if not race or not C_Texture or not C_Texture.GetAtlasInfo then return end
-    local atlasRace = race == "scourge" and "undead" or race
-    local suffix = atlasRace .. "-" .. (gender or "male")
-    local atlas = "raceicon128-" .. suffix
-    if C_Texture.GetAtlasInfo(atlas) then return atlas end
-    atlas = "raceicon-" .. suffix
-    if C_Texture.GetAtlasInfo(atlas) then return atlas end
+    for _, atlasRace in ipairs({race, self.raceAtlasAliases[race]}) do
+        local suffix = atlasRace .. "-" .. (gender or "male")
+        local atlas = "raceicon128-" .. suffix
+        if C_Texture.GetAtlasInfo(atlas) then return atlas end
+        atlas = "raceicon-" .. suffix
+        if C_Texture.GetAtlasInfo(atlas) then return atlas end
+    end
 end
 
 function Members:RaceIconMarkup(member, size)
@@ -1198,18 +1208,26 @@ function Members:GetRaceAvatar(member, data)
         end
     end
 
+    local guid = GuildHelper:CanAccessValues(member.guid) and member.guid
+    local unit
     if self:IsSelf(member) then
-        local _, playerRace = UnitRace("player")
-        if not race and GuildHelper:CanAccessValues(playerRace) then race = playerRace end
-        sex = UnitSex("player")
-    elseif GetPlayerInfoByGUID and GuildHelper:CanAccessValues(member.guid) and member.guid then
-        local ok, _, _, _, cachedRace, cachedSex = pcall(GetPlayerInfoByGUID, member.guid)
+        unit = "player"
+    elseif guid and UnitTokenFromGUID then
+        unit = UnitTokenFromGUID(guid)
+    end
+    if GuildHelper:CanAccessValues(unit) and unit then
+        local _, unitRace = UnitRace(unit)
+        if GuildHelper:CanAccessValues(unitRace) and unitRace and unitRace ~= "" then race = unitRace end
+        sex = UnitSex(unit)
+    elseif GetPlayerInfoByGUID and guid then
+        local ok, _, _, _, cachedRace, cachedSex = pcall(GetPlayerInfoByGUID, guid)
         if ok then
             if not race and GuildHelper:CanAccessValues(cachedRace) then race = cachedRace end
             sex = cachedSex
         end
     end
 
+    if type(race) ~= "string" or race == "" then race = data and data.portraitRace end
     if type(race) ~= "string" or race == "" then return end
     local gender = data and data.portraitGender
     if GuildHelper:CanAccessValues(sex) and (sex == 2 or sex == 3) then
