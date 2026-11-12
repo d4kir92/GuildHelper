@@ -1,5 +1,5 @@
 ## Interface: 38002, 30403
-## Version: 0.4.7
+## Version: 0.5.0
 ## Title: GuildHelper by |cff55d2ffD4KiR |T132115:16:16:0:0|t
 ## Notes: See who’s in your guild, find groups for now or later, and share ideas and bug reports.
 ## Notes-deDE: Sieh, wer in deiner Gilde ist, finde Gruppen für jetzt oder später und teile Ideen und Fehlermeldungen.
