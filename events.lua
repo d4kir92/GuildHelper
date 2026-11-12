@@ -90,6 +90,9 @@ end
 
 function Events:ForeverPlayerName()
     if not GuildHelper:IsForever() then return end
+    local _, ownName = GuildHelper:GetPlayerCharacterKey()
+    if ownName then return ownName end
+
     local name = GetUnitName and GetUnitName("player", false)
     if GuildHelper:CanAccessValues(name) and name and name:find("%s") then return GuildHelper.Members:ShortName(name) end
     local first, surname = UnitName("player")
@@ -150,6 +153,9 @@ function Events:NewId()
 end
 
 function Events:Author()
+    local key = GuildHelper:GetPlayerCharacterKey()
+    if key then return key, Groups:Name(key) end
+
     local fullName = self:ForeverPlayerName()
     if fullName then
         local name = fullName .. "-" .. (GetRealmName() or ""):gsub("%s", "")

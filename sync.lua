@@ -44,16 +44,20 @@ function Sync:GetKey(name)
 end
 
 function Sync:GetOwnName()
+    local _, ownName = GuildHelper:GetPlayerCharacterKey()
+    if not GuildHelper:IsForever() then return ownName or UnitName("player") end
+
     local name = UnitName("player")
-    if not GuildHelper:IsForever() or not name then return name end
-    if self:GetKey(name):find("%s") then return name end
+    if GuildHelper:CanAccessValue(name) and name and self:GetKey(name):find("%s") then return ownName or name end
 
     local guid = UnitGUID("player")
-    if not guid then return nil end
+    if not GuildHelper:CanAccessValue(guid) or not guid then return ownName end
     for index = 1, GetNumGuildMembers() or 0 do
         local memberName, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, memberGUID = GetGuildRosterInfo(index)
-        if memberGUID == guid then return memberName end
+        if GuildHelper:CanAccessValues(memberGUID, memberName) and memberGUID == guid and memberName then return memberName end
     end
+
+    return ownName
 end
 
 function Sync:OnUpdate(callback)

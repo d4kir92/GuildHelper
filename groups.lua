@@ -51,6 +51,8 @@ function Groups:IsSelfName(name)
     if not key then return false end
     local own = self:Self()
     if key == own or key == self.selfSender then return true end
+    local characterKey = GuildHelper:GetPlayerCharacterKey()
+    if key == self:Name(characterKey) then return true end
     local member = GuildHelper.Members.GetSelf and GuildHelper.Members:GetSelf()
     if member and key == self:Name(member.name) then return true end
 
