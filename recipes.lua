@@ -502,7 +502,7 @@ function Recipes.ShowTooltip(owner)
     local currency = material and material < 0 and GameTooltip.SetCurrencyByID and -material
     if material and material > 0 then link = "item:" .. material end
     if not link and not currency then return end
-    if not GameTooltip:IsOwned(owner) then GameTooltip:SetOwner(owner, "ANCHOR_RIGHT") end
+    if not GameTooltip:IsOwned(owner) then GameTooltip:SetOwner(owner, "ANCHOR_CURSOR") end
     if currency then
         GameTooltip:SetCurrencyByID(currency)
     else

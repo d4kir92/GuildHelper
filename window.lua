@@ -302,7 +302,7 @@ function Window:CreateNavButton(index, entry)
     button:SetScript("OnEnter", function(sel)
         Window:UpdateNav()
         if sel.count or GuildHelper:GetConfig("NAVCOLLAPSED", false) then
-            GameTooltip:SetOwner(sel, "ANCHOR_RIGHT")
+            GameTooltip:SetOwner(sel, "ANCHOR_CURSOR")
             GameTooltip:SetText(GuildHelper:Trans(entry.label))
             GameTooltip:Show()
         end
@@ -639,7 +639,7 @@ function Window:ShowGuildOverlay(region, tooltip)
     overlay:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left * scale, top * scale)
     overlay:SetSize(region:GetWidth() * scale, region:GetHeight() * scale)
     overlay:Show()
-    GameTooltip:SetOwner(overlay, "ANCHOR_RIGHT")
+    GameTooltip:SetOwner(overlay, "ANCHOR_CURSOR")
     GameTooltip:AddLine(GuildHelper:Trans(tooltip or "LID_EDITINBLIZZARD"), 1, 1, 1, true)
     GameTooltip:Show()
 
@@ -755,7 +755,7 @@ end
 
 function Window:ShowGripTooltip(grip)
     local normal, highlight = NORMAL_FONT_COLOR, HIGHLIGHT_FONT_COLOR
-    GameTooltip:SetOwner(grip, "ANCHOR_RIGHT")
+    GameTooltip:SetOwner(grip, "ANCHOR_CURSOR")
     GameTooltip:AddDoubleLine(GuildHelper:Trans("LID_LEFTCLICK"), GuildHelper:Trans("LID_RESIZEWINDOW"), normal.r, normal.g, normal.b, highlight.r, highlight.g, highlight.b)
     GameTooltip:AddDoubleLine(GuildHelper:Trans("LID_SHIFTLEFTCLICK"), GuildHelper:Trans("LID_SCALE"), normal.r, normal.g, normal.b, highlight.r, highlight.g, highlight.b)
     GameTooltip:AddDoubleLine(GuildHelper:Trans("LID_RIGHTCLICK"), GuildHelper:Trans("LID_RESETSIZESCALE"), normal.r, normal.g, normal.b, highlight.r, highlight.g, highlight.b)

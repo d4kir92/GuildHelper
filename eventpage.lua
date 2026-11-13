@@ -39,7 +39,7 @@ function Events:RenderList(card, items)
             row:SetScript("OnEnter", function(button)
                 button.fill:SetShown(button.item.action ~= nil or button.item.selected == true)
                 if button.item.tooltip then
-                    GameTooltip:SetOwner(button, "ANCHOR_RIGHT")
+                    GameTooltip:SetOwner(button, "ANCHOR_CURSOR")
                     GameTooltip:SetText(button.item.tooltip)
                     GameTooltip:Show()
                 end

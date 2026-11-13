@@ -1046,7 +1046,7 @@ end
 function Members:ShowTooltip(row)
     local member = row.member
     if member == nil or (member.note == "" and member.officerNote == "") then return end
-    GameTooltip:SetOwner(row, "ANCHOR_RIGHT")
+    GameTooltip:SetOwner(row, "ANCHOR_CURSOR")
     GameTooltip:AddLine(member.short, self:GetClassColor(member))
     if member.note ~= "" then GameTooltip:AddDoubleLine(GuildHelper:Trans("LID_NOTE"), member.note, 0.7, 0.7, 0.7, 1, 1, 1) end
     if member.officerNote ~= "" then GameTooltip:AddDoubleLine(GuildHelper:Trans("LID_OFFICERNOTE"), member.officerNote, 0.7, 0.7, 0.7, 1, 1, 1) end
@@ -1713,7 +1713,7 @@ function Members:CreateEditLink(parent, header, text)
     hit:SetScript("OnEnter", function(sel)
         if sel.canEdit ~= false and Window:ShowGuildOverlay(sel) then return end
         sel.bg:SetShown(true)
-        GameTooltip:SetOwner(sel, "ANCHOR_RIGHT")
+        GameTooltip:SetOwner(sel, "ANCHOR_CURSOR")
         GameTooltip:AddLine(GuildHelper:Trans(Members:GetEditMessage(sel)), 1, sel.canEdit == false and 0.3 or 1, sel.canEdit == false and 0.3 or 1, true)
         GameTooltip:Show()
     end)

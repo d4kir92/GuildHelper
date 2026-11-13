@@ -169,7 +169,7 @@ function Events:BuildIconPicker()
         button:SetScript("OnClick", function(sel) self:ChooseIcon(sel.entry.icon) end)
         button:SetScript("OnEnter", function(sel)
             if not sel.entry then return end
-            GameTooltip:SetOwner(sel, "ANCHOR_RIGHT")
+            GameTooltip:SetOwner(sel, "ANCHOR_CURSOR")
             GameTooltip:SetText(sel.entry.label)
             if type(sel.entry.icon) == "number" and sel.entry.label ~= tostring(sel.entry.icon) then
                 GameTooltip:AddLine(tostring(sel.entry.icon))

@@ -300,7 +300,7 @@ function Settings:ToggleMapOption(option)
 end
 
 function Settings:ShowMapTooltip(owner, option)
-    GameTooltip:SetOwner(owner, "ANCHOR_RIGHT")
+    GameTooltip:SetOwner(owner, "ANCHOR_CURSOR")
     GameTooltip:SetText(GuildHelper:Trans(option.label), 1, 1, 1)
     if option.desc then GameTooltip:AddLine(GuildHelper:Trans(option.desc), 0.8, 0.8, 0.8, true) end
     GameTooltip:Show()
