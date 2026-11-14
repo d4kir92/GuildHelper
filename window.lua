@@ -318,7 +318,7 @@ function Window:SelectPage(key)
         if nav.key == key then entry = nav end
     end
 
-    entry = entry or self.NAV[1]
+    if entry == nil or not self:IsNavVisible(entry.key) then entry = self.NAV[1] end
     self.current = entry.key
     GuildHelper:SetConfig("PAGE", entry.key)
     local members = GuildHelper.Members
@@ -360,6 +360,33 @@ Window.GUILDFREE = {
     calendar = true,
     settings = true
 }
+
+Window.GUILDLESSNAV = {
+    dashboard = true,
+    feedback = true,
+    settings = true
+}
+
+function Window:IsNavVisible(key)
+    if key == "management" then return GuildHelper.Bridge ~= nil and GuildHelper.Bridge:CanEdit() end
+    if not IsInGuild() then return self.GUILDLESSNAV[key] == true end
+
+    return true
+end
+
+function Window:LayoutNav()
+    local index = 0
+    for _, button in ipairs(self.navButtons) do
+        local visible = self:IsNavVisible(button.entry.key)
+        button:SetShown(visible)
+        if visible then
+            index = index + 1
+            button:SetPoint("TOPLEFT", self.frame, "TOPLEFT", 18, -77 - (index - 1) * 32)
+        end
+    end
+
+    if self.current and not self:IsNavVisible(self.current) and self.frame and self.frame:IsShown() then self:SelectPage(self.NAV[1].key) end
+end
 
 function Window:CreateNoGuild()
     local view = CreateFrame("Frame", nil, self.frame)
@@ -478,6 +505,8 @@ function Window:CreateSidebar()
     for index, entry in ipairs(self.NAV) do
         self:CreateNavButton(index, entry)
     end
+
+    self:LayoutNav()
 
     local footer = Theme:Text(frame, 10.5, "muted")
     footer:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 8, 40)
@@ -852,6 +881,7 @@ function Window:Create()
         if event ~= "GUILD_ROSTER_UPDATE" then Window:UpdateLogo() end
         Window:UpdateGuildName()
         Window:UpdateGuildState()
+        Window:LayoutNav()
     end)
 end
 
