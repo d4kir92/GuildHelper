@@ -149,6 +149,7 @@ function Feedback:CountUnread()
 end
 
 function Feedback:GetStore()
+    if self.viewing and self.remote then return GuildHelper.FeedbackShare:GetRemoteStore(self.remote) end
     if not self.guild then return nil end
     GHTAB = GHTAB or {}
     GHTAB.FEEDBACK = GHTAB.FEEDBACK or {}
@@ -222,15 +223,15 @@ function Feedback:GetSum()
     return self:Base36(self:Hash(table.concat(items, ","))), #items
 end
 
-function Feedback:Queue(message)
+function Feedback:Queue(message, target)
     if not self.guild then return end
-    GuildHelper.Sync:Send(message, nil, self.PREFIX)
+    GuildHelper.Sync:Send(message, nil, target and GuildHelper.FeedbackShare.PREFIX or self.PREFIX, nil, target)
 end
 
 function Feedback:Pump(elapsed)
 end
 
-function Feedback:SendVotes(id)
+function Feedback:SendVotes(id, target)
     local store = self:GetStore()
     local votes = store and store.votes[id]
     if not votes then return end
@@ -240,7 +241,7 @@ function Feedback:SendVotes(id)
     for voter, vote in pairs(votes) do
         local item = voter .. "," .. vote[1] .. "," .. vote[2]
         if #parts > 0 and size + #item + 1 > self.MAXMESSAGE then
-            self:Queue(head .. table.concat(parts, ";"))
+            self:Queue(head .. table.concat(parts, ";"), target)
             parts = {}
             size = #head
         end
@@ -249,15 +250,15 @@ function Feedback:SendVotes(id)
         size = size + #item + 1
     end
 
-    if #parts > 0 then self:Queue(head .. table.concat(parts, ";")) end
+    if #parts > 0 then self:Queue(head .. table.concat(parts, ";"), target) end
 end
 
-function Feedback:SendEntry(id)
+function Feedback:SendEntry(id, target, headerOnly)
     local store = self:GetStore()
     local entry = store and store.entries[id]
     if not entry then return end
     if entry.deleted then
-        self:Queue(table.concat({"D", id, tostring(entry.deleted), entry.owner or ""}, "~"))
+        self:Queue(table.concat({"D", id, tostring(entry.deleted), entry.owner or ""}, "~"), target)
 
         return
     end
@@ -267,34 +268,45 @@ function Feedback:SendEntry(id)
     if entry.edited then tinsert(fields, tostring(entry.edited)) end
     tinsert(fields, "")
     local header = table.concat(fields, "~")
-    self:Queue(header .. self:Cut(entry.title, 254 - #header))
-    for index, chunk in ipairs(chunks) do
-        self:Queue("T~" .. id .. "~" .. index .. "~" .. self:Encode(chunk))
-    end
-
-    self:SendExtras(id)
+    self:Queue(header .. self:Cut(entry.title, 254 - #header), target)
+    if headerOnly then return end
+    self:SendBody(id, target)
+    self:SendExtras(id, target)
 end
 
-function Feedback:SendComment(id, cid)
+function Feedback:SendBody(id, target)
+    local store = self:GetStore()
+    local entry = store and store.entries[id]
+    if not entry or entry.deleted then return end
+    for index, chunk in ipairs(self:Chunks(entry.text or "")) do
+        self:Queue("T~" .. id .. "~" .. index .. "~" .. self:Encode(chunk), target)
+    end
+end
+
+function Feedback:SendComment(id, cid, target)
     local store = self:GetStore()
     local comment = store and store.comments[id] and store.comments[id][cid]
     if not comment then return end
     if comment.deleted then
-        self:Queue(table.concat({"K", id, cid, tostring(comment.deleted), comment.owner or ""}, "~"))
+        self:Queue(table.concat({"K", id, cid, tostring(comment.deleted), comment.owner or ""}, "~"), target)
 
         return
     end
 
     local header = table.concat({"C", id, cid, tostring(comment.created), comment.owner, comment.author or "", ""}, "~")
-    self:Queue(header .. self:Cut(comment.text, 254 - #header))
+    self:Queue(header .. self:Cut(comment.text, 254 - #header), target)
 end
 
-function Feedback:SendExtras(id)
-    self:SendVotes(id)
+function Feedback:SendComments(id, target)
     local store = self:GetStore()
     for cid in pairs(store and store.comments[id] or {}) do
-        self:SendComment(id, cid)
+        self:SendComment(id, cid, target)
     end
+end
+
+function Feedback:SendExtras(id, target)
+    self:SendVotes(id, target)
+    self:SendComments(id, target)
 end
 
 function Feedback:Request(force)
@@ -978,7 +990,7 @@ function Feedback:CreateVote(parent, icon, tooltip, value)
 
     button:HookScript("OnLeave", function() GameTooltip:Hide() end)
     button:SetScript("OnClick", function()
-        if self.selected then self:Vote(self.selected, value) end
+        if self.selected and not self.remote then self:Vote(self.selected, value) end
     end)
 
     return button
@@ -1285,7 +1297,13 @@ function Feedback:Build(content)
     self.newButton:SetPoint("TOPRIGHT", content, "TOPRIGHT", -Window.MARGIN - 42, -23)
     self.newButton:SetWidth(150)
     self.newButton:SetScript("OnClick", function() self:Compose() end)
-    self.hint = self:Text(content, "LID_FBHINT", Window.PADDING, -62, 11)
+    self.guildPill = Members:CreatePill(content, "")
+    self.guildPill:SetPoint("RIGHT", self.newButton, "LEFT", -8, 0)
+    self.guildPill:SetScript("OnClick", function(sel)
+        Members:OpenMenu(sel, GuildHelper.FeedbackShare:GetViewOptions(), self.remote or "", function(value) self:SetRemote(value) end)
+    end)
+
+    self.hint = self:Text(content, nil, Window.PADDING, -62, 11)
     self.hint:SetPoint("RIGHT", content, "RIGHT", -Window.MARGIN, 0)
     self.side = Dashboard:CreateCard(content, "LID_FBDETAIL")
     self.side:SetPoint("TOPRIGHT", content, "TOPRIGHT", -Window.MARGIN, -84)
@@ -1441,9 +1459,19 @@ function Feedback:RefreshDetail()
     self.up:SetShown(shown and entry.kind ~= "B")
     self.down:SetShown(shown and entry.kind ~= "B")
     self.bug:SetShown(shown and entry.kind == "B")
-    self.delete:SetShown(self:IsOwn(entry))
-    self.edit:SetShown(self:IsOwn(entry))
+    local remote = self.remote ~= nil
+    self.delete:SetShown(not remote and self:IsOwn(entry))
+    self.edit:SetShown(not remote and self:IsOwn(entry))
+    for _, region in ipairs({self.commentBox, self.send, self.subscribe}) do
+        region:SetShown(shown and not remote)
+    end
+
+    for _, button in ipairs({self.up, self.down, self.bug}) do
+        button:SetEnabled(not remote)
+    end
+
     if not shown then return end
+    if remote and entry.text == nil then GuildHelper.FeedbackShare:RequestDetail(self.remote, entry) end
     GuildHelper.Theme:SetTrans(self.subscribe.text, self:IsSubscribed(entry) and "LID_FBSUBSCRIBED" or "LID_FBSUBSCRIBE")
     local up, down = self:Count(entry.id)
     local vote = self:GetVote(entry.id)
@@ -1453,7 +1481,7 @@ function Feedback:RefreshDetail()
     local meta = format(GuildHelper:Trans("LID_FBBY"), self:AuthorLabel(entry, self.detailAvatar)) .. " · " .. format(GuildHelper:Trans("LID_FBVERSION"), entry.version or "?")
     if entry.edited then meta = meta .. " · " .. format(GuildHelper:Trans("LID_FBEDITED"), self:FormatDate(entry.edited)) end
     self.detailMeta:SetText(meta)
-    self.body.text:SetText(entry.text ~= "" and entry.text or "-")
+    self.body.text:SetText((entry.text == nil and "...") or (entry.text ~= "" and entry.text) or "-")
     self.body:ResizeText()
     self:SetVote(self.up, up, vote > 0)
     self:SetVote(self.down, down, vote < 0)
@@ -1472,11 +1500,39 @@ function Feedback:Refresh()
         return
     end
     self:CheckGuild()
-    if self.editing and not self:IsOwn(self:Find(self.editing)) then
+    self.viewing = true
+    local ok, err = pcall(self.RefreshView, self)
+    self.viewing = false
+    GuildHelper.Window:UpdateNavCount("feedback", self:CountUnread())
+    if not ok then geterrorhandler()(err) end
+end
+
+function Feedback:SetRemote(value)
+    if value == "" then value = nil end
+    if value == self.remote then return end
+    self.remote = value
+    self.selected = nil
+    self.composing = false
+    self.confirm = nil
+    self:StopEditing()
+    self:ClearFocus()
+    self:Refresh()
+end
+
+function Feedback:RefreshView()
+    local Share = GuildHelper.FeedbackShare
+    if self.remote and not Share:IsDeveloper() then self.remote = nil end
+    local remote = self.remote ~= nil
+    if remote then self.composing = false end
+    if self.editing and (remote or not self:IsOwn(self:Find(self.editing))) then
         self:StopEditing()
         self.composing = false
     end
 
+    self.hint:SetText(GuildHelper:Trans(remote and "LID_FBREMOTEHINT" or "LID_FBHINT") .. " " .. GuildHelper:Trans("LID_FBSHARED"))
+    self.guildPill:SetShown(Share:IsDeveloper())
+    GuildHelper.Members:SetPillText(self.guildPill, Share:GetViewLabel(self.remote))
+    self.newButton:SetShown(not remote)
     self:RefreshList()
     self.form:SetShown(self.composing)
     self.detail:SetShown(not self.composing)
@@ -1487,7 +1543,6 @@ function Feedback:Refresh()
     else
         self:RefreshDetail()
     end
-    GuildHelper.Window:UpdateNavCount("feedback", self:CountUnread())
 end
 
 GuildHelper.Window:SetPageBuilder("feedback", function(content) Feedback:Build(content) end)

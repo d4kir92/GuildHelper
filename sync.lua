@@ -289,7 +289,7 @@ end
 
 function Sync:Transmit(message, prefix, target)
     local ok, result = false, nil
-    local channel = target and "CHANNEL" or "GUILD"
+    local channel = type(target) == "string" and "WHISPER" or (target and "CHANNEL" or "GUILD")
     if C_ChatInfo and C_ChatInfo.SendAddonMessage then
         ok, result = pcall(C_ChatInfo.SendAddonMessage, prefix or self.PREFIX, message, channel, target)
     elseif SendAddonMessage then

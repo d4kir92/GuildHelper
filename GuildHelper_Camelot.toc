@@ -67,3 +67,4 @@ eventpage.lua
 eventicons.lua
 calendar.lua
 bridge.lua
+feedbackshare.lua
