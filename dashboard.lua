@@ -21,6 +21,7 @@ function Dashboard:CheckGuild()
         self.chatStreamID = nil
         self:ResetChatHistory()
         self.cachedMOTD = nil
+        self.cachedInformation = nil
         self.lastRequest = nil
     end
 
@@ -122,9 +123,27 @@ function Dashboard:CanEditMOTD()
 end
 
 function Dashboard:GetGuildInformation()
-    if GetGuildInfoText then return GetGuildInfoText() or "" end
+    return self.cachedInformation or ""
+end
 
-    return ""
+function Dashboard:CaptureGuildInformation(frame, infoText)
+    local text = infoText
+    if type(text) ~= "string" and frame and frame.DetailsFrame and frame.DetailsFrame.GetScrollChild then
+        local child = frame.DetailsFrame:GetScrollChild()
+        if child and child.Details and child.Details.GetText then text = child.Details:GetText() end
+    end
+
+    if type(text) ~= "string" or not GuildHelper:CanAccessValues(text) then return end
+    self:CheckGuild()
+    if text == self.cachedInformation then return end
+    self.cachedInformation = text
+    if self:IsVisible() and self.information then self:UpdateMOTD() end
+end
+
+function Dashboard:HookGuildInformation()
+    if self.infoHooked or type(CommunitiesGuildInfoFrame_UpdateText) ~= "function" then return end
+    self.infoHooked = true
+    hooksecurefunc("CommunitiesGuildInfoFrame_UpdateText", function(frame, infoText) Dashboard:CaptureGuildInformation(frame, infoText) end)
 end
 
 function Dashboard:HasNews()
@@ -850,7 +869,16 @@ for _, event in ipairs({"CLUB_ADDED", "CLUB_UPDATED", "INITIAL_CLUBS_LOADED", "C
     if not C_EventUtils or not C_EventUtils.IsEventValid or C_EventUtils.IsEventValid(event) then Dashboard.events:RegisterEvent(event) end
 end
 
+Dashboard.events:RegisterEvent("ADDON_LOADED")
+Dashboard:HookGuildInformation()
+
 Dashboard.events:SetScript("OnEvent", function(_, event, text, sender)
+    if event == "ADDON_LOADED" then
+        if text == "Blizzard_Communities" then Dashboard:HookGuildInformation() end
+
+        return
+    end
+
     if event == "CLUB_MESSAGE_ADDED" or event == "CLUB_MESSAGE_UPDATED" or event == "CLUB_MESSAGE_HISTORY_RECEIVED" then
         if GuildHelper:CanAccessValues(text, sender) and text == Dashboard.chatClubID and sender == Dashboard.chatStreamID then
             if event == "CLUB_MESSAGE_HISTORY_RECEIVED" then Dashboard.chatHistoryRequested = nil end
