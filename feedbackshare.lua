@@ -105,9 +105,26 @@ function Share:GetViewLabel(key)
     return store and store.name or key
 end
 
+function Share:Print(key, ...)
+    local frame = DEFAULT_CHAT_FRAME or ChatFrame1
+    if frame then frame:AddMessage("|cff55d2ffGuildHelper|r: " .. format(GuildHelper:Trans(key), ...)) end
+end
+
+function Share:GetOwnLabel()
+    local _, name = GuildHelper:GetPlayerCharacterKey()
+
+    return name or GuildHelper.Groups:Self() or UnitName("player") or "?"
+end
+
 function Share:Request()
-    if not self:IsDeveloper() or not IsInGuild() then return end
+    if not self:IsDeveloper() then
+        self:Print("LID_DEVFBNOTDEV", self:GetOwnLabel())
+
+        return
+    end
+
     if self.lastRequest and GetTime() - self.lastRequest < self.COOLDOWN then
+        self:Print("LID_DEVFBCOOLDOWN", ceil(self.COOLDOWN - (GetTime() - self.lastRequest)))
         self:OpenPage()
 
         return
@@ -117,6 +134,8 @@ function Share:Request()
     self.stayUntil = GetTime() + self.STAY
     self.forceJoin = true
     self.reqid = GuildHelper.Feedback:Base36(time()) .. GuildHelper.Feedback:Base36(random(0, 1295))
+    self.answers = 0
+    self:Print("LID_DEVFBJOINING", self.CHANNEL)
     self:UpdateMembership()
     self:SendRequest(self.reqid, 0)
     C_Timer.After(self.STAY + 1, function() Share:UpdateMembership() end)
@@ -128,8 +147,21 @@ function Share:SendRequest(reqid, elapsed)
     local id = self:GetChannelID()
     if id > 0 then
         GuildHelper.Sync:Send("R~" .. reqid .. "~" .. (GetGuildInfo("player") or ""), "FSR", self.PREFIX, nil, id)
+        self:Print("LID_DEVFBSENT", self.CHANNEL, id)
+        C_Timer.After(15, function() Share:Summarize(reqid) end)
     elseif elapsed < 8 then
         C_Timer.After(0.5, function() Share:SendRequest(reqid, elapsed + 0.5) end)
+    else
+        self:Print("LID_DEVFBNOCHANNEL", self.CHANNEL)
+    end
+end
+
+function Share:Summarize(reqid)
+    if reqid ~= self.reqid then return end
+    if (self.answers or 0) == 0 then
+        self:Print("LID_DEVFBNOANSWER")
+    else
+        self:Print("LID_DEVFBDONE", self.answers)
     end
 end
 
@@ -206,6 +238,8 @@ function Share:OnHead(parts, sender, senderKey)
     store.target = sender
     store.updated = time()
     self.responders[senderKey] = key
+    self.answers = (self.answers or 0) + 1
+    self:Print("LID_DEVFBANSWER", guild, sender, tonumber(parts[3]) or 0)
 end
 
 function Share:ReadHeader(store, parts, edit)

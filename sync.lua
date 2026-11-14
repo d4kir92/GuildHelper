@@ -265,7 +265,7 @@ function Sync:Parse(shortName, message, own)
 end
 
 function Sync:Send(message, key, prefix, guild, target)
-    if not IsInGuild() or type(message) ~= "string" or #message > 255 then return end
+    if (target == nil and not IsInGuild()) or type(message) ~= "string" or #message > 255 then return end
     for _, item in ipairs(self.queue) do
         if item.guild == guild and item.target == target and item.prefix == (prefix or self.PREFIX) and ((key and item.key == key) or item.message == message) then
             item.message = message
@@ -314,9 +314,11 @@ function Sync:Pump(elapsed)
     self.tokens = min(self.BURST, self.tokens + elapsed)
     if #self.queue == 0 then return end
     if not IsInGuild() then
-        self.queue = {}
+        for index = #self.queue, 1, -1 do
+            if self.queue[index].target == nil then tremove(self.queue, index) end
+        end
 
-        return
+        if #self.queue == 0 then return end
     end
 
     while self.tokens >= 1 and #self.queue > 0 do

@@ -1522,6 +1522,11 @@ end
 function Feedback:RefreshView()
     local Share = GuildHelper.FeedbackShare
     if self.remote and not Share:IsDeveloper() then self.remote = nil end
+    if self.remote == nil and not IsInGuild() and Share:IsDeveloper() then
+        local first = Share:GetViewOptions()[2]
+        self.remote = first and first.value or nil
+    end
+
     local remote = self.remote ~= nil
     if remote then self.composing = false end
     if self.editing and (remote or not self:IsOwn(self:Find(self.editing))) then
@@ -1532,7 +1537,7 @@ function Feedback:RefreshView()
     self.hint:SetText(GuildHelper:Trans(remote and "LID_FBREMOTEHINT" or "LID_FBHINT") .. " " .. GuildHelper:Trans("LID_FBSHARED"))
     self.guildPill:SetShown(Share:IsDeveloper())
     GuildHelper.Members:SetPillText(self.guildPill, Share:GetViewLabel(self.remote))
-    self.newButton:SetShown(not remote)
+    self.newButton:SetShown(not remote and IsInGuild())
     self:RefreshList()
     self.form:SetShown(self.composing)
     self.detail:SetShown(not self.composing)

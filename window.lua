@@ -344,7 +344,7 @@ function Window:SelectPage(key)
     end
 
     self.inGuild = IsInGuild() and true or false
-    local blocked = not self.inGuild and not self.GUILDFREE[entry.key]
+    local blocked = not self.inGuild and not self.GUILDFREE[entry.key] and not (entry.key == "feedback" and GuildHelper.FeedbackShare and GuildHelper.FeedbackShare:IsDeveloper())
     content:SetShown(not blocked)
     if blocked and self.noGuild == nil then self:CreateNoGuild() end
     if self.noGuild then
