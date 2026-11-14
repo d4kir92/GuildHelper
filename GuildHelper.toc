@@ -74,3 +74,4 @@ events.lua
 eventpage.lua
 eventicons.lua
 calendar.lua
+bridge.lua

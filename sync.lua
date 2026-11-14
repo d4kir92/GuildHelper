@@ -264,10 +264,10 @@ function Sync:Parse(shortName, message, own)
     self:Store(shortName, tonumber(parts[2]), professions, own)
 end
 
-function Sync:Send(message, key, prefix, guild)
+function Sync:Send(message, key, prefix, guild, target)
     if not IsInGuild() or type(message) ~= "string" or #message > 255 then return end
     for _, item in ipairs(self.queue) do
-        if item.guild == guild and item.prefix == (prefix or self.PREFIX) and ((key and item.key == key) or item.message == message) then
+        if item.guild == guild and item.target == target and item.prefix == (prefix or self.PREFIX) and ((key and item.key == key) or item.message == message) then
             item.message = message
             item.tries = 0
 
@@ -280,18 +280,20 @@ function Sync:Send(message, key, prefix, guild)
         prefix = prefix or self.PREFIX,
         key = key,
         guild = guild,
+        target = target,
         tries = 0
     })
 
     self:Pump(0)
 end
 
-function Sync:Transmit(message, prefix)
+function Sync:Transmit(message, prefix, target)
     local ok, result = false, nil
+    local channel = target and "CHANNEL" or "GUILD"
     if C_ChatInfo and C_ChatInfo.SendAddonMessage then
-        ok, result = pcall(C_ChatInfo.SendAddonMessage, prefix or self.PREFIX, message, "GUILD")
+        ok, result = pcall(C_ChatInfo.SendAddonMessage, prefix or self.PREFIX, message, channel, target)
     elseif SendAddonMessage then
-        ok, result = pcall(SendAddonMessage, prefix or self.PREFIX, message, "GUILD")
+        ok, result = pcall(SendAddonMessage, prefix or self.PREFIX, message, channel, target)
     end
 
     if (prefix or self.PREFIX) == self.PREFIX and strsub(message, 1, 2) == "M~" then
@@ -321,7 +323,7 @@ function Sync:Pump(elapsed)
         local item = self.queue[1]
         if item.guild and item.guild ~= self:GetGuildKey() then
             tremove(self.queue, 1)
-        elseif not self:Transmit(item.message, item.prefix) then
+        elseif not self:Transmit(item.message, item.prefix, item.target) then
             item.tries = item.tries + 1
             if item.tries >= self.MAXTRIES then tremove(self.queue, 1) end
             self.tokens = 0
@@ -387,6 +389,11 @@ function Sync:OnMessage(message, channel, sender)
 
         return
     end
+    if strsub(message, 1, 3) == "BR~" and GuildHelper.Bridge then
+        GuildHelper.Bridge:OnGuildMessage(message, sender)
+
+        return
+    end
     if strsub(message, 1, 2) == "F~" and GuildHelper.Groups then
         GuildHelper.Groups:OnMessage(message, sender)
 
@@ -438,6 +445,7 @@ function Sync:OnMessage(message, channel, sender)
     elseif kind == "P" and GuildHelper.Recipes then
         GuildHelper.Recipes:OnMessage(message, shortName)
     elseif kind == "Q" then
+        if GuildHelper.Bridge then GuildHelper.Bridge:OnQuery() end
         self:ScheduleInfo(max(0, self.ANSWER_THROTTLE - (GetTime() - self.lastSend)) + random(2, 12))
     end
 end
