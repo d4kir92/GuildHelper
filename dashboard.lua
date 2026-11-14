@@ -122,7 +122,6 @@ function Dashboard:CanEditMOTD()
 end
 
 function Dashboard:GetGuildInformation()
-    if C_GuildInfo and C_GuildInfo.GetInfoText then return C_GuildInfo.GetInfoText() or "" end
     if GetGuildInfoText then return GetGuildInfoText() or "" end
 
     return ""
