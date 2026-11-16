@@ -1,8 +1,22 @@
 local _, GuildHelper = ...
 local Groups = GuildHelper.Groups
 Groups.announcements = {}
-function Groups:GetChatInterval(entry)
-    return min(60, max(10, floor((tonumber(entry.chatInterval) or 15) / 5) * 5)) * 60
+Groups.LIVECHATCOOLDOWN = 15
+Groups.DEFAULTCHATREPEATMINUTES = 2
+
+function Groups:GetChatCooldown()
+    local elapsed
+    if self.lastChatSend then
+        elapsed = GetTime() - self.lastChatSend
+    else
+        local last = GuildHelper:GetConfig("GROUPCHATLAST", 0)
+        elapsed = max(0, time() - last - 1)
+    end
+    return max(0, self.LIVECHATCOOLDOWN - elapsed)
+end
+
+function Groups:GetLiveChatState(entry, text)
+    return table.concat({text, entry.activity, entry.note or "", entry.chatLanguage or "", entry.soloRole or "", entry.rosterSignature or ""}, "\n")
 end
 
 function Groups:AnnouncementText(entry)
@@ -28,7 +42,7 @@ function Groups:AnnouncementText(entry)
 end
 
 function Groups:QueueAnnouncement(entry)
-    if not self:IsOwn(entry) then return end
+    if entry.kind ~= "P" or not self:IsOwn(entry) then return end
     local text = self:AnnouncementText(entry)
     local pending = self.announcements[entry.key]
     entry.chatPending = text ~= entry.lastChatText or nil
@@ -40,41 +54,53 @@ function Groups:QueueAnnouncement(entry)
 end
 
 function Groups:TickAnnouncements()
-    if not self.guild then return end
-    local now = time()
-    local last = GuildHelper:GetConfig("GROUPCHATLAST", 0)
-    if now - last < 120 then return end
+    if not self.guild or self:GetChatCooldown() > 0 then return end
     if C_GuildInfo and C_GuildInfo.CanSpeakInGuildChat and not C_GuildInfo.CanSpeakInGuildChat() then return end
-    local live = self:GetOwnLive()
-    if live and live.lastChatAt and now - live.lastChatAt >= self:GetChatInterval(live) then
-        self.announcements[live.key] = self.announcements[live.key] or {queued = GetTime()}
-    end
+    local now, clock = time(), GetTime()
+    local selected, oldest, text, liveState
 
-    for _, entry in pairs(self:GetPlanned() or {}) do
-        if self:IsOwn(entry) and entry.chatPending then
-            self.announcements[entry.key] = self.announcements[entry.key] or {queued = GetTime()}
+    local last = GuildHelper:GetConfig("GROUPCHATLAST", 0)
+    if now - last >= 120 then
+        for _, entry in pairs(self:GetPlanned() or {}) do
+            if self:IsOwn(entry) and entry.chatPending then
+                self.announcements[entry.key] = self.announcements[entry.key] or {queued = clock}
+            end
+        end
+
+        for key, pending in pairs(self.announcements) do
+            local entry = self:Find(key)
+            if not entry or not self:IsOwn(entry) or entry.when <= now then
+                self.announcements[key] = nil
+            elseif not oldest or pending.queued < oldest then
+                selected, oldest = entry, pending.queued
+            end
         end
     end
 
-    local selected, oldest
-    for key, pending in pairs(self.announcements) do
-        local entry = self:Find(key)
-        if not entry or not self:IsOwn(entry) or (entry.kind == "P" and entry.when <= now) then
-            self.announcements[key] = nil
-        elseif (entry.kind ~= "L" or not self.rosterReadyAt or GetTime() >= self.rosterReadyAt) and (not oldest or pending.queued < oldest) then
-            selected, oldest = entry, pending.queued
+    if not selected and (not self.rosterReadyAt or clock >= self.rosterReadyAt) then
+        local live = self:GetOwnLive()
+        if live then
+            text = self:AnnouncementText(live)
+            liveState = self:GetLiveChatState(live, text)
+            local elapsed = live.lastChatSend and (clock - live.lastChatSend) or (now - (live.lastChatAt or 0))
+            local repeatAfter = (live.chatRepeatMinutes or self.DEFAULTCHATREPEATMINUTES) * 60
+            if liveState ~= live.lastChatState or elapsed >= repeatAfter then selected = live end
         end
     end
+
     if not selected then return end
     local send = C_ChatInfo and C_ChatInfo.SendChatMessage or SendChatMessage
     if not send then return end
-    local text = self:AnnouncementText(selected)
+    text = text or self:AnnouncementText(selected)
     if #text > 255 then return end
     send(text, "GUILD")
     GuildHelper:SetConfig("GROUPCHATLAST", now)
+    self.lastChatSend = clock
     selected.chatPending = nil
     selected.lastChatAt = now
+    selected.lastChatSend = clock
     selected.lastChatText = text
+    selected.lastChatState = liveState
     self.announcements[selected.key] = nil
 end
 
@@ -99,15 +125,18 @@ function Groups:BuildAnnouncementOptions(form)
     end)
     self.chatRepeatLabel = self:Text(form, "LID_GROUPCHATREPEAT", 14, -153)
     self.chatRepeat = Members:CreatePill(form, "")
+    self.chatRepeat:SetPoint("TOPLEFT", form, "TOPLEFT", 150, -146)
     self.chatRepeat:SetScript("OnClick", function(button)
+        local draft = self.draft.L
         local options = {}
-        for minutes = 10, 60, 5 do
-            tinsert(options, {value = minutes, label = format(GuildHelper:Trans("LID_GROUPCHATMINUTES"), minutes)})
+        local label = GuildHelper:Trans("LID_GROUPCHATMINUTES")
+        for minutes = self.DEFAULTCHATREPEATMINUTES, 20 do
+            tinsert(options, {value = minutes, label = format(label, minutes)})
         end
-        Members:OpenMenu(button, options, self.draft.L.chatInterval or 15, function(value)
-            self.draft.L.chatInterval = value
-            local current = self:GetOwnLive()
-            if current then current.chatInterval = value end
+        Members:OpenMenu(button, options, draft.chatRepeatMinutes or self.DEFAULTCHATREPEATMINUTES, function(value)
+            draft.chatRepeatMinutes = value
+            local live = self:GetOwnLive()
+            if live then live.chatRepeatMinutes = value end
             self:Refresh()
         end)
     end)
@@ -123,8 +152,9 @@ function Groups:RefreshAnnouncementOptions(planned)
     GuildHelper.Members:SetPillText(self.chatLanguage, GuildHelper:Trans("LID_LANG" .. strupper(draft.chatLanguage or GuildHelper:GetLanguage())))
     self.chatRepeatLabel:SetShown(not planned)
     self.chatRepeat:SetShown(not planned)
-    self.chatRepeat:SetPoint("TOPLEFT", self.form, "TOPLEFT", 150, -146)
-    GuildHelper.Members:SetPillText(self.chatRepeat, format(GuildHelper:Trans("LID_GROUPCHATMINUTES"), draft.chatInterval or 15))
+    if not planned then
+        GuildHelper.Members:SetPillText(self.chatRepeat, format(GuildHelper:Trans("LID_GROUPCHATMINUTES"), draft.chatRepeatMinutes or self.DEFAULTCHATREPEATMINUTES))
+    end
 end
 
 function Groups:FormatChatRoles(message)

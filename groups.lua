@@ -607,6 +607,7 @@ function Groups:IsReady()
 end
 
 function Groups:Publish()
+    if self.mode == "L" and self:GetChatCooldown() > 0 then return end
     if not self:CheckGuild() or not self:IsReady() or not self:Validate() then return end
     local owner = self:Self()
     if not owner then return end
@@ -634,7 +635,10 @@ function Groups:Publish()
         if self.mode == "P" then self.editing = entry.key end
     end
 
-    if self.mode == "L" then entry.soloRole = draft.soloRole end
+    if self.mode == "L" then
+        entry.soloRole = draft.soloRole
+        entry.chatRepeatMinutes = draft.chatRepeatMinutes
+    end
     local counts = self.mode == "L" and self:GetLiveNeeds(activity.size, entry.soloRole) or draft
     for _, role in ipairs(GuildHelper.Specs.ROLES) do
         entry[role.value] = counts[role.value]
@@ -646,7 +650,6 @@ function Groups:Publish()
     entry.when = self.mode == "P" and self:GetDraftTime() or 0
     self.selected = entry.key
     entry.chatLanguage = draft.chatLanguage or GuildHelper:GetLanguage()
-    entry.chatInterval = draft.chatInterval or 15
     self:Broadcast(entry)
     self:QueueAnnouncement(entry)
     self:TickAnnouncements()
@@ -667,6 +670,9 @@ function Groups:RestoreLiveAfterReload()
     if not saved or saved.guild ~= self.guild or self:GetOwnLive() then return end
     local entry = saved.entry
     if not self:IsOwn(entry) then return end
+    if entry.lastChatText and not entry.lastChatState then
+        entry.lastChatState = self:GetLiveChatState(entry, entry.lastChatText)
+    end
 
     local activity = self:GetActivity(entry.activity)
     local needs = self:GetLiveNeeds(activity and activity.size, entry.soloRole)
@@ -680,10 +686,10 @@ function Groups:RestoreLiveAfterReload()
     self.selected = entry.key
     local draft = self.draft.L
     draft.activity, draft.note, draft.soloRole = entry.activity, entry.note, entry.soloRole
-    draft.chatLanguage, draft.chatInterval = entry.chatLanguage, entry.chatInterval
+    draft.chatLanguage = entry.chatLanguage
+    draft.chatRepeatMinutes = entry.chatRepeatMinutes
     if self.mode == "L" then self:SyncNote() end
     self:Broadcast(entry, true)
-    self:QueueAnnouncement(entry)
 end
 
 function Groups:Close(entry)
@@ -961,7 +967,6 @@ function Groups:TickOwnLive(now)
 
         if changed then
             self:Broadcast(own)
-            self:QueueAnnouncement(own)
         else
             self:BroadcastRoster(own)
         end
@@ -1078,7 +1083,6 @@ function Groups:LoadDraft(entry)
     draft.activity = entry.activity
     draft.note = entry.note or ""
     draft.chatLanguage = entry.chatLanguage or GuildHelper:GetLanguage()
-    draft.chatInterval = entry.chatInterval or 15
     local stamp = date("*t", entry.when)
     draft.day = max(0, min(self.DAYS - 1, self:GetDayOffset(entry.when)))
     draft.hour = stamp.hour
@@ -1521,8 +1525,13 @@ function Groups:RefreshForm()
 
     local current = self:GetCurrent()
     local ok, status = self:Validate()
-    self.publish:SetEnabled(ok and self:IsReady())
+    local cooldown = planned and 0 or self:GetChatCooldown()
+    self.publish:SetEnabled(ok and self:IsReady() and cooldown == 0)
     GuildHelper.Theme:SetTrans(self.publish.text, current and "LID_GROUPUPDATE" or "LID_GROUPPUBLISH")
+    if cooldown > 0 then
+        self.publish.text:SetText(format("0:%02d", math.ceil(cooldown)))
+    end
+    self.publish:SetAlpha(cooldown > 0 and 0.55 or 1)
     self.new:SetShown(planned)
     self.new:SetEnabled(current ~= nil)
     self.close:ClearAllPoints()
