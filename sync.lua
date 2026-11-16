@@ -132,15 +132,26 @@ function Sync:GetProfessionID(name, id)
 end
 
 function Sync:GroupProfessions(entries, getID)
-    local primary, secondary = {}, {}
+    local crafting, gathering, secondary = {}, {}, {}
     for _, entry in ipairs(entries) do
         local id = getID(entry)
-        local group = (id == 129 or id == 185 or id == 356) and secondary or primary
-        tinsert(group, entry)
+        if id == 182 or id == 186 or id == 393 then
+            tinsert(gathering, entry)
+        elseif id == 129 or id == 185 or id == 356 or id == 794 then
+            tinsert(secondary, entry)
+        else
+            tinsert(crafting, entry)
+        end
     end
-    local split = #primary > 0 and #secondary > 0 and #primary + 1 or nil
-    for _, entry in ipairs(secondary) do tinsert(primary, entry) end
-    return primary, split
+
+    local splits = {}
+    for _, group in ipairs({gathering, secondary}) do
+        if #group > 0 then
+            if #crafting > 0 then tinsert(splits, #crafting + 1) end
+            for _, entry in ipairs(group) do tinsert(crafting, entry) end
+        end
+    end
+    return crafting, splits
 end
 
 function Sync:GetOwnProfessions()
@@ -393,6 +404,11 @@ function Sync:OnMessage(message, channel, sender)
     end
     if strsub(message, 1, 3) == "BR~" and GuildHelper.Bridge then
         GuildHelper.Bridge:OnGuildMessage(message, sender)
+
+        return
+    end
+    if strsub(message, 1, 3) == "GR~" and GuildHelper.Bridge then
+        GuildHelper.Bridge:OnLiveRepeatMessage(message, sender)
 
         return
     end

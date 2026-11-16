@@ -175,9 +175,56 @@ function Bridge:Broadcast()
     GuildHelper.Sync:Send(format("BR~%d~%s~%s", store.rev, store.name or "", store.password or ""), "BR")
 end
 
+function Bridge:IsLiveRepeatEnabled()
+    local store = self:GetStore()
+    return store ~= nil and store.liveRepeatEnabled == true
+end
+
+function Bridge:BroadcastLiveRepeat()
+    if not self:CanEdit() then return end
+    local sync = GuildHelper.Sync
+    local guild = sync:GetGuildKey()
+    local store = self:GetStore()
+    if not store or not store.liveRepeatRevision then return end
+    sync:Send(format("GR~%d~%d", store.liveRepeatRevision, store.liveRepeatEnabled and 1 or 0), "GR", nil, guild)
+end
+
+function Bridge:ToggleLiveRepeat()
+    if not self:CanEdit() then return end
+    local store = self:GetStore()
+    if not store then return end
+    store.liveRepeatEnabled = not store.liveRepeatEnabled
+    store.liveRepeatRevision = max(time(), (store.liveRepeatRevision or 0) + 1)
+    self:BroadcastLiveRepeat()
+    self:UpdateVisible()
+    GuildHelper.Groups:Refresh()
+end
+
+function Bridge:OnLiveRepeatMessage(message, sender)
+    if message == "GR~Q" then
+        self:BroadcastLiveRepeat()
+
+        return
+    end
+    local revision, enabled = message:match("^GR~(%d+)~([01])$")
+    revision = tonumber(revision)
+    if not revision or not self:IsLeaderName(sender) then return end
+    local store = self:GetStore()
+    if not store or revision <= (store.liveRepeatRevision or 0) then return end
+    store.liveRepeatRevision = revision
+    store.liveRepeatEnabled = enabled == "1"
+    self:UpdateVisible()
+    GuildHelper.Groups:Refresh()
+end
+
 function Bridge:OnQuery()
     local store = self:GetStore()
-    if store and store.rev and self:CanEdit() then C_Timer.After(random(3, 15), function() Bridge:Broadcast() end) end
+    if store and (store.rev or store.liveRepeatRevision) and self:CanEdit() then
+        C_Timer.After(random(3, 15), function()
+            Bridge:Broadcast()
+            Bridge:BroadcastLiveRepeat()
+        end)
+    end
 end
 
 function Bridge:OnGuildMessage(message, sender)
@@ -463,11 +510,24 @@ function Bridge:Build(content, entry)
     ui.guilds:SetPoint("RIGHT", panel, "RIGHT", -18, 0)
     ui.guilds:SetJustifyH("LEFT")
     ui.guilds:SetWordWrap(true)
+    local recruitment = CreateFrame("Frame", nil, body)
+    recruitment:SetPoint("TOPLEFT", panel, "BOTTOMLEFT", 0, -12)
+    recruitment:SetSize(520, 48)
+    Theme:Panel(recruitment, "panel", "border", 9)
+    ui.liveRepeat = GuildHelper.Settings:CreateCheck(recruitment)
+    ui.liveRepeat:SetPoint("LEFT", recruitment, "LEFT", 18, 0)
+    ui.liveRepeat:SetScript("OnClick", function() Bridge:ToggleLiveRepeat() end)
+    local repeatLabel = Theme:Text(recruitment, 13, "text")
+    repeatLabel:SetPoint("LEFT", ui.liveRepeat, "RIGHT", 10, 0)
+    repeatLabel:SetPoint("RIGHT", recruitment, "RIGHT", -18, 0)
+    repeatLabel:SetJustifyH("LEFT")
+    repeatLabel:SetWordWrap(true)
+    Theme:SetTrans(repeatLabel, "LID_GROUPCHATREPEATENABLED")
     ui.body = body
     ui.locked = locked
     ui.content = content
     self.ui = ui
-    Window:BuildPlaceholder(body, entry, panel)
+    Window:BuildPlaceholder(body, entry, recruitment)
     if not self.hooked then
         self.hooked = true
         Theme:OnRefresh(function() Bridge:Update() end)
@@ -496,6 +556,7 @@ function Bridge:Update()
         return
     end
 
+    ui.liveRepeat:SetChecked(store and store.liveRepeatEnabled == true or false)
     if not ui.name:HasFocus() then ui.name:SetText(store and store.name or "") end
     if not ui.password:HasFocus() then ui.password:SetText(store and store.password or "") end
     ui.name:SetEnabled(canEdit)
@@ -521,6 +582,7 @@ function Bridge:HookChat()
 end
 
 function Bridge:Init()
+    self.repeatGuild = GuildHelper.Sync:GetGuildKey()
     if C_ChatInfo and C_ChatInfo.RegisterAddonMessagePrefix then
         C_ChatInfo.RegisterAddonMessagePrefix(self.PREFIX)
     elseif RegisterAddonMessagePrefix then
@@ -543,6 +605,12 @@ Bridge.events:SetScript("OnEvent", function(_, event, ...)
     if event == "PLAYER_LOGIN" then
         Bridge:Init()
     elseif event == "PLAYER_GUILD_UPDATE" then
+        local sync = GuildHelper.Sync
+        local guild = sync:GetGuildKey()
+        if guild ~= Bridge.repeatGuild then
+            Bridge.repeatGuild = guild
+            if guild then sync:Send("GR~Q", "GR~Q", nil, guild) end
+        end
         if not IsInGuild() and Bridge.joined then
             Bridge:LeaveChannel(Bridge.joined)
             Bridge.joined = nil

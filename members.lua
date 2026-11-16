@@ -1827,7 +1827,8 @@ function Members:UpdateDetail()
     for _, row in ipairs(detail.professions) do
         row:Hide()
     end
-    if detail.profDivider then detail.profDivider:Hide() end
+    detail.profDividers = detail.profDividers or {}
+    for _, divider in ipairs(detail.profDividers) do divider:Hide() end
 
     local viewOfficer = self:CanViewOfficerNote()
     self:UpdateNoteEditor(detail.noteHit, member, self:CanEditPublicNote(member))
@@ -1856,7 +1857,7 @@ function Members:UpdateDetail()
 
     detail.rank.value:SetText(member.rank)
     local sync = GuildHelper.Sync
-    local professions, split = sync:GroupProfessions(data and data.professions or {}, function(prof)
+    local professions, splits = sync:GroupProfessions(data and data.professions or {}, function(prof)
         return sync:GetProfessionID(prof[1], prof[4])
     end)
     local y = -136
@@ -1877,15 +1878,19 @@ function Members:UpdateDetail()
     detail.profHeader:SetPoint("TOPLEFT", detail.body, "TOPLEFT", 16, y)
     y = y - 20
     local step = #professions > 3 and 26 or 31
+    local divider = 1
     for i, prof in ipairs(professions) do
-        if i == split then
-            if not detail.profDivider then
-                detail.profDivider = Theme:Line(detail.body, "divider")
-                detail.profDivider:SetSize(188, 1)
+        if i == splits[divider] then
+            local line = detail.profDividers[divider]
+            if not line then
+                line = Theme:Line(detail.body, "divider")
+                line:SetSize(188, 1)
+                detail.profDividers[divider] = line
             end
-            detail.profDivider:SetPoint("TOPLEFT", detail.body, "TOPLEFT", 16, y - 5)
-            detail.profDivider:Show()
+            line:SetPoint("TOPLEFT", detail.body, "TOPLEFT", 16, y - 5)
+            line:Show()
             y = y - 16
+            divider = divider + 1
         end
         local row = self:GetProfessionRow(i)
         row:ClearAllPoints()

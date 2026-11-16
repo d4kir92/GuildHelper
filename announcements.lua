@@ -19,6 +19,13 @@ function Groups:GetLiveChatState(entry, text)
     return table.concat({text, entry.activity, entry.note or "", entry.chatLanguage or "", entry.soloRole or "", entry.rosterSignature or ""}, "\n")
 end
 
+function Groups:GetLiveAnnouncementDelay(entry, state, clock, now)
+    if state ~= entry.lastChatState then return 0 end
+    if not GuildHelper.Bridge:IsLiveRepeatEnabled() then return math.huge end
+    local elapsed = entry.lastChatSend and (clock - entry.lastChatSend) or (now - (entry.lastChatAt or 0))
+    return max(0, (entry.chatRepeatMinutes or self.DEFAULTCHATREPEATMINUTES) * 60 - elapsed)
+end
+
 function Groups:AnnouncementText(entry)
     local lang = entry.chatLanguage or GuildHelper:GetLanguage()
     local needs = {}
@@ -82,9 +89,7 @@ function Groups:TickAnnouncements()
         if live then
             text = self:AnnouncementText(live)
             liveState = self:GetLiveChatState(live, text)
-            local elapsed = live.lastChatSend and (clock - live.lastChatSend) or (now - (live.lastChatAt or 0))
-            local repeatAfter = (live.chatRepeatMinutes or self.DEFAULTCHATREPEATMINUTES) * 60
-            if liveState ~= live.lastChatState or elapsed >= repeatAfter then selected = live end
+            if self:GetLiveAnnouncementDelay(live, liveState, clock, now) == 0 then selected = live end
         end
     end
 
@@ -126,6 +131,9 @@ function Groups:BuildAnnouncementOptions(form)
     self.chatRepeatLabel = self:Text(form, "LID_GROUPCHATREPEAT", 14, -153)
     self.chatRepeat = Members:CreatePill(form, "")
     self.chatRepeat:SetPoint("TOPLEFT", form, "TOPLEFT", 150, -146)
+    self.chatCountdown = self:Text(form, nil, 0, 0)
+    self.chatCountdown:ClearAllPoints()
+    self.chatCountdown:SetPoint("LEFT", self.chatRepeat, "RIGHT", 12, 0)
     self.chatRepeat:SetScript("OnClick", function(button)
         local draft = self.draft.L
         local options = {}
@@ -150,9 +158,20 @@ function Groups:RefreshAnnouncementOptions(planned)
     self.chatLanguage:ClearAllPoints()
     self.chatLanguage:SetPoint("TOPLEFT", self.form, "TOPLEFT", 150, y + 7)
     GuildHelper.Members:SetPillText(self.chatLanguage, GuildHelper:Trans("LID_LANG" .. strupper(draft.chatLanguage or GuildHelper:GetLanguage())))
-    self.chatRepeatLabel:SetShown(not planned)
-    self.chatRepeat:SetShown(not planned)
-    if not planned then
+    local repeatEnabled = not planned and GuildHelper.Bridge:IsLiveRepeatEnabled()
+    self.chatRepeatLabel:SetShown(repeatEnabled)
+    self.chatRepeat:SetShown(repeatEnabled)
+    local live = repeatEnabled and self:GetOwnLive()
+    self.chatCountdown:SetShown(live and true or false)
+    if live then
+        local clock = GetTime()
+        local state = self:GetLiveChatState(live, self:AnnouncementText(live))
+        local delay = self:GetLiveAnnouncementDelay(live, state, clock, time())
+        local remaining = math.ceil(max(delay, self:GetChatCooldown(), (self.rosterReadyAt or clock) - clock))
+        local countdown = format("%d:%02d", floor(remaining / 60), remaining % 60)
+        self.chatCountdown:SetText(format(GuildHelper:Trans("LID_GROUPCHATNEXT"), countdown))
+    end
+    if repeatEnabled then
         GuildHelper.Members:SetPillText(self.chatRepeat, format(GuildHelper:Trans("LID_GROUPCHATMINUTES"), draft.chatRepeatMinutes or self.DEFAULTCHATREPEATMINUTES))
     end
 end

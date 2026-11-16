@@ -590,12 +590,15 @@ function Dashboard:UpdateProfessions()
         return
     end
 
-    local split
-    order, split = sync:GroupProfessions(order, function(key) return key end)
+    local splits
+    order, splits = sync:GroupProfessions(order, function(key) return key end)
+    local extra = 0
     for i, key in ipairs(order) do
-        if i == split then
-            self:SetLine(self.professions, i, "")
-            local line = self:GetLine(self.professions, i)
+        if i == splits[extra + 1] then
+            local index = i + extra
+            self:SetLine(self.professions, index, "")
+            local line = self:GetLine(self.professions, index)
+            extra = extra + 1
             if not line.professionDivider then
                 line.professionDivider = Theme:Line(line, "divider")
                 line.professionDivider:SetPoint("LEFT", 10, 0)
@@ -604,11 +607,10 @@ function Dashboard:UpdateProfessions()
             end
             line.professionDivider:Show()
         end
-        local index = split and i >= split and i + 1 or i
-        self:SetLine(self.professions, index, format("%s |cff888888(%d)|r", names[key], best[key]), tostring(counts[key]))
+        self:SetLine(self.professions, i + extra, format("%s |cff888888(%d)|r", names[key], best[key]), tostring(counts[key]))
     end
 
-    self:FinishList(self.professions, #order + (split and 1 or 0))
+    self:FinishList(self.professions, #order + extra)
 end
 
 function Dashboard:CreateChat(parent)

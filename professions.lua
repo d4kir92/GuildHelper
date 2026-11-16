@@ -42,15 +42,14 @@ function Professions:CreateList(parent, readOnly)
     return panel
 end
 
-function Professions:ShowRows(panel, entries, onClick, selected, split)
+function Professions:ShowRows(panel, entries, onClick, selected, splits)
     local step = panel.readOnly and 36 or 30
     local width = panel.fitText and panel.body:GetWidth()
     local offset = 0
-    if split and not panel.separator then
-        panel.separator = Theme:Line(panel.body, "divider")
-        panel.separator:SetHeight(1)
-    end
-    if panel.separator then panel.separator:SetShown(split ~= nil) end
+    panel.separators = panel.separators or {}
+    for _, separator in ipairs(panel.separators) do separator:Hide() end
+    local divider = 1
+
     for index, entry in ipairs(entries) do
         local row = panel.rows[index]
         if not row then
@@ -124,10 +123,18 @@ function Professions:ShowRows(panel, entries, onClick, selected, split)
         else
             row.text:SetPoint("LEFT", inset, 0)
         end
-        if index == split then
-            panel.separator:SetPoint("TOPLEFT", 4, -offset - 4)
-            panel.separator:SetPoint("TOPRIGHT", -4, -offset - 4)
+        if splits and index == splits[divider] then
+            local separator = panel.separators[divider]
+            if not separator then
+                separator = Theme:Line(panel.body, "divider")
+                separator:SetHeight(1)
+                panel.separators[divider] = separator
+            end
+            separator:SetPoint("TOPLEFT", 4, -offset - 4)
+            separator:SetPoint("TOPRIGHT", -4, -offset - 4)
+            separator:Show()
             offset = offset + 10
+            divider = divider + 1
         end
         row:SetPoint("TOPLEFT", 0, -offset)
         row:SetPoint("TOPRIGHT", panel.body, "TOPRIGHT", 0, -offset)
@@ -244,9 +251,10 @@ function Professions:Update()
     end
     table.sort(filters, function(a, b) return a.name < b.name end)
     for _, filter in ipairs(filters) do filter.label = format("%s  (%d)", filter.name, filter.count) end
-    local filterSplit
-    filters, filterSplit = Sync:GroupProfessions(filters, function(entry) return entry.key end)
+    local filterSplits
+    filters, filterSplits = Sync:GroupProfessions(filters, function(entry) return entry.key end)
     tinsert(filters, 1, {key = false, label = GuildHelper:Trans("LID_FBALL")})
+    for index, split in ipairs(filterSplits) do filterSplits[index] = split + 1 end
     if page.filter and not counts[page.filter] then page.filter = false end
     for index = #results, 1, -1 do
         local result = results[index]
@@ -300,7 +308,7 @@ function Professions:Update()
         page.filter = key
         if page.results then page.results.scroll:SetVerticalScroll(0) end
         self:Update()
-    end, page.filter, filterSplit and filterSplit + 1)
+    end, page.filter, filterSplits)
     self:ShowRows(page.results, results, function(key)
         if page.selected ~= key then
             page.selectedCrafter = nil
@@ -378,7 +386,7 @@ function Professions:ResizeDetails(page, pageWidth)
 end
 
 function Professions:ShowPlayerRecipes(page, selected)
-    local skills, split = Sync:GroupProfessions(selected and selected.skills or {}, function(entry) return entry.key end)
+    local skills, splits = Sync:GroupProfessions(selected and selected.skills or {}, function(entry) return entry.key end)
     local memberName = page.member and page.member.name
     if page.browserMember ~= memberName or page.browserFilter ~= page.filter then
         page.browserMember, page.browserFilter = memberName, page.filter
@@ -395,7 +403,7 @@ function Professions:ShowPlayerRecipes(page, selected)
     self:ShowRows(page.skills, skills, function(key)
         page.skill, page.playerRecipe = key, nil
         self:Update()
-    end, skillKey, split)
+    end, skillKey, splits)
     page.rank:SetShown(skill ~= nil)
     if skill then
         page.rank:SetMinMaxValues(0, max(1, skill.cap))
