@@ -174,7 +174,80 @@ function Groups:LevelRange(low, high)
     return nil, nil
 end
 
-function Groups:AddActivity(list, key, name, size, low, high)
+Groups.loadingScreens = {
+    [33] = 131869, [34] = 131870, [36] = 131833, [43] = 131882, [47] = 131865,
+    [48] = 131823, [70] = 131876, [90] = 131841, [109] = 131872, [129] = 131864,
+    [189] = 131852, [209] = 131885, [229] = 131825, [230] = 131824, [269] = 131830,
+    [289] = 131868, [329] = 131871, [349] = 131850, [389] = 131862, [429] = 131835,
+    [540] = 131844, [542] = 131844, [543] = 131844, [545] = 131832, [546] = 131832,
+    [547] = 131832, [548] = 131832, [552] = 131875, [553] = 131875, [554] = 131875,
+    [555] = 131821, [556] = 131821, [557] = 131821, [558] = 131821, [560] = 131830,
+    [585] = 131874, [189001] = 131852, [189002] = 131852, [189003] = 131852, [189004] = 131852,
+    [329001] = 131871, [329002] = 131871, [429001] = 131835, [429002] = 131835, [429003] = 131835
+}
+
+Groups.classicDungeonMaps = {
+    [213] = 389, [219] = 209, [220] = 109, [221] = 48, [222] = 48, [223] = 48, [225] = 34,
+    [226] = 90, [227] = 90, [228] = 90, [229] = 90, [230] = 70, [231] = 70,
+    [235] = 429, [236] = 429, [237] = 429, [238] = 429, [239] = 429, [240] = 429,
+    [242] = 230, [243] = 230, [246] = 540, [250] = 229, [251] = 229, [252] = 229,
+    [253] = 229, [254] = 229, [255] = 229, [256] = 558, [257] = 558, [258] = 556,
+    [259] = 556, [260] = 555, [261] = 542, [262] = 546, [263] = 545, [264] = 545,
+    [265] = 547, [266] = 553, [267] = 554, [268] = 554, [269] = 552, [270] = 552,
+    [271] = 552, [272] = 557, [273] = 269, [274] = 560, [279] = 43, [280] = 349,
+    [281] = 349, [291] = 36, [292] = 36, [300] = 129, [301] = 47, [302] = 189,
+    [303] = 189, [304] = 189, [305] = 189, [306] = 289, [307] = 289, [308] = 289,
+    [309] = 289, [310] = 33, [311] = 33, [312] = 33, [313] = 33, [314] = 33,
+    [315] = 33, [316] = 33, [317] = 329, [318] = 329, [347] = 543, [348] = 585, [349] = 585
+}
+
+Groups.foreverMapArt = {
+    [2959] = 7963775, [2998] = 7963777, [2999] = 7963782, [3065] = 7963781,
+    [16544] = 7963775, [16611] = 7963782, [16732] = 7963777, [16919] = 7963781,
+    [900001] = 7963741, [900002] = 7963780, [900003] = 7963734, [900004] = 7963784, [900005] = 7963783
+}
+
+Groups.foreverLoadingScreens = {
+    a2970 = 7963741,
+    a2974 = 7963784,
+    a2994 = 7963734,
+    a3001 = 7963783,
+    a3039 = 7963780,
+    a3065 = 7963781,
+    d3271 = 7963775,
+    d3272 = 7963782,
+    d3273 = 7963781,
+    d3274 = 7963777
+}
+
+function Groups:GetDungeonArt(key, mapID, journalID, textureName, uiMapID)
+    local forever = GuildHelper:IsForever()
+    local wide = forever and (self.foreverLoadingScreens[key] or self.foreverMapArt[mapID] or self.foreverMapArt[uiMapID]) or nil
+    if wide then return wide, {0.18, 0.82, 0.18, 0.82} end
+
+    if not journalID and mapID and mapID > 0 and C_EncounterJournal and C_EncounterJournal.GetInstanceForGameMap then
+        journalID = C_EncounterJournal.GetInstanceForGameMap(mapID)
+    end
+    local loreImage
+    if journalID and journalID > 0 and EJ_GetInstanceInfo then
+        local _, _, _, _, image, _, journalUiMap, _, _, journalMap = EJ_GetInstanceInfo(journalID)
+        loreImage = image
+        mapID = journalMap and journalMap > 0 and journalMap or mapID
+        uiMapID = uiMapID or journalUiMap
+    end
+
+    local file = self.loadingScreens[mapID] or self.loadingScreens[self.classicDungeonMaps[uiMapID]]
+    if not file and (forever or WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE) then
+        file = self.loadingScreens[self.classicDungeonMaps[mapID]]
+    end
+    if file then return file, {0.13, 0.87, 0.21, 0.77} end
+    if loreImage and loreImage > 0 then return loreImage end
+    if type(textureName) == "string" and textureName ~= "" then
+        return "Interface\\LFGFrame\\UI-LFG-BACKGROUND-" .. textureName
+    end
+end
+
+function Groups:AddActivity(list, key, name, size, low, high, mapID, journalID, textureName, uiMapID)
     if type(name) ~= "string" or name == "" or list.map[key] then return end
     local level, range = self:LevelRange(low, high)
     local option = {
@@ -184,6 +257,7 @@ function Groups:AddActivity(list, key, name, size, low, high)
         size = (type(size) == "number" and size > 0) and size or 5
     }
 
+    option.texture, option.texCoords = self:GetDungeonArt(key, mapID, journalID, textureName, uiMapID)
     list.map[key] = option
     list.count = list.count + 1
     tinsert(list, option)
@@ -216,7 +290,7 @@ function Groups:CollectFinder(list)
             local info = C_LFGList.GetActivityInfoTable(id)
             if info then
                 local low = (info.minLevelSuggestion or 0) > 0 and info.minLevelSuggestion or info.minLevel
-                self:AddActivity(list, "a" .. id, info.fullName, info.maxNumPlayers, low, info.maxLevelSuggestion)
+                self:AddActivity(list, "a" .. id, info.fullName, info.maxNumPlayers, low, info.maxLevelSuggestion, info.mapID, nil, nil, info.uiMapID)
             end
         end
     end
@@ -224,8 +298,8 @@ end
 
 function Groups:CollectDungeons(list)
     if not GetLFGDungeonInfo then return end
-    for id = 1, 3000 do
-        local name, typeID, subtypeID, minLevel, maxLevel, _, minRecLevel, maxRecLevel, _, _, _, difficulty, maxPlayers = GetLFGDungeonInfo(id)
+    for id = 1, 4000 do
+        local name, typeID, subtypeID, minLevel, maxLevel, _, minRecLevel, maxRecLevel, _, _, textureName, difficulty, maxPlayers, _, _, _, _, _, _, _, _, mapID = GetLFGDungeonInfo(id)
         if name and typeID == 1 and (subtypeID == 1 or subtypeID == 2) then
             local label = name
             if subtypeID == 2 and difficulty and GetDifficultyInfo then
@@ -234,7 +308,7 @@ function Groups:CollectDungeons(list)
             end
 
             local hasRec = (minRecLevel or 0) > 0
-            self:AddActivity(list, "d" .. id, label, maxPlayers, hasRec and minRecLevel or minLevel, hasRec and maxRecLevel or maxLevel)
+            self:AddActivity(list, "d" .. id, label, maxPlayers, hasRec and minRecLevel or minLevel, hasRec and maxRecLevel or maxLevel, mapID, nil, textureName)
         end
     end
 end
@@ -253,7 +327,7 @@ function Groups:CollectJournal(list)
         local index = 1
         local id, name = EJ_GetInstanceByIndex(index, false)
         while id do
-            self:AddActivity(list, "e" .. id, name, 5)
+            self:AddActivity(list, "e" .. id, name, 5, nil, nil, nil, id)
             index = index + 1
             id, name = EJ_GetInstanceByIndex(index, false)
         end
@@ -320,6 +394,7 @@ function Groups:GetActivities()
         self:CollectJournal(list)
     end
 
+    list.cards = true
     self:SortActivities(list)
     if list.count > 0 then
         self.activities = list
@@ -1179,7 +1254,14 @@ function Groups:BuildForm(content)
     self.activityPill.text:ClearAllPoints()
     self.activityPill.text:SetPoint("LEFT", self.activityPill, "LEFT", 8, 0)
     self.activityPill.text:SetPoint("RIGHT", self.activityPill, "RIGHT", -8, 0)
-    self.activityPill.text:SetWordWrap(false)
+    self.activityPill.text:SetJustifyH("LEFT")
+    self.activityPill.text:SetWordWrap(true)
+    self.activityPill.text:SetMaxLines(2)
+    self.activityPill.compactHeight = self.activityPill:GetHeight()
+    self.activityPill.art = self.activityPill:CreateTexture(nil, "ARTWORK")
+    self.activityPill.art:SetPoint("LEFT", self.activityPill, "LEFT", 4, 0)
+    self.activityPill.art:SetSize(88, 50)
+    self.activityPill.art:Hide()
     self.activityPill:SetScript("OnClick", function(button)
         local draft = self.draft[self.mode]
         Members:OpenMenu(button, self:GetActivities(), draft.activity, function(value)
@@ -1188,7 +1270,7 @@ function Groups:BuildForm(content)
         end)
     end)
 
-    self:Text(self.form, "LID_GROUPNEEDS", 14, -51)
+    self.needsLabel = self:Text(self.form, "LID_GROUPNEEDS", 14, -51)
     self.liveNeeds = self:Text(self.form, nil, 150, -51, 12, "text")
     self.soloRolePill = Members:CreatePill(self.form, "")
     self.soloRolePill:SetPoint("LEFT", self.liveNeeds, "RIGHT", 16, 0)
@@ -1486,11 +1568,24 @@ function Groups:RefreshForm()
     Members:SetPillText(self.livePill, GuildHelper:Trans("LID_GROUPLIVE") .. " (" .. #self:GetList("L") .. ")")
     Members:SetPillText(self.plannedPill, GuildHelper:Trans("LID_GROUPPLANNED") .. " (" .. #self:GetList("P") .. ")")
     self.hint:SetText(GuildHelper:Trans(planned and "LID_GROUPHINTPLANNED" or "LID_GROUPHINTLIVE"))
-    self.form:SetHeight(planned and 288 or 264)
-    self.noteLabel:SetPoint("TOPLEFT", self.form, "TOPLEFT", 14, planned and -109 or -85)
-    self:RefreshAnnouncementOptions(planned)
     local activities = self:GetActivities()
     local activity = self:GetActivity(draft.activity)
+    local pill = self.activityPill
+    local texture = activity and activity.texture
+    local height = activity and 55 or pill.compactHeight
+    local extra = height - pill.compactHeight
+    pill:SetHeight(height)
+    pill.art:SetTexture(texture)
+    pill.art:SetTexCoord(unpack(activity and activity.texCoords or {0, 1, 0, 1}))
+    pill.art:SetShown(texture ~= nil)
+    pill.text:SetPoint("LEFT", pill, "LEFT", texture and 100 or 8, 0)
+    self.form:SetHeight((planned and 288 or 264) + extra)
+    self.needsLabel:SetPoint("TOPLEFT", self.form, "TOPLEFT", 14, -51 - extra)
+    self.liveNeeds:SetPoint("TOPLEFT", self.form, "TOPLEFT", 150, -51 - extra)
+    self.noteLabel:SetPoint("TOPLEFT", self.form, "TOPLEFT", 14, (planned and -109 or -85) - extra)
+    self.dateLabel:SetPoint("TOPLEFT", self.form, "TOPLEFT", 14, -143 - extra)
+    self.dayPill:SetPoint("TOPLEFT", self.form, "TOPLEFT", 150, -136 - extra)
+    self:RefreshAnnouncementOptions(planned, extra)
     Members:SetPillText(self.activityPill, activity and activity.label or GuildHelper:Trans(activities.count > 0 and "LID_GROUPCHOOSE" or "LID_GROUPNOACTIVITIES"))
     self.activityPill:SetEnabled(activities.count > 0)
     self.liveNeeds:SetShown(not planned)
@@ -1505,6 +1600,7 @@ function Groups:RefreshForm()
         self.liveNeeds:SetText(needs)
     end
     for index, role in ipairs(GuildHelper.Specs.ROLES) do
+        self.countLabels[index]:SetPoint("TOPLEFT", self.form, "TOPLEFT", 150 + (index - 1) * 96, -48 - extra)
         self.countLabels[index]:SetText(GuildHelper.Specs:Format({
             role = role.value
         }))
@@ -1550,6 +1646,9 @@ function Groups:GetRow(index)
     row:SetPoint("TOPRIGHT", self.list.body, "TOPRIGHT", 0, -(index - 1) * self.ROW)
     row:SetHeight(self.ROW - 4)
     row.bg = GuildHelper.Theme:Round(row, "navActive", 6)
+    row.art = row:CreateTexture(nil, "ARTWORK")
+    row.art:SetPoint("LEFT", row, "LEFT", 6, 0)
+    row.art:SetSize(88, 50)
     row.tag = self:Text(row, nil, 0, 0, 12, "accent")
     row.tag:ClearAllPoints()
     row.tag:SetPoint("TOPRIGHT", row, "TOPRIGHT", -10, -9)
@@ -1580,7 +1679,31 @@ function Groups:RefreshList()
         if viewed and not self:IsOwn(entry) and not viewed[entry.key] then viewed[entry.key] = time() end
         local row = self:GetRow(index)
         row.key = entry.key
-        row.title:SetText(self:GetActivityName(entry))
+        local activity = self:GetActivity(entry.activity)
+        local texture, texCoords
+        if activity then
+            texture, texCoords = activity.texture, activity.texCoords
+        else
+            local source, id = entry.activity:match("^([ade])(%d+)$")
+            id = tonumber(id)
+            if source == "a" and C_LFGList and C_LFGList.GetActivityInfoTable then
+                local info = C_LFGList.GetActivityInfoTable(id)
+                texture, texCoords = self:GetDungeonArt(entry.activity, info and info.mapID, nil, nil, info and info.uiMapID)
+            elseif source == "d" and GetLFGDungeonInfo then
+                local _, _, _, _, _, _, _, _, _, _, textureName, _, _, _, _, _, _, _, _, _, _, mapID = GetLFGDungeonInfo(id)
+                texture, texCoords = self:GetDungeonArt(entry.activity, mapID, nil, textureName)
+            elseif source == "e" then
+                texture, texCoords = self:GetDungeonArt(entry.activity, nil, id)
+            end
+        end
+        row.art:SetTexture(texture)
+        row.art:SetTexCoord(unpack(texCoords or {0, 1, 0, 1}))
+        row.art:SetShown(texture ~= nil)
+        local textLeft = texture and 102 or 10
+        row.title:SetPoint("TOPLEFT", row, "TOPLEFT", textLeft, -7)
+        row.info:SetPoint("TOPLEFT", row, "TOPLEFT", textLeft, -27)
+        row.note:SetPoint("TOPLEFT", row, "TOPLEFT", textLeft, -44)
+        row.title:SetText(activity and activity.label or entry.activityName or "?")
         row.tag:SetText(entry.kind == "P" and self:FormatWhen(entry.when) or GuildHelper:Trans("LID_GROUPLIVE"))
         local name = Ambiguate and Ambiguate(entry.name or "", "guild") or entry.name or ""
         local info = name .. "   " .. self:Needs(entry)

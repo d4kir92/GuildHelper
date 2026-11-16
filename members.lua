@@ -526,7 +526,8 @@ function Members:OpenMenu(anchor, options, current, onSelect, atCursor)
     menu.options = options
     menu.current = current
     menu.onSelect = onSelect
-    menu.visible = min(#options, self.MENUROWS)
+    menu.rowHeight = options.cards and 58 or 24
+    menu.visible = min(#options, options.cards and 7 or self.MENUROWS)
     menu.offset = 0
     for i, option in ipairs(options) do
         if not option.header and option.value == current then menu.offset = max(0, min(i - floor(menu.visible / 2), #options - menu.visible)) end
@@ -541,7 +542,7 @@ function Members:OpenMenu(anchor, options, current, onSelect, atCursor)
         menu.thumbDrag:SetAllPoints(menu.thumb)
         menu.thumbDrag:SetFrameLevel(menu:GetFrameLevel() + 5)
         Theme:BindScrollDrag(menu.thumbDrag, function()
-            return menu.offset, #menu.options - menu.visible, menu.visible * 24 - menu.thumb:GetHeight()
+            return menu.offset, #menu.options - menu.visible, menu.visible * menu.rowHeight - menu.thumb:GetHeight()
         end, function(offset)
             offset = floor(offset + 0.5)
             if offset == menu.offset then return end
@@ -561,10 +562,10 @@ function Members:OpenMenu(anchor, options, current, onSelect, atCursor)
     local width = 140
     for _, option in ipairs(options) do
         menu.measure:SetText(option.label)
-        width = max(width, menu.measure:GetStringWidth() + 36)
+        width = max(width, menu.measure:GetStringWidth() + (option.texture and 126 or 36))
     end
 
-    menu:SetSize(min(width, 420), menu.visible * 24 + 10)
+    menu:SetSize(min(width, 420), menu.visible * menu.rowHeight + 10)
     menu:ClearAllPoints()
     if atCursor then
         local x, y = GetCursorPosition()
@@ -590,17 +591,24 @@ function Members:RenderMenu()
         local button = menu.buttons[i]
         if button == nil then
             button = CreateFrame("Button", nil, menu)
-            button:SetHeight(24)
-            button:SetPoint("TOPLEFT", menu, "TOPLEFT", 5, -5 - (i - 1) * 24)
-            button:SetPoint("TOPRIGHT", menu, "TOPRIGHT", -9, -5 - (i - 1) * 24)
             button.bg = Theme:Round(button, "hover", 5)
+            button.art = button:CreateTexture(nil, "ARTWORK")
+            button.art:SetPoint("LEFT", button, "LEFT", 4, 0)
+            button.art:SetSize(88, 50)
             button.text = Theme:Text(button, 12.5)
             button.text:SetPoint("LEFT", button, "LEFT", 10, 0)
             button.text:SetPoint("RIGHT", button, "RIGHT", -4, 0)
             button.text:SetJustifyH("LEFT")
             button.text:SetWordWrap(false)
-            button:SetScript("OnEnter", function(sel) sel.bg:SetShown(not sel.header) end)
-            button:SetScript("OnLeave", function(sel) sel.bg:SetShown(sel.selected == true) end)
+            button:SetScript("OnEnter", function(sel)
+                if sel.header then return end
+                if menu.options.cards and not sel.selected then Theme:SetKey(sel.bg, "hover") end
+                sel.bg:SetShown(true)
+            end)
+            button:SetScript("OnLeave", function(sel)
+                if menu.options.cards and not sel.header and not sel.selected then Theme:SetKey(sel.bg, "panel") end
+                sel.bg:SetShown(sel.selected or (menu.options.cards and not sel.header))
+            end)
             button:SetScript("OnClick", function(sel)
                 if sel.header then return end
                 menu:Hide()
@@ -610,6 +618,16 @@ function Members:RenderMenu()
             menu.buttons[i] = button
         end
 
+        local y = -5 - (i - 1) * menu.rowHeight
+        button:SetHeight(menu.rowHeight - (menu.options.cards and 3 or 0))
+        button:SetPoint("TOPLEFT", menu, "TOPLEFT", 5, y)
+        button:SetPoint("TOPRIGHT", menu, "TOPRIGHT", -9, y)
+        button.art:SetTexture(option.texture)
+        button.art:SetTexCoord(unpack(option.texCoords or {0, 1, 0, 1}))
+        button.art:SetShown(option.texture ~= nil)
+        button.text:SetWordWrap(menu.options.cards == true)
+        button.text:SetMaxLines(menu.options.cards and 2 or 1)
+        button.text:SetPoint("LEFT", button, "LEFT", option.texture and 100 or 10, 0)
         button.header = option.header == true
         button:SetEnabled(not option.disabled)
         button.value = option.value
@@ -621,8 +639,8 @@ function Members:RenderMenu()
         end
 
         button.selected = not button.header and option.value == menu.current
-        Theme:SetKey(button.bg, button.selected and "pillActive" or "hover")
-        button.bg:SetShown(button.selected)
+        Theme:SetKey(button.bg, button.selected and "pillActive" or (menu.options.cards and "panel" or "hover"))
+        button.bg:SetShown(button.selected or (menu.options.cards and not button.header))
         button:Show()
     end
 
@@ -634,7 +652,7 @@ function Members:RenderMenu()
     menu.thumb:SetShown(total > menu.visible)
     menu.thumbDrag:SetShown(total > menu.visible)
     if total > menu.visible then
-        local track = menu.visible * 24
+        local track = menu.visible * menu.rowHeight
         local size = max(16, track * menu.visible / total)
         menu.thumb:SetColorTexture(Theme:GetColor("muted"))
         menu.thumb:SetHeight(size)

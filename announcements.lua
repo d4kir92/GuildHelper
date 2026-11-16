@@ -150,9 +150,11 @@ function Groups:BuildAnnouncementOptions(form)
     end)
 end
 
-function Groups:RefreshAnnouncementOptions(planned)
+function Groups:RefreshAnnouncementOptions(planned, extra)
     local draft = self.draft[self.mode]
-    local y = planned and -177 or -119
+    local y = (planned and -177 or -119) - extra
+    self.chatRepeatLabel:SetPoint("TOPLEFT", self.form, "TOPLEFT", 14, -153 - extra)
+    self.chatRepeat:SetPoint("TOPLEFT", self.form, "TOPLEFT", 150, -146 - extra)
     self.chatLabel:ClearAllPoints()
     self.chatLabel:SetPoint("TOPLEFT", self.form, "TOPLEFT", 14, y)
     self.chatLanguage:ClearAllPoints()
