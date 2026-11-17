@@ -70,10 +70,7 @@ function Notifications:Create()
             local groups = GuildHelper.Groups
             local entry = groups:Find(notice.id)
             if entry and (notice.group or (entry.applicants and entry.applicants[notice.applicant])) then
-                GuildHelper.Window:SelectPage("groups")
-                GuildHelper.Window.frame:Show()
-                groups:SetMode(groups:GetListingMode(entry))
-                groups:Select(entry)
+                groups:OpenListing(entry)
             end
         elseif not notice.test and not notice.applicant and notice.guild == GuildHelper.Sync:GetGuildKey() and feedback:Find(notice.id) then
             feedback:StopEditing()

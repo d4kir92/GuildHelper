@@ -14,8 +14,15 @@ Groups.modes = {
     {value = "Q", label = "LID_GROUPQUEST"},
     {value = "Z", label = "LID_ZONE"}
 }
+Groups.raidModes = {
+    {value = "R", label = "LID_RAIDLIVE"},
+    {value = "S", label = "LID_RAIDPLANNED"}
+}
+Groups.pageModes = {groups = "L", raids = "R"}
 Groups.role = "DAMAGER"
 Groups.draft = {
+    R = {note = ""},
+    S = {note = "", TANK = 0, HEALER = 0, DAMAGER = 0, hour = 20, minute = 0},
     Q = {note = ""},
     Z = {note = ""},
     L = {
@@ -38,6 +45,8 @@ Groups.KEEP = 3600
 Groups.DAYS = 14
 Groups.MAXPLANNED = 5
 Groups.CATEGORY = 2
+Groups.RAIDCATEGORY = 3
+Groups.raidSizes = {[10] = true, [20] = true, [25] = true, [30] = true, [40] = true}
 Groups.ROW = 66
 Groups.roleOrder = {TANK = 1, HEALER = 2, DAMAGER = 3, NONE = 4}
 Groups.WEEKDAYS = {"WEEKDAY_SUNDAY", "WEEKDAY_MONDAY", "WEEKDAY_TUESDAY", "WEEKDAY_WEDNESDAY", "WEEKDAY_THURSDAY", "WEEKDAY_FRIDAY", "WEEKDAY_SATURDAY"}
@@ -92,7 +101,7 @@ function Groups:CheckGuild()
         self.applySent = {}
         self.signupSnapshots = {}
         self.selected = nil
-        self.editing = nil
+        self.draft.P.editing, self.draft.S.editing = nil, nil
         self.lastQuery = nil
         self.viewedListings = nil
         self.announcements = {}
@@ -117,21 +126,23 @@ function Groups:GetViewedListings()
 end
 
 function Groups:CountUnread()
-    if not self:CheckGuild() then return 0 end
+    local counts = {groups = 0, raids = 0}
+    if not self:CheckGuild() then return counts end
     local viewed = self:GetViewedListings()
-    local count = 0
     for _, listings in ipairs({self.live, self:GetPlanned()}) do
         for key, entry in pairs(listings) do
+            local page = self:GetPageForMode(self:GetListingMode(entry))
             if self:IsOwn(entry) then
                 for _, applicant in pairs(entry.applicants or {}) do
-                    if applicant.unread then count = count + 1 end
+                    if applicant.unread then counts[page] = counts[page] + 1 end
                 end
             elseif not viewed[key] then
-                count = count + 1
+                counts[page] = counts[page] + 1
             end
         end
     end
-    return count
+
+    return counts
 end
 
 function Groups:GetPlanned()
@@ -160,12 +171,29 @@ function Groups:GetActivityMode(key)
     local prefix = key:sub(1, 1)
     if prefix == "q" then return "Q" end
     if prefix == "z" then return "Z" end
+    if prefix == "r" then return "R" end
 
     return "L"
 end
 
 function Groups:GetListingMode(entry)
-    return entry.kind == "P" and "P" or self:GetActivityMode(entry.activity)
+    local mode = self:GetActivityMode(entry.activity)
+    if entry.kind == "P" then return mode == "R" and "S" or "P" end
+
+    return mode
+end
+
+function Groups:IsPlanned(mode)
+    return mode == "P" or mode == "S"
+end
+
+function Groups:GetPageForMode(mode)
+    return (mode == "R" or mode == "S") and "raids" or "groups"
+end
+
+function Groups:GetRaidSize(key)
+    local size = tonumber(key:match("^r[adef]%d+:(%d+)$"))
+    return self.raidSizes[size] and size or nil
 end
 
 function Groups:IsOutdoor(mode)
@@ -274,9 +302,10 @@ end
 function Groups:AddActivity(list, key, name, size, low, high, mapID, journalID, textureName, uiMapID)
     if type(name) ~= "string" or name == "" or list.map[key] then return end
     local level, range = self:LevelRange(low, high)
+    local raidSize = self:GetRaidSize(key)
     local option = {
         value = key,
-        label = range and format("%s (%s)", name, range) or name,
+        label = raidSize and format("%s (%d)", name, raidSize) or (range and format("%s (%s)", name, range) or name),
         level = level,
         size = (type(size) == "number" and size > 0) and size or 5
     }
@@ -287,19 +316,21 @@ function Groups:AddActivity(list, key, name, size, low, high, mapID, journalID, 
     tinsert(list, option)
 end
 
-function Groups:CollectFinder(list)
+function Groups:CollectFinder(list, raid)
+    local category = raid and self.RAIDCATEGORY or self.CATEGORY
     if not C_LFGList or not C_LFGList.GetAvailableActivities or not C_LFGList.GetActivityInfoTable then return end
     local groups = {0}
     if C_LFGList.GetAvailableActivityGroups then
-        local ok, ids = pcall(C_LFGList.GetAvailableActivityGroups, self.CATEGORY)
+        local ok, ids = pcall(C_LFGList.GetAvailableActivityGroups, category)
         for _, id in ipairs(ok and ids or {}) do
             tinsert(groups, id)
         end
     end
 
     for _, groupID in ipairs(groups) do
-        local ok, ids = pcall(C_LFGList.GetAvailableActivities, self.CATEGORY, groupID)
+        local ok, ids = pcall(C_LFGList.GetAvailableActivities, category, groupID)
         ids = ok and ids or {}
+        local start = #list
         if #ids > 0 and groupID > 0 and C_LFGList.GetActivityGroupInfo then
             local name = C_LFGList.GetActivityGroupInfo(groupID)
             if type(name) == "string" and name ~= "" then
@@ -312,35 +343,42 @@ function Groups:CollectFinder(list)
 
         for _, id in ipairs(ids) do
             local info = C_LFGList.GetActivityInfoTable(id)
-            if info then
+            if info and (not raid or self.raidSizes[info.maxNumPlayers]) then
                 local low = (info.minLevelSuggestion or 0) > 0 and info.minLevelSuggestion or info.minLevel
-                self:AddActivity(list, "a" .. id, info.fullName, info.maxNumPlayers, low, info.maxLevelSuggestion, info.mapID, nil, nil, info.uiMapID)
+                local key = raid and ("ra" .. id .. ":" .. info.maxNumPlayers) or ("a" .. id)
+                self:AddActivity(list, key, info.fullName, info.maxNumPlayers, low, info.maxLevelSuggestion, info.mapID, nil, nil, info.uiMapID)
             end
         end
+        if #list == start + 1 and list[start + 1].header then table.remove(list) end
     end
 end
 
-function Groups:CollectDungeons(list)
+function Groups:CollectDungeons(list, raid)
     if not GetLFGDungeonInfo then return end
     for id = 1, 4000 do
         local name, typeID, subtypeID, minLevel, maxLevel, _, minRecLevel, maxRecLevel, _, _, textureName, difficulty, maxPlayers, _, _, _, _, _, _, _, _, mapID = GetLFGDungeonInfo(id)
-        if name and typeID == 1 and (subtypeID == 1 or subtypeID == 2) then
+        local matches = raid and (subtypeID == 3 or subtypeID == 5) or (not raid and (subtypeID == 1 or subtypeID == 2))
+        if name and typeID == 1 and matches and (not raid or self.raidSizes[maxPlayers]) then
             local label = name
-            if subtypeID == 2 and difficulty and GetDifficultyInfo then
+            if (raid or subtypeID == 2) and difficulty and GetDifficultyInfo then
                 local difficultyName = GetDifficultyInfo(difficulty)
                 if difficultyName and difficultyName ~= "" then label = name .. " (" .. difficultyName .. ")" end
             end
 
             local hasRec = (minRecLevel or 0) > 0
-            self:AddActivity(list, "d" .. id, label, maxPlayers, hasRec and minRecLevel or minLevel, hasRec and maxRecLevel or maxLevel, mapID, nil, textureName)
+            local key = raid and ("rd" .. id .. ":" .. maxPlayers) or ("d" .. id)
+            self:AddActivity(list, key, label, maxPlayers, hasRec and minRecLevel or minLevel, hasRec and maxRecLevel or maxLevel, mapID, nil, textureName)
         end
     end
 end
 
-function Groups:CollectJournal(list)
+function Groups:CollectJournal(list, raid)
     if not EJ_GetNumTiers or not EJ_SelectTier or not EJ_GetInstanceByIndex or not EJ_GetTierInfo then return end
+    if raid and (not EJ_SelectInstance or not EJ_IsValidInstanceDifficulty or not GetDifficultyInfo) then return end
     local previous = EJ_GetCurrentTier and EJ_GetCurrentTier()
-    for tier = EJ_GetNumTiers(), 1, -1 do
+    local previousInstance = raid and EJ_GetCurrentInstance and EJ_GetCurrentInstance()
+    local tierCount = EJ_GetNumTiers()
+    for tier = tierCount, 1, -1 do
         EJ_SelectTier(tier)
         local start = #list
         tinsert(list, {
@@ -349,17 +387,31 @@ function Groups:CollectJournal(list)
         })
 
         local index = 1
-        local id, name = EJ_GetInstanceByIndex(index, false)
+        local id, name = EJ_GetInstanceByIndex(index, raid == true)
         while id do
-            self:AddActivity(list, "e" .. id, name, 5, nil, nil, nil, id)
+            if raid then
+                EJ_SelectInstance(id)
+                for _, difficulty in ipairs({3, 4, 5, 6, 9, 14, 15, 16}) do
+                    if EJ_IsValidInstanceDifficulty(difficulty) then
+                        local difficultyName, _, _, _, _, _, _, _, _, size = GetDifficultyInfo(difficulty)
+                        if self.raidSizes[size] and difficultyName then
+                            local key = "re" .. (id * 1000 + difficulty) .. ":" .. size
+                            self:AddActivity(list, key, name .. " (" .. difficultyName .. ")", size, nil, nil, nil, id)
+                        end
+                    end
+                end
+            else
+                self:AddActivity(list, "e" .. id, name, 5, nil, nil, nil, id)
+            end
             index = index + 1
-            id, name = EJ_GetInstanceByIndex(index, false)
+            id, name = EJ_GetInstanceByIndex(index, raid == true)
         end
 
         if #list == start + 1 then table.remove(list) end
     end
 
-    if previous then EJ_SelectTier(previous) end
+    if previous and previous >= 1 and previous <= tierCount then EJ_SelectTier(previous) end
+    if previousInstance and previousInstance > 0 then EJ_SelectInstance(previousInstance) end
 end
 
 function Groups:SortActivities(list)
@@ -426,6 +478,33 @@ function Groups:GetActivities()
         self.noActivities = list
     end
 
+    return list
+end
+
+function Groups:GetRaidActivities()
+    if self.raidActivities then return self.raidActivities end
+    if self.raidRetry and GetTime() < self.raidRetry then return self.noRaids end
+    self.raidRetry = GetTime() + 30
+    local list = {map = {}, count = 0, cards = true}
+    self:CollectFinder(list, true)
+    if list.count == 0 then self:CollectDungeons(list, true) end
+    if list.count == 0 then self:CollectJournal(list, true) end
+    if list.count == 0 and GuildHelper:IsForever() then
+        self:AddActivity(list, "rf1:10", GuildHelper:Trans("LID_RAIDBARROW"), 10, 60, 60)
+        self:AddActivity(list, "rf2:20", GuildHelper:Trans("LID_RAIDHYJAL"), 20, 60, 60)
+        self:AddActivity(list, "rf3:40", GuildHelper:Trans("LID_RAIDONYXIA"), 40, 60, 60, 249, nil, nil, 248)
+    elseif list.count == 0 and GuildHelper:GetWoWBuild() == "CLASSIC" and GetRealZoneText then
+        local raids = {{249, 40, 248}, {309, 20, 233}, {409, 40, 232}, {469, 40, 287}, {509, 20, 247}, {531, 40, 319}, {533, 40, 162}}
+        for _, raid in ipairs(raids) do
+            local instance, size, map = unpack(raid)
+            self:AddActivity(list, "rf" .. instance .. ":" .. size, GetRealZoneText(instance), size, nil, nil, instance, nil, nil, map)
+        end
+    elseif list.count > 0 then
+        self.raidActivities = list
+    end
+
+    self:SortActivities(list)
+    self.noRaids = list
     return list
 end
 
@@ -555,6 +634,7 @@ end
 function Groups:GetModeActivities(mode)
     if mode == "Q" then return self:GetQuestActivities() end
     if mode == "Z" then return self:GetZoneActivities() end
+    if self:GetPageForMode(mode) == "raids" then return self:GetRaidActivities() end
 
     return self:GetActivities()
 end
@@ -641,13 +721,17 @@ function Groups:GetLiveRoster(soloRole)
     return roster
 end
 
-function Groups:GetLiveNeeds(size, soloRole)
-    size = size or 5
+function Groups:GetRoleTargets(size)
     local needs = {
         TANK = size <= 5 and 1 or 2,
         HEALER = size <= 5 and 1 or max(2, floor(size / 5))
     }
     needs.DAMAGER = max(0, size - needs.TANK - needs.HEALER)
+    return needs
+end
+
+function Groups:GetLiveNeeds(size, soloRole)
+    local needs = self:GetRoleTargets(size or 5)
     local loose = 0
     local units = self:GetGroupUnits()
     local solo = #units == 1 and units[1] == "player"
@@ -672,12 +756,12 @@ function Groups:GetLiveNeeds(size, soloRole)
     return needs
 end
 
-function Groups:GetRecruitmentNeeds(mode, activity, soloRole)
+function Groups:GetRecruitmentNeeds(mode, activity, soloRole, key)
     if self:IsOutdoor(mode) then
         return {TANK = 0, HEALER = 0, DAMAGER = max(0, 5 - #self:GetGroupUnits())}
     end
 
-    return self:GetLiveNeeds(activity and activity.size, soloRole)
+    return self:GetLiveNeeds((activity and activity.size) or (key and self:GetRaidSize(key)), soloRole)
 end
 
 function Groups:Total(entry)
@@ -685,7 +769,7 @@ function Groups:Total(entry)
 end
 
 function Groups:GetDraftTime()
-    local draft = self.draft.P
+    local draft = self.draft[self.mode]
     local stamp = date("*t", time() + (draft.day or 0) * 86400)
     stamp.hour = draft.hour
     stamp.min = draft.minute
@@ -828,19 +912,23 @@ function Groups:Validate()
     local draft = self.draft[self.mode]
     local activity = draft.activity and self:GetModeActivities(self.mode).map[draft.activity]
     if not activity then return false, self:IsOutdoor(self.mode) and "LID_GROUPCHOOSEACTIVITY" or "LID_GROUPCHOOSE" end
-    if self.mode ~= "P" then
-        if self.mode == "L" and self:IsSolo() and not GuildHelper.Specs:GetRole(draft.soloRole) then return false, "LID_GROUPCHOOSEROLE" end
+    if not self:IsPlanned(self.mode) then
+        if not self:IsOutdoor(self.mode) and self:IsSolo() and not GuildHelper.Specs:GetRole(draft.soloRole) then return false, "LID_GROUPCHOOSEROLE" end
         if self:Total(self:GetRecruitmentNeeds(self.mode, activity, draft.soloRole)) == 0 then return false, "LID_GROUPFULL" end
 
         return true, self:GetOwnLive(self.mode) and "LID_GROUPACTIVE" or "LID_GROUPDRAFT"
     end
 
     local total = self:Total(draft)
-    if total < 1 or total > 39 then return false, "LID_GROUPLIMIT" end
+    local limit = self.mode == "S" and activity.size - 1 or 39
+    if total < 1 or total > limit then
+        if self.mode == "S" then return false, "LID_RAIDLIMIT", limit end
+        return false, "LID_GROUPLIMIT"
+    end
     if self:GetDraftTime() <= time() then return false, "LID_GROUPPAST" end
-    if not self.editing and self:CountPlanned(self:Self()) >= self.MAXPLANNED then return false, "LID_GROUPMAXPLANNED" end
+    if not self:GetCurrent() and self:CountPlanned(self:Self()) >= self.MAXPLANNED then return false, "LID_GROUPMAXPLANNED" end
 
-    return true, self.editing and "LID_GROUPEDITING" or "LID_GROUPDRAFT"
+    return true, self:GetCurrent() and "LID_GROUPEDITING" or "LID_GROUPDRAFT"
 end
 
 function Groups:IsReady()
@@ -848,7 +936,8 @@ function Groups:IsReady()
 end
 
 function Groups:Publish()
-    if self.mode ~= "P" and self:GetChatCooldown() > 0 then return end
+    local planned = self:IsPlanned(self.mode)
+    if not planned and self:GetChatCooldown() > 0 then return end
     if not self:CheckGuild() or not self:IsReady() or not self:Validate() then return end
     local owner = self:Self()
     if not owner then return end
@@ -868,12 +957,12 @@ function Groups:Publish()
             routeByID = true,
             owner = owner,
             name = GuildHelper.Sync:GetOwnName() or UnitName("player"),
-            kind = self.mode == "P" and "P" or "L",
+            kind = planned and "P" or "L",
             applicants = {}
         }
 
         self:GetStore(entry.kind)[entry.key] = entry
-        if self.mode == "P" then self.editing = entry.key end
+        if planned then draft.editing = entry.key end
     end
 
     if entry.kind == "L" then
@@ -886,9 +975,9 @@ function Groups:Publish()
     end
 
     entry.activity = activity.value
-    entry.activityName = self:CleanText(activity.label, self:IsOutdoor(self.mode) and 110 or 64)
+    entry.activityName = self:CleanText(activity.label, (self:IsOutdoor(self.mode) or self:GetPageForMode(self.mode) == "raids") and 110 or 64)
     entry.note = self:CleanText(draft.note, 110)
-    entry.when = self.mode == "P" and self:GetDraftTime() or 0
+    entry.when = planned and self:GetDraftTime() or 0
     self.selected = entry.key
     entry.chatLanguage = draft.chatLanguage or GuildHelper:GetLanguage()
     self:Broadcast(entry)
@@ -926,7 +1015,7 @@ function Groups:RestoreLiveEntry(entry, signupSerial)
     end
 
     local activity = self:GetActivity(entry.activity)
-    local needs = self:GetRecruitmentNeeds(mode, activity, entry.soloRole)
+    local needs = self:GetRecruitmentNeeds(mode, activity, entry.soloRole, entry.activity)
     if self:Total(needs) == 0 then return end
     for _, role in ipairs(GuildHelper.Specs.ROLES) do
         entry[role.value] = needs[role.value]
@@ -951,14 +1040,16 @@ function Groups:Close(entry)
     local store = self:GetStore(entry.kind)
     if store then store[entry.key] = nil end
     if self.announcements then self.announcements[entry.key] = nil end
-    if self.editing == entry.key then self.editing = nil end
+    local draft = self.draft[self:GetListingMode(entry)]
+    if draft.editing == entry.key then draft.editing = nil end
     self:Refresh()
 end
 
 function Groups:GetCurrent()
-    if self.mode ~= "P" then return self:GetOwnLive(self.mode) end
-    local entry = self:Find(self.editing)
-    if not entry then self.editing = nil end
+    if not self:IsPlanned(self.mode) then return self:GetOwnLive(self.mode) end
+    local draft = self.draft[self.mode]
+    local entry = self:Find(draft.editing)
+    if not entry then draft.editing = nil end
 
     return entry
 end
@@ -1020,10 +1111,12 @@ end
 
 function Groups:ReadListing(owner, sender, parts)
     local id, kind, when, activity = parts[3], parts[4], tonumber(parts[5]), parts[6]
-    if #id > 24 or not id:match("^%d+:%d+$") or (kind ~= "L" and kind ~= "P") or not when or not activity:match("^[adeqz]%d+$") then return false end
+    if #id > 24 or not id:match("^%d+:%d+$") or (kind ~= "L" and kind ~= "P") or not when then return false end
+    local raidSize = self:GetRaidSize(activity)
+    if not raidSize and not activity:match("^[adeqz]%d+$") then return false end
     local outdoor = self:IsOutdoor(self:GetActivityMode(activity))
     if outdoor and kind == "P" then return false end
-    local name = self:CleanText(parts[10], outdoor and 110 or 64)
+    local name = self:CleanText(parts[10], (outdoor or raidSize) and 110 or 64)
     if name == "" then return false end
     local now = time()
     if kind == "P" and (when < now - self.KEEP or when > now + (self.DAYS + 1) * 86400) then return false end
@@ -1046,7 +1139,7 @@ function Groups:ReadListing(owner, sender, parts)
     end
 
     local total = self:Total(counts)
-    if total > 39 or (kind == "L" and total < 1) then return false end
+    if total > (raidSize and raidSize - 1 or 39) or (kind == "L" and total < 1) then return false end
     if outdoor and (total > 4 or counts.TANK ~= 0 or counts.HEALER ~= 0) then return false end
     for role, count in pairs(counts) do
         entry[role] = count
@@ -1211,7 +1304,7 @@ end
 
 function Groups:TickOwnLive(own, now)
     if self.dirty and (not self.rosterReadyAt or now >= self.rosterReadyAt) then
-        local needs = self:GetRecruitmentNeeds(self:GetListingMode(own), self:GetActivity(own.activity), own.soloRole)
+        local needs = self:GetRecruitmentNeeds(self:GetListingMode(own), self:GetActivity(own.activity), own.soloRole, own.activity)
         if self:Total(needs) == 0 then
             self:Close(own)
 
@@ -1322,7 +1415,7 @@ function Groups:GetList(kind)
     end
 
     for _, entry in pairs(self:GetPlanned() or {}) do
-        if not kind or kind == "P" then tinsert(list, entry) end
+        if not kind or kind == self:GetListingMode(entry) then tinsert(list, entry) end
     end
 
     table.sort(list, function(a, b)
@@ -1339,6 +1432,7 @@ end
 
 function Groups:SetMode(mode)
     self.mode = mode
+    self.pageModes[self:GetPageForMode(mode)] = mode
     self.selected = nil
     if GuildHelper.Members.menu then GuildHelper.Members.menu:Hide() end
     self:SyncNote()
@@ -1346,7 +1440,7 @@ function Groups:SetMode(mode)
 end
 
 function Groups:LoadDraft(entry)
-    local draft = self.draft.P
+    local draft = self.draft[self:GetListingMode(entry)]
     draft.activity = entry.activity
     draft.note = entry.note or ""
     draft.chatLanguage = entry.chatLanguage or GuildHelper:GetLanguage()
@@ -1354,18 +1448,18 @@ function Groups:LoadDraft(entry)
     draft.day = max(0, min(self.DAYS - 1, self:GetDayOffset(entry.when)))
     draft.hour = stamp.hour
     draft.minute = stamp.min - stamp.min % 5
-    for index, role in ipairs(GuildHelper.Specs.ROLES) do
+    for _, role in ipairs(GuildHelper.Specs.ROLES) do
         draft[role.value] = entry[role.value] or 0
-        self.countBoxes[index]:SetText(tostring(draft[role.value]))
     end
 
-    self.editing = entry.key
+    draft.editing = entry.key
     self:SyncNote()
 end
 
 function Groups:NewDraft()
-    self.editing = nil
-    self.draft.P.note = ""
+    local draft = self.draft[self.mode]
+    draft.editing = nil
+    draft.note = ""
     self:SyncNote()
     self:Refresh()
 end
@@ -1378,6 +1472,15 @@ function Groups:Select(entry)
     self.selected = entry.key
     if self:IsOwn(entry) and entry.kind == "P" then self:LoadDraft(entry) end
     self:Refresh()
+end
+
+function Groups:OpenListing(entry)
+    local mode = self:GetListingMode(entry)
+    local Window = GuildHelper.Window
+    Window:SelectPage(self:GetPageForMode(mode))
+    Window.frame:Show()
+    self:SetMode(mode)
+    self:Select(entry)
 end
 
 function Groups:Text(parent, key, x, y, size, color)
@@ -1458,7 +1561,15 @@ function Groups:BuildForm(content)
         local mode = self.mode
         local draft = self.draft[mode]
         Members:OpenMenu(button, self:GetModeActivities(mode), draft.activity, function(value)
-            if not self:GetModeActivities(mode).map[value] then return end
+            local activity = self:GetModeActivities(mode).map[value]
+            if not activity then return end
+            if mode == "S" and draft.activity ~= value then
+                local targets = self:GetRoleTargets(activity.size)
+                targets.DAMAGER = targets.DAMAGER - 1
+                for role, count in pairs(targets) do
+                    draft[role] = count
+                end
+            end
             draft.activity = value
             self:Refresh()
         end)
@@ -1469,7 +1580,7 @@ function Groups:BuildForm(content)
     self.soloRolePill = Members:CreatePill(self.form, "")
     self.soloRolePill:SetPoint("LEFT", self.liveNeeds, "RIGHT", 16, 0)
     self.soloRolePill:SetScript("OnClick", function(button)
-        local draft = self.draft.L
+        local draft = self.draft[self.mode]
         local options = GuildHelper.Specs:GetRoleOptions()
         table.remove(options, 1)
         Members:OpenMenu(button, options, draft.soloRole, function(value)
@@ -1485,13 +1596,13 @@ function Groups:BuildForm(content)
         local box = self:CreateBox(self.form, 2, true)
         box:SetPoint("TOPLEFT", label, "BOTTOMLEFT", 0, -2)
         box:SetWidth(42)
-        box:SetText(tostring(self.draft.P[roleValue]))
-        box:SetScript("OnTextChanged", function(sel)
-            self.draft.P[roleValue] = max(0, floor(tonumber(sel:GetText()) or 0))
+        box:SetScript("OnTextChanged", function(sel, userInput)
+            if not userInput or not self:IsPlanned(self.mode) then return end
+            self.draft[self.mode][roleValue] = max(0, floor(tonumber(sel:GetText()) or 0))
             self:Refresh()
         end)
 
-        box:SetScript("OnEditFocusLost", function(sel) sel:SetText(tostring(self.draft.P[roleValue])) end)
+        box:SetScript("OnEditFocusLost", function(sel) sel:SetText(tostring(self.draft[self.mode][roleValue] or 0)) end)
         self.countLabels[index] = label
         self.countBoxes[index] = box
     end
@@ -1505,8 +1616,8 @@ function Groups:BuildForm(content)
     self.dayPill = Members:CreatePill(self.form, "")
     self.dayPill:SetPoint("TOPLEFT", self.form, "TOPLEFT", 150, -136)
     self.dayPill:SetScript("OnClick", function(button)
-        Members:OpenMenu(button, self:GetDayOptions(), self.draft.P.day, function(value)
-            self.draft.P.day = value
+        Members:OpenMenu(button, self:GetDayOptions(), self.draft[self.mode].day, function(value)
+            self.draft[self.mode].day = value
             self:Refresh()
         end)
     end)
@@ -1514,8 +1625,8 @@ function Groups:BuildForm(content)
     self.hourPill = Members:CreatePill(self.form, "")
     self.hourPill:SetPoint("LEFT", self.dayPill, "RIGHT", 12, 0)
     self.hourPill:SetScript("OnClick", function(button)
-        Members:OpenMenu(button, self:GetNumberOptions(23, 1), self.draft.P.hour, function(value)
-            self.draft.P.hour = value
+        Members:OpenMenu(button, self:GetNumberOptions(23, 1), self.draft[self.mode].hour, function(value)
+            self.draft[self.mode].hour = value
             self:Refresh()
         end)
     end)
@@ -1523,8 +1634,8 @@ function Groups:BuildForm(content)
     self.minutePill = Members:CreatePill(self.form, "")
     self.minutePill:SetPoint("LEFT", self.hourPill, "RIGHT", 6, 0)
     self.minutePill:SetScript("OnClick", function(button)
-        Members:OpenMenu(button, self:GetNumberOptions(55, 5), self.draft.P.minute, function(value)
-            self.draft.P.minute = value
+        Members:OpenMenu(button, self:GetNumberOptions(55, 5), self.draft[self.mode].minute, function(value)
+            self.draft[self.mode].minute = value
             self:Refresh()
         end)
     end)
@@ -1619,16 +1730,18 @@ end
 function Groups:Build(content)
     local Members, Window, Dashboard = GuildHelper.Members, GuildHelper.Window, GuildHelper.Dashboard
     self.content = content
-    local title = Window:CreatePageTitle(content, "LID_GROUPFINDER")
+    self.pageTitle = Window:CreatePageTitle(content, "LID_GROUPFINDER")
     self.modePills = {}
-    local previous = title
-    for index, mode in ipairs(self.modes) do
-        local value = mode.value
-        local pill = Members:CreatePill(content, "")
-        pill:SetPoint("LEFT", previous, "RIGHT", index == 1 and 24 or 8, 0)
-        pill:SetScript("OnClick", function() self:SetMode(value) end)
-        self.modePills[value] = pill
-        previous = pill
+    for _, modes in ipairs({self.modes, self.raidModes}) do
+        local previous = self.pageTitle
+        for index, mode in ipairs(modes) do
+            local value = mode.value
+            local pill = Members:CreatePill(content, "")
+            pill:SetPoint("LEFT", previous, "RIGHT", index == 1 and 24 or 8, 0)
+            pill:SetScript("OnClick", function() self:SetMode(value) end)
+            self.modePills[value] = pill
+            previous = pill
+        end
     end
     self.hint = self:Text(content, nil, Window.PADDING, -62, 11)
     self.hint:SetPoint("RIGHT", content, "RIGHT", -Window.MARGIN, 0)
@@ -1757,10 +1870,15 @@ end
 
 function Groups:RefreshForm()
     local Members = GuildHelper.Members
-    local planned = self.mode == "P"
+    local planned = self:IsPlanned(self.mode)
+    local raid = self:GetPageForMode(self.mode) == "raids"
     local draft = self.draft[self.mode]
     if planned and not draft.day then draft.day = tonumber(date("%H")) < draft.hour and 0 or 1 end
-    for _, mode in ipairs(self.modes) do
+    GuildHelper.Theme:SetTrans(self.pageTitle, raid and "LID_RAIDS" or "LID_GROUPFINDER")
+    for mode, pill in pairs(self.modePills) do
+        pill:SetShown(self:GetPageForMode(mode) == self:GetPageForMode(self.mode))
+    end
+    for _, mode in ipairs(raid and self.raidModes or self.modes) do
         local pill = self.modePills[mode.value]
         Members:SetPillActive(pill, self.mode == mode.value)
         Members:SetPillText(pill, GuildHelper:Trans(mode.label) .. " (" .. #self:GetList(mode.value) .. ")")
@@ -1787,12 +1905,12 @@ function Groups:RefreshForm()
     self.dateLabel:SetPoint("TOPLEFT", self.form, "TOPLEFT", 14, -143 - extra)
     self.dayPill:SetPoint("TOPLEFT", self.form, "TOPLEFT", 150, -136 - extra)
     self:RefreshAnnouncementOptions(planned, extra)
-    local choose = outdoor and "LID_GROUPCHOOSEACTIVITY" or "LID_GROUPCHOOSE"
-    local empty = outdoor and "LID_NODATA" or "LID_GROUPNOACTIVITIES"
+    local choose = (outdoor or raid) and "LID_GROUPCHOOSEACTIVITY" or "LID_GROUPCHOOSE"
+    local empty = (outdoor or raid) and "LID_NODATA" or "LID_GROUPNOACTIVITIES"
     Members:SetPillText(self.activityPill, activity and activity.label or GuildHelper:Trans(activities.count > 0 and choose or empty))
     self.activityPill:SetEnabled(activities.count > 0)
     self.liveNeeds:SetShown(not planned)
-    local showSoloRole = self.mode == "L" and self:IsSolo()
+    local showSoloRole = not planned and not outdoor and self:IsSolo()
     self.soloRolePill:SetShown(showSoloRole)
     if showSoloRole then
         Members:SetPillText(self.soloRolePill, GuildHelper.Specs:Format({role = draft.soloRole}) or GuildHelper:Trans("LID_GROUPCHOOSEROLE"))
@@ -1810,7 +1928,12 @@ function Groups:RefreshForm()
         }))
 
         self.countLabels[index]:SetShown(planned)
-        self.countBoxes[index]:SetShown(planned)
+        local box = self.countBoxes[index]
+        box:SetShown(planned)
+        if planned and not box:HasFocus() then
+            local count = tostring(draft[role.value])
+            if box:GetText() ~= count then box:SetText(count) end
+        end
     end
 
     self.dateLabel:SetShown(planned)
@@ -1824,7 +1947,7 @@ function Groups:RefreshForm()
     end
 
     local current = self:GetCurrent()
-    local ok, status = self:Validate()
+    local ok, status, limit = self:Validate()
     local cooldown = planned and 0 or self:GetChatCooldown()
     self.publish:SetEnabled(ok and self:IsReady() and cooldown == 0)
     GuildHelper.Theme:SetTrans(self.publish.text, current and "LID_GROUPUPDATE" or "LID_GROUPPUBLISH")
@@ -1838,6 +1961,7 @@ function Groups:RefreshForm()
     self.close:SetPoint("LEFT", planned and self.new or self.publish, "RIGHT", 12, 0)
     self.close:SetEnabled(current ~= nil)
     local text = GuildHelper:Trans(status)
+    if limit then text = format(text, limit) end
     if planned and current then text = text .. ": " .. self:GetActivityName(current) .. " · " .. self:FormatWhen(current.when) end
     self.status:SetText(text)
 end
@@ -1981,11 +2105,35 @@ function Groups:Refresh()
         self:RefreshList()
         self:RefreshDetail()
     end
-    GuildHelper.Window:UpdateNavCount("groups", self:CountUnread())
+    for page, count in pairs(self:CountUnread()) do
+        GuildHelper.Window:UpdateNavCount(page, count)
+    end
     if GuildHelper.Calendar then GuildHelper.Calendar:QueueRefresh() end
 end
 
-GuildHelper.Window:SetPageBuilder("groups", function(content) Groups:Build(content) end)
+function Groups:AttachPage(host, page)
+    host.OnPageShow = function()
+        local mode = self.pageModes[page]
+        if not self.content then
+            self.mode = mode
+            local content = CreateFrame("Frame", nil, host)
+            content:SetAllPoints(host)
+            self:Build(content)
+        elseif self.content:GetParent() ~= host then
+            self.content:SetParent(host)
+            self.content:ClearAllPoints()
+            self.content:SetAllPoints(host)
+        end
+        if self.mode ~= mode then self:SetMode(mode) end
+        self.content.OnPageShow()
+    end
+    host.OnPageHide = function()
+        if self.content and self.content:GetParent() == host then self.content.OnPageHide() end
+    end
+end
+
+GuildHelper.Window:SetPageBuilder("groups", function(content) Groups:AttachPage(content, "groups") end)
+GuildHelper.Window:SetPageBuilder("raids", function(content) Groups:AttachPage(content, "raids") end)
 GuildHelper.Window:OnRebuild(function() Groups.content = nil end)
 GuildHelper.Theme:OnRefresh(function() Groups:Refresh() end)
 Groups.events = CreateFrame("Frame")

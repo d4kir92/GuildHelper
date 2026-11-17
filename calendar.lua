@@ -95,7 +95,7 @@ function Calendar:Collect(days, byDate)
     end
     if not self.picking and self:IsEnabled("groups") then
         Groups:CheckGuild()
-        for _, entry in ipairs(Groups:GetList("P")) do
+        for _, entry in pairs(Groups:GetPlanned() or {}) do
             local when = Events:PlannedClock(entry.when)
             local day = byDate[when:sub(1, 10)]
             if day then
@@ -120,9 +120,7 @@ function Calendar:Activate(item)
         Window:SelectPage("events")
         Events:Select(item.id)
     elseif item.source == "groups" then
-        Window:SelectPage("groups")
-        Groups:SetMode("P")
-        Groups:Select(item.entry)
+        Groups:OpenListing(item.entry)
     elseif self.picking then
         self.picking = false
         Events:Import(item)
