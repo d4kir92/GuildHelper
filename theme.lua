@@ -304,8 +304,8 @@ function Theme:GetClassColor(classFile)
     local low = min(color.r, color.g, color.b)
     if high == low then return color end
 
-    local peak = high + (1 - high) * 0.15
-    local range = min(peak, (high - low) * 1.35)
+    local peak = high + (1 - high) * 0.30
+    local range = min(peak, (high - low) * 1.75)
     local scale = range / (high - low)
     return {
         r = peak - (high - color.r) * scale,
