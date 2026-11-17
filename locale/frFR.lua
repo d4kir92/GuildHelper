@@ -305,6 +305,7 @@ GuildHelper:AddTrans("frFR", "LID_SHOWILVLDESC", "Affiche la colonne du niveau d
 GuildHelper:AddTrans("frFR", "LID_SHOWMINIMAP", "Afficher le bouton de minicarte")
 GuildHelper:AddTrans("frFR", "LID_SHOWMINIMAPDESC", "Afficher ou masquer le bouton de GuildHelper sur la minicarte.")
 GuildHelper:AddTrans("frFR", "LID_SPECS", "Spécialisations")
+GuildHelper:AddTrans("frFR", "LID_STRONGCLASSCOLORS", "Couleurs de classe plus vives")
 GuildHelper:AddTrans("frFR", "LID_TODAY", "Aujourd'hui")
 GuildHelper:AddTrans("frFR", "LID_TOMORROW", "Demain")
 GuildHelper:AddTrans("frFR", "LID_TWITCH", "Twitch")

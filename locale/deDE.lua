@@ -305,6 +305,7 @@ GuildHelper:AddTrans("deDE", "LID_SHOWILVLDESC", "Zeigt die Itemlevel-Spalte in 
 GuildHelper:AddTrans("deDE", "LID_SHOWMINIMAP", "Minimap-Button anzeigen")
 GuildHelper:AddTrans("deDE", "LID_SHOWMINIMAPDESC", "Den Minimap-Button von GuildHelper ein- oder ausblenden.")
 GuildHelper:AddTrans("deDE", "LID_SPECS", "Spezialisierungen")
+GuildHelper:AddTrans("deDE", "LID_STRONGCLASSCOLORS", "Kräftigere Klassenfarben")
 GuildHelper:AddTrans("deDE", "LID_TODAY", "Heute")
 GuildHelper:AddTrans("deDE", "LID_TOMORROW", "Morgen")
 GuildHelper:AddTrans("deDE", "LID_TWITCH", "Twitch")

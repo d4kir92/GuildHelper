@@ -305,6 +305,7 @@ GuildHelper:AddTrans("koKR", "LID_SHOWILVLDESC", "구성원 목록에 아이템 
 GuildHelper:AddTrans("koKR", "LID_SHOWMINIMAP", "미니맵 버튼 표시")
 GuildHelper:AddTrans("koKR", "LID_SHOWMINIMAPDESC", "GuildHelper 미니맵 버튼을 표시하거나 숨깁니다.")
 GuildHelper:AddTrans("koKR", "LID_SPECS", "전문화")
+GuildHelper:AddTrans("koKR", "LID_STRONGCLASSCOLORS", "더 선명한 직업 색상")
 GuildHelper:AddTrans("koKR", "LID_TODAY", "오늘")
 GuildHelper:AddTrans("koKR", "LID_TOMORROW", "내일")
 GuildHelper:AddTrans("koKR", "LID_TWITCH", "Twitch")

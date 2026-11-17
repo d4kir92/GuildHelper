@@ -296,6 +296,24 @@ function Theme:GetColor(key)
     return color[1], color[2], color[3], color[4]
 end
 
+function Theme:GetClassColor(classFile)
+    local color = classFile and RAID_CLASS_COLORS and RAID_CLASS_COLORS[classFile]
+    if not color or not GuildHelper:GetConfig("STRONGCLASSCOLORS", false) then return color end
+
+    local high = max(color.r, color.g, color.b)
+    local low = min(color.r, color.g, color.b)
+    if high == low then return color end
+
+    local peak = high + (1 - high) * 0.15
+    local range = min(peak, (high - low) * 1.35)
+    local scale = range / (high - low)
+    return {
+        r = peak - (high - color.r) * scale,
+        g = peak - (high - color.g) * scale,
+        b = peak - (high - color.b) * scale
+    }
+end
+
 function Theme:GetHex(key)
     local r, g, b = self:GetColor(key)
 

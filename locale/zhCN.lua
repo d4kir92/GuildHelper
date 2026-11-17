@@ -305,6 +305,7 @@ GuildHelper:AddTrans("zhCN", "LID_SHOWILVLDESC", "在成员列表中显示物品
 GuildHelper:AddTrans("zhCN", "LID_SHOWMINIMAP", "显示小地图按钮")
 GuildHelper:AddTrans("zhCN", "LID_SHOWMINIMAPDESC", "显示或隐藏 GuildHelper 小地图按钮。")
 GuildHelper:AddTrans("zhCN", "LID_SPECS", "专精")
+GuildHelper:AddTrans("zhCN", "LID_STRONGCLASSCOLORS", "更鲜艳的职业颜色")
 GuildHelper:AddTrans("zhCN", "LID_TODAY", "今天")
 GuildHelper:AddTrans("zhCN", "LID_TOMORROW", "明天")
 GuildHelper:AddTrans("zhCN", "LID_TWITCH", "Twitch")

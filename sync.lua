@@ -100,6 +100,20 @@ Sync.professionNames = {
     [794] = {enUS = "Archaeology", deDE = "Archäologie"},
 }
 
+Sync.primaryProfessionIcons = {
+    [164] = 136241,
+    [165] = 133611,
+    [171] = 136240,
+    [182] = 136246,
+    [186] = 136248,
+    [197] = 136249,
+    [202] = 136243,
+    [333] = 136244,
+    [393] = 134366,
+    [755] = 134071,
+    [773] = 237171
+}
+
 function Sync:GetProfessionName(id, fallback)
     if id and C_TradeSkillUI then
         local name
@@ -129,6 +143,22 @@ function Sync:GetProfessionID(name, id)
     for skillLineID in pairs(self.professionNames) do
         if name == self:GetProfessionName(skillLineID) then return skillLineID end
     end
+end
+
+function Sync:GetPrimaryProfessions(data)
+    local professions, seen = {}, {}
+    for _, entry in ipairs(data and data.professions or {}) do
+        local id = self:GetProfessionID(entry[1], entry[4])
+        local icon = self.primaryProfessionIcons[id]
+        if icon and not seen[id] then
+            seen[id] = true
+            tinsert(professions, {icon = icon, sortName = strlower(self:GetProfessionName(id, entry[1]))})
+        end
+    end
+
+    table.sort(professions, function(a, b) return a.sortName < b.sortName end)
+
+    return professions
 end
 
 function Sync:GroupProfessions(entries, getID)

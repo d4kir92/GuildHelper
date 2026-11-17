@@ -269,6 +269,12 @@ Settings.DISPLAYOPTIONS = {
         label = "LID_SHOWILVL",
         desc = "LID_SHOWILVLDESC",
         display = true
+    },
+    {
+        key = "STRONGCLASSCOLORS",
+        default = false,
+        label = "LID_STRONGCLASSCOLORS",
+        display = true
     }
 }
 
@@ -290,6 +296,10 @@ function Settings:ToggleMapOption(option)
     if self:IsMapOptionEnabled(option) then
         GuildHelper:SetConfig(option.key, not self:GetMapOption(option.key))
         if option.key == "MMBTN" then GuildHelper:SetMinimapVisible(self:GetMapOption("MMBTN")) end
+        if option.key == "STRONGCLASSCOLORS" then
+            Theme:Refresh()
+            if GuildHelper.GuildMap then GuildHelper.GuildMap.Refresh() end
+        end
         if GuildHelper.GuildMap and not option.invite and not option.display then
             GuildHelper:SetSharedSetting(option.key, self:GetMapOption(option.key))
             GuildHelper.GuildMap.Refresh()
@@ -419,7 +429,7 @@ function Settings:StopKeyCapture()
 end
 
 function Settings:CreateWindowKey(panel)
-    self.keyPill = self:CreateRow(panel, -218, "LID_WINDOWKEY", "LID_WINDOWKEYDESC")
+    self.keyPill = self:CreateRow(panel, -254, "LID_WINDOWKEY", "LID_WINDOWKEYDESC")
     self.keyPill:RegisterForClicks("LeftButtonUp", "RightButtonUp")
     self.keyPill:SetScript("OnClick", function(sel, button)
         if button == "RightButton" then
@@ -498,7 +508,7 @@ function Settings:Build(content)
     scroll:SetPoint("TOPLEFT", content, "TOPLEFT", Window.PADDING, -80)
     scroll:SetPoint("BOTTOMRIGHT", content, "BOTTOMRIGHT", -Window.PADDING, Window.PADDING)
     local body = CreateFrame("Frame", nil, scroll)
-    body:SetSize(self.WIDTH + 16 + self.MAPWIDTH, 594)
+    body:SetSize(self.WIDTH + 16 + self.MAPWIDTH, 630)
     scroll:SetScrollChild(body)
     scroll:EnableMouseWheel(true)
     scroll:SetScript("OnMouseWheel", function(sel, delta)
@@ -511,7 +521,7 @@ function Settings:Build(content)
 
     local panel = CreateFrame("Frame", nil, body)
     panel:SetPoint("TOPLEFT", body, "TOPLEFT", 0, 0)
-    panel:SetSize(self.WIDTH, 294)
+    panel:SetSize(self.WIDTH, 330)
     Theme:Panel(panel, "panel", "border", 9)
     self.langPill = self:CreateRow(panel, -20, "LID_LANGUAGE", "LID_LANGUAGEDESC")
     self.langPill:SetScript("OnClick", function(sel)

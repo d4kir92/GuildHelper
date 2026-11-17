@@ -50,6 +50,11 @@ Members.COLUMNS = {
         width = 72
     },
     {
+        key = "professions",
+        label = "LID_PROFESSIONS",
+        width = 84
+    },
+    {
         key = "rank",
         label = "LID_RANK",
         width = 92
@@ -113,7 +118,7 @@ function Members:ShortName(name)
 end
 
 function Members:GetClassColor(member)
-    local color = RAID_CLASS_COLORS and member and member.classFile and RAID_CLASS_COLORS[member.classFile]
+    local color = Theme:GetClassColor(member and member.classFile)
     if color then return color.r, color.g, color.b end
 
     return Theme:GetColor("text")
@@ -372,6 +377,10 @@ function Members:GetSortValue(member, key)
     end
     if key == "level" then return member.level end
     if key == "rank" then return member.rankIndex end
+    if key == "professions" then
+        local professions = GuildHelper.Sync:GetPrimaryProfessions(self:GetData(member))
+        return professions[1] and professions[1].sortName or "\255"
+    end
     if key == "zone" then return member.zone == "" and "\255" or strlower(member.zone) end
     if key == "isMain" then return member.declaredMain and 0 or (member.main and 1 or 2) end
     if key == "mainSpec" then return self:GetSpecSortValue(member, 1) end
@@ -688,7 +697,7 @@ function Members:GetOrderedColumns()
     end
 
     for _, column in ipairs(self.COLUMNS) do
-        if not seen[column.key] then
+        if not seen[column.key] and column.key ~= "professions" then
             seen[column.key] = true
             tinsert(list, column)
         end
@@ -696,6 +705,7 @@ function Members:GetOrderedColumns()
 
     local ordered, specsAdded = {}, false
     for _, column in ipairs(list) do
+        if column.key == "rank" and not seen.professions then tinsert(ordered, byKey.professions) end
         if column.key == "mainSpec" or column.key == "secondSpec" then
             if not specsAdded then
                 tinsert(ordered, byKey.mainSpec)
@@ -896,7 +906,7 @@ function Members:GetClassOptions()
         tinsert(options, {
             label = member.className,
             value = member.classFile,
-            color = RAID_CLASS_COLORS and RAID_CLASS_COLORS[member.classFile]
+            color = Theme:GetClassColor(member.classFile)
         })
     end
 
@@ -1114,6 +1124,7 @@ function Members:CreateRow(parent, index)
     row.secondSpec = Theme:Text(row, 12, "navText")
     row.twitch = Theme:Text(row, 12.5, "text")
     row.zone = Theme:Text(row, 12.5, "navText")
+    row.professions = Theme:Text(row, 13, "text")
     row.rank = Theme:Text(row, 13, "text")
     row.ilvl = Theme:Text(row, 13, "text")
     row.seen = Theme:Text(row, 12, "muted")
@@ -1314,6 +1325,15 @@ function Members:FillRow(row, member)
     local twitch = self:GetTwitchName(member)
     row.twitch:SetText(twitch ~= "" and twitch or "–")
     row.zone:SetText(member.zone)
+    local professionIcons = {}
+    if self.COLUMNSHOWN.professions then
+        local professions = GuildHelper.Sync:GetPrimaryProfessions(data)
+        for index = 1, min(2, #professions) do
+            professionIcons[index] = GuildHelper.Specs:GetIconString(professions[index].icon, nil, 18)
+        end
+    end
+
+    row.professions:SetText(table.concat(professionIcons))
     row.rank:SetText(member.rank)
     row.ilvl:SetText(self:GetItemLevel(member) or "–")
     row.note:SetText(member.note)
@@ -1412,12 +1432,14 @@ end
 
 function Members:LayoutColumns()
     local panel = self.panel
-    local fixed, notes = 0, 0
+    local fixed, notes, reserved = 0, 0, 0
+    local keepVisible = self:IsColumnEnabled("professions") and {professions = true, rank = true} or {}
     for _, column in ipairs(self.COLUMNS) do
         if column.note and self:IsColumnShown(column) then
             notes = notes + 1
         elseif column.width and self:IsColumnShown(column) then
             fixed = fixed + column.width
+            if keepVisible[column.key] then reserved = reserved + column.width end
         end
     end
 
@@ -1428,8 +1450,10 @@ function Members:LayoutColumns()
     local limit = panel:GetWidth() - 6
     for _, column in ipairs(self:GetOrderedColumns()) do
         local width = column.width or (column.note and noteWidth) or nameWidth
-        local shown = self:IsColumnShown(column) and (column.key == "name" or x + width <= limit)
-        if column.key == "mainSpec" then shown = shown and x + width * 2 <= limit end
+        local enabled = self:IsColumnShown(column)
+        if enabled and keepVisible[column.key] then reserved = reserved - width end
+        local shown = enabled and (column.key == "name" or x + width + reserved <= limit)
+        if column.key == "mainSpec" then shown = shown and x + width * 2 + reserved <= limit end
         if column.key == "secondSpec" then shown = shown and self.COLUMNSHOWN.mainSpec end
         local header = self.headerByKey[column.key]
         self.COLUMNX[column.key] = x
@@ -1465,6 +1489,7 @@ function Members:LayoutRow(row)
     Place(row.secondSpec, "secondSpec", 0, 8)
     Place(row.twitch, "twitch", 0, 8)
     Place(row.zone, "zone", 0, 8)
+    Place(row.professions, "professions", 0, 6)
     Place(row.rank, "rank", 0, 8)
     Place(row.ilvl, "ilvl")
     Place(row.seen, "lastOnline")

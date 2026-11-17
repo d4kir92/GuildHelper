@@ -717,7 +717,7 @@ function Dashboard:FormatChatLine(sender, text, classID, messageID)
         end
     end
 
-    local color = classFile and RAID_CLASS_COLORS and RAID_CLASS_COLORS[classFile]
+    local color = Theme:GetClassColor(classFile)
     if color then name = format("|cff%02x%02x%02x%s|r", color.r * 255, color.g * 255, color.b * 255, name) end
     name = "[" .. name .. "]"
     if messageID and GetPlayerCommunityLink then

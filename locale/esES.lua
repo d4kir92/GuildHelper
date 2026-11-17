@@ -305,6 +305,7 @@ GuildHelper:AddTrans("esES", "LID_SHOWILVLDESC", "Muestra la columna de nivel de
 GuildHelper:AddTrans("esES", "LID_SHOWMINIMAP", "Mostrar botón del minimapa")
 GuildHelper:AddTrans("esES", "LID_SHOWMINIMAPDESC", "Mostrar u ocultar el botón de GuildHelper en el minimapa.")
 GuildHelper:AddTrans("esES", "LID_SPECS", "Especializaciones")
+GuildHelper:AddTrans("esES", "LID_STRONGCLASSCOLORS", "Colores de clase más intensos")
 GuildHelper:AddTrans("esES", "LID_TODAY", "Hoy")
 GuildHelper:AddTrans("esES", "LID_TOMORROW", "Mañana")
 GuildHelper:AddTrans("esES", "LID_TWITCH", "Twitch")

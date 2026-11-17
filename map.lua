@@ -2,7 +2,8 @@ local _, GuildHelper = ...
 if GuildHelper.CreateGuildMap == nil then return end
 GuildHelper.GuildMap = GuildHelper:CreateGuildMap({
     owner = "GuildHelper",
-    priority = 20
+    priority = 20,
+    getClassColor = function(classFile) return GuildHelper.Theme:GetClassColor(classFile) end
 })
 if GuildHelper.GuildMap then
     GuildHelper.GuildMap.Send = function(message)
