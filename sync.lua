@@ -322,7 +322,8 @@ function Sync:Send(message, key, prefix, guild, target)
         key = key,
         guild = guild,
         target = target,
-        tries = 0
+        tries = 0,
+        bankRank = strsub(message, 1, 3) == "BK~" and GuildHelper.Bank and GuildHelper.Bank.rank or nil
     })
 
     self:Pump(0)
@@ -364,7 +365,9 @@ function Sync:Pump(elapsed)
 
     while self.tokens >= 1 and #self.queue > 0 do
         local item = self.queue[1]
-        if item.guild and item.guild ~= self:GetGuildKey() then
+        if item.bankRank and GuildHelper.Bank and not GuildHelper.Bank:CanTransmit(item.message, item.target, item.bankRank) then
+            tremove(self.queue, 1)
+        elseif item.guild and item.guild ~= self:GetGuildKey() then
             tremove(self.queue, 1)
         elseif not self:Transmit(item.message, item.prefix, item.target) then
             item.tries = item.tries + 1
@@ -421,12 +424,17 @@ function Sync:ScheduleInfo(delay)
 end
 
 function Sync:OnMessage(message, channel, sender)
-    if channel ~= "GUILD" or type(message) ~= "string" or type(sender) ~= "string" then return end
+    if (channel ~= "GUILD" and channel ~= "WHISPER") or type(message) ~= "string" or type(sender) ~= "string" then return end
     if not GuildHelper:CanAccessValues(message, sender) then
         self:Trace("Gildennachricht vom Client gesperrt")
 
         return
     end
+    if strsub(message, 1, 3) == "BK~" and GuildHelper.Bank then
+        GuildHelper.Bank:OnMessage(message, channel, sender)
+        return
+    end
+    if channel ~= "GUILD" then return end
     if strsub(message, 1, 3) == "EV~" and GuildHelper.Events then
         GuildHelper.Events:OnMessage(message, sender)
 

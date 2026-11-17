@@ -5,7 +5,7 @@ GuildHelper.Window = Window
 Window.WIDTH = 1200
 Window.HEIGHT = 570
 Window.MINWIDTH = 1060
-Window.MINHEIGHT = 550
+Window.MINHEIGHT = 580
 Window.MINSCALE = 0.5
 Window.MAXSCALE = 2
 Window.TEMPLATES = {"ButtonFrameTemplate", "PortraitFrameTemplate", "BasicFrameTemplateWithInset"}
@@ -115,6 +115,10 @@ Window.NAV = {
         label = "LID_RAIDS"
     },
     {
+        key = "guildbank",
+        label = "LID_GUILDBANK"
+    },
+    {
         key = "professions",
         label = "LID_PROFESSIONS"
     },
@@ -162,7 +166,7 @@ Window.FLAVORS = {
 }
 
 Window.builders = {}
-Window.NAVICONS = {dashboard = "INV_Misc_Map_01", members = "INV_Misc_GroupLooking", professions = "Trade_BlackSmithing", orders = "INV_Misc_Note_01", events = "INV_Misc_PocketWatch_01", groups = "INV_Misc_GroupNeedMore", raids = "INV_Misc_Head_Dragon_01", calendar = "INV_Misc_PocketWatch_02", chars = "INV_Misc_Head_Human_01", log = "INV_Misc_Book_09", management = "INV_Misc_Gear_01", feedback = "INV_Misc_Note_01", settings = "Trade_Engineering"}
+Window.NAVICONS = {dashboard = "INV_Misc_Map_01", members = "INV_Misc_GroupLooking", professions = "Trade_BlackSmithing", orders = "INV_Misc_Note_01", events = "INV_Misc_PocketWatch_01", groups = "INV_Misc_GroupNeedMore", raids = "INV_Misc_Head_Dragon_01", guildbank = "INV_Misc_Coin_01", calendar = "INV_Misc_PocketWatch_02", chars = "INV_Misc_Head_Human_01", log = "INV_Misc_Book_09", management = "INV_Misc_Gear_01", feedback = "INV_Misc_Note_01", settings = "Trade_Engineering"}
 
 function Window:ApplyNavigation()
     local collapsed = GuildHelper:GetConfig("NAVCOLLAPSED", false)
