@@ -72,7 +72,7 @@ function Notifications:Create()
             if entry and (notice.group or (entry.applicants and entry.applicants[notice.applicant])) then
                 GuildHelper.Window:SelectPage("groups")
                 GuildHelper.Window.frame:Show()
-                groups:SetMode(entry.kind)
+                groups:SetMode(groups:GetListingMode(entry))
                 groups:Select(entry)
             end
         elseif not notice.test and not notice.applicant and notice.guild == GuildHelper.Sync:GetGuildKey() and feedback:Find(notice.id) then

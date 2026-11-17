@@ -29,9 +29,13 @@ end
 function Groups:AnnouncementText(entry)
     local lang = entry.chatLanguage or GuildHelper:GetLanguage()
     local needs = {}
-    for _, role in ipairs(GuildHelper.Specs.ROLES) do
-        local count = entry[role.value] or 0
-        if count > 0 then tinsert(needs, count .. " [" .. GuildHelper:Trans(role.label, lang) .. "]") end
+    if self:IsOutdoor(self:GetListingMode(entry)) then
+        needs[1] = GuildHelper:Trans("LID_GROUPNEEDS", lang) .. " " .. self:Total(entry)
+    else
+        for _, role in ipairs(GuildHelper.Specs.ROLES) do
+            local count = entry[role.value] or 0
+            if count > 0 then tinsert(needs, count .. " [" .. GuildHelper:Trans(role.label, lang) .. "]") end
+        end
     end
 
     local function compose(activity)
@@ -85,11 +89,14 @@ function Groups:TickAnnouncements()
     end
 
     if not selected and (not self.rosterReadyAt or clock >= self.rosterReadyAt) then
-        local live = self:GetOwnLive()
-        if live then
-            text = self:AnnouncementText(live)
-            liveState = self:GetLiveChatState(live, text)
-            if self:GetLiveAnnouncementDelay(live, liveState, clock, now) == 0 then selected = live end
+        for _, live in pairs(self.live) do
+            if self:IsOwn(live) and (not selected or (live.lastChatAt or 0) < (selected.lastChatAt or 0)) then
+                local candidate = self:AnnouncementText(live)
+                local state = self:GetLiveChatState(live, candidate)
+                if self:GetLiveAnnouncementDelay(live, state, clock, now) == 0 then
+                    selected, text, liveState = live, candidate, state
+                end
+            end
         end
     end
 
@@ -135,7 +142,7 @@ function Groups:BuildAnnouncementOptions(form)
     self.chatCountdown:ClearAllPoints()
     self.chatCountdown:SetPoint("LEFT", self.chatRepeat, "RIGHT", 12, 0)
     self.chatRepeat:SetScript("OnClick", function(button)
-        local draft = self.draft.L
+        local draft = self.draft[self.mode]
         local options = {}
         local label = GuildHelper:Trans("LID_GROUPCHATMINUTES")
         for minutes = self.DEFAULTCHATREPEATMINUTES, 20 do
@@ -143,7 +150,7 @@ function Groups:BuildAnnouncementOptions(form)
         end
         Members:OpenMenu(button, options, draft.chatRepeatMinutes or self.DEFAULTCHATREPEATMINUTES, function(value)
             draft.chatRepeatMinutes = value
-            local live = self:GetOwnLive()
+            local live = self:GetOwnLive(self.mode)
             if live then live.chatRepeatMinutes = value end
             self:Refresh()
         end)
@@ -163,7 +170,7 @@ function Groups:RefreshAnnouncementOptions(planned, extra)
     local repeatEnabled = not planned and GuildHelper.Bridge:IsLiveRepeatEnabled()
     self.chatRepeatLabel:SetShown(repeatEnabled)
     self.chatRepeat:SetShown(repeatEnabled)
-    local live = repeatEnabled and self:GetOwnLive()
+    local live = repeatEnabled and self:GetOwnLive(self.mode)
     self.chatCountdown:SetShown(live and true or false)
     if live then
         local clock = GetTime()
