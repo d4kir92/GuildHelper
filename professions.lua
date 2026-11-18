@@ -210,7 +210,8 @@ function Professions:Update()
         end
         if #skills > 0 and (not page.online:GetChecked() or member.online) then
             local status = member.online and GuildHelper:Trans("LID_ONLINE") or (FRIENDS_LIST_OFFLINE or PLAYER_OFFLINE or "")
-            local label = Members:NameWithTwitch(member) .. "  |cffaaaaaa" .. status .. "|r"
+            local zone = member.zone and member.zone ~= "" and ("  -  " .. member.zone) or ""
+            local label = Members:NameWithTwitch(member) .. "  |cffaaaaaa" .. status .. zone .. "|r"
             if byRecipe then
                 for key, skill in pairs(seen) do
                     if not page.filter or page.filter == key then
