@@ -88,6 +88,7 @@ Members.nameWidth = Members.MINNAME
 
 
 Members.list = {}
+Members.remote = {}
 Members.view = {}
 Members.rows = {}
 Members.offset = 0
@@ -100,6 +101,7 @@ Members.filter = {
     rank = nil,
     onlineOnly = true,
     hideAlts = false,
+    ownGuild = false,
 }
 
 function Members:RequestRoster()
@@ -167,6 +169,7 @@ end
 
 function Members:GetData(member)
     if member == nil then return nil end
+    if member.remote then return member.data end
 
     return GuildHelper.Sync:GetData(member.short)
 end
@@ -265,9 +268,14 @@ function Members:GetGuildClubRoster()
     return roster
 end
 
+function Members:ScanRemote()
+    self.remote = GuildHelper.Bridge and GuildHelper.Bridge:GetRemoteMembers() or {}
+end
+
 function Members:Scan()
     wipe(self.list)
     self.numOnline = 0
+    self:ScanRemote()
     if not IsInGuild() then return end
     local clubRoster = self:GetGuildClubRoster()
     local total = GetNumGuildMembers() or 0
@@ -399,6 +407,7 @@ function Members:LoadFilter()
     self.filter.rank = saved.rank
     self.filter.onlineOnly = saved.onlineOnly ~= false
     self.filter.hideAlts = saved.hideAlts == true
+    self.filter.ownGuild = saved.ownGuild == true
 end
 
 function Members:SaveFilter()
@@ -407,13 +416,23 @@ function Members:SaveFilter()
         rank = self.filter.rank,
         onlineOnly = self.filter.onlineOnly,
         hideAlts = self.filter.hideAlts,
+        ownGuild = self.filter.ownGuild,
     })
+end
+
+function Members:GetAll(ownOnly)
+    if ownOnly or #self.remote == 0 then return self.list end
+    local all = {}
+    for _, member in ipairs(self.list) do tinsert(all, member) end
+    for _, member in ipairs(self.remote) do tinsert(all, member) end
+
+    return all
 end
 
 function Members:ApplyFilter()
     self:SaveFilter()
     wipe(self.view)
-    for _, member in ipairs(self.list) do
+    for _, member in ipairs(self:GetAll(self.filter.ownGuild)) do
         if self:Matches(member) then tinsert(self.view, member) end
     end
 
@@ -438,7 +457,7 @@ end
 
 function Members:GetSelected()
     if self.selectedKey == nil then return nil end
-    for _, member in ipairs(self.list) do
+    for _, member in ipairs(self:GetAll()) do
         if member.key == self.selectedKey then return member end
     end
 
@@ -1035,6 +1054,14 @@ function Members:CreateFilters(content)
         Members:ApplyFilter()
     end)
 
+    self.guildPill = self:CreatePill(filters)
+    self.guildPill:SetPoint("LEFT", self.altsPill, "RIGHT", 8, 0)
+    self.guildPill:SetScript("OnClick", function()
+        Members.filter.ownGuild = not Members.filter.ownGuild
+        Members.offset = 0
+        Members:ApplyFilter()
+    end)
+
     self.columnsPill = self:CreatePill(content)
     self.columnsPill:SetPoint("RIGHT", content, "TOPRIGHT", -Window.MARGIN - self.DETAILWIDTH - 12, -82)
     self.columnsPill:SetScript("OnClick", function(sel) Members:ToggleColumnMenu(sel) end)
@@ -1049,6 +1076,8 @@ function Members:UpdateFilters()
     self:SetPillActive(self.rankPill, self.filter.rank ~= nil)
     self:SetPillActive(self.onlinePill, self.filter.onlineOnly)
     self:SetPillActive(self.altsPill, self.filter.hideAlts)
+    self:SetPillText(self.guildPill, GuildHelper:Trans("LID_OWNGUILDONLY"))
+    self:SetPillActive(self.guildPill, self.filter.ownGuild)
     self:SetPillText(self.columnsPill, GuildHelper:Trans("LID_COLUMNS"))
     self:SetPillActive(self.columnsPill, self.columnMenu ~= nil and self.columnMenu:IsShown())
     for _, header in ipairs(self.headers) do
@@ -1873,8 +1902,9 @@ function Members:UpdateDetail()
     detail.profDividers = detail.profDividers or {}
     for _, divider in ipairs(detail.profDividers) do divider:Hide() end
 
-    local viewOfficer = self:CanViewOfficerNote()
-    self:UpdateNoteEditor(detail.noteHit, member, self:CanEditPublicNote(member))
+    local remote = member ~= nil and member.remote == true
+    local viewOfficer = not remote and self:CanViewOfficerNote()
+    self:UpdateNoteEditor(detail.noteHit, not remote and member or nil, self:CanEditPublicNote(member))
     self:UpdateNoteEditor(detail.officerHit, viewOfficer and member or nil, self:CanEditOfficerNote())
     if member == nil then
         detail.body:SetHeight(1)
@@ -1898,7 +1928,7 @@ function Members:UpdateDetail()
         detail.rank:SetPoint("TOPLEFT", detail.ilvl, "TOPLEFT", 0, 0)
     end
 
-    detail.rank.value:SetText(member.rank)
+    detail.rank.value:SetText(remote and member.guild or member.rank)
     local sync = GuildHelper.Sync
     local professions, splits = sync:GroupProfessions(data and data.professions or {}, function(prof)
         return sync:GetProfessionID(prof[1], prof[4])
@@ -2052,6 +2082,7 @@ function Members:Reset()
     self.columnsPill = nil
     self.searchBox = nil
     self.filters = nil
+    self.guildPill = nil
     self.rows = {}
     self.numVisible = 0
     self.filter.text = ""
@@ -2063,6 +2094,7 @@ function Members:Init()
     Theme:OnRefresh(function() Members:Update() end)
     GuildHelper.Sync:OnUpdate(function()
         if Members.content == nil or not Members.content:IsVisible() then return end
+        Members:ScanRemote()
         Members:LinkMains()
         Members:ApplyFilter()
     end)

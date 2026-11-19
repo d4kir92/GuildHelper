@@ -6,6 +6,7 @@ local Window = GuildHelper.Window
 Bridge.PREFIX = "GHBridge"
 Bridge.TIMEOUT = 6
 Bridge.HELLO = 300
+Bridge.KEEP = 30 * 86400
 Bridge.status = "none"
 Bridge.guilds = {}
 Bridge.handlers = {}
@@ -156,6 +157,7 @@ function Bridge:Finish(success, reason)
         self:Broadcast()
     end
 
+    self:ResetRemote(pending.name)
     self:SetStatus("joined")
     self:SendAddon("Q~" .. (self:GetGuildName() or ""), "Q")
     self:SendHello()
@@ -251,6 +253,7 @@ function Bridge:ApplyConfig()
         if self.joined then self:LeaveChannel(self.joined) end
         self.joined = nil
         wipe(self.guilds)
+        self:ResetRemote(nil)
         self:SetStatus("none")
 
         return
@@ -395,7 +398,9 @@ end
 
 function Bridge:SendHello()
     local guild = self:GetGuildName()
-    if guild then self:SendAddon("H~" .. guild, "H") end
+    if guild == nil then return end
+    self:SendAddon("H~" .. guild, "H")
+    self:SendMember()
 end
 
 function Bridge:RegisterHandler(kind, callback)
@@ -424,6 +429,167 @@ function Bridge:GetGuildList()
     sort(list)
 
     return list
+end
+
+function Bridge:GetRemoteStore()
+    local key = GuildHelper.Sync:GetGuildKey()
+    if key == nil then return nil end
+    GHTAB = GHTAB or {}
+    GHTAB.BRIDGEDATA = GHTAB.BRIDGEDATA or {}
+    GHTAB.BRIDGEDATA[key] = GHTAB.BRIDGEDATA[key] or {guilds = {}}
+    local store = GHTAB.BRIDGEDATA[key]
+    store.guilds = store.guilds or {}
+
+    return store
+end
+
+function Bridge:ResetRemote(channel)
+    local store = self:GetRemoteStore()
+    if store == nil then return end
+    if channel and store.channel and self:IsChannel(store.channel, channel) then return end
+    store.channel = channel
+    wipe(store.guilds)
+    GuildHelper.Sync:Notify()
+end
+
+function Bridge:GetRemoteEntry(guild, sender)
+    local store = self:GetRemoteStore()
+    if store == nil or guild == "" or sender == "" then return nil end
+    store.guilds[guild] = store.guilds[guild] or {}
+    local key = GuildHelper.Sync:GetKey(sender)
+    local entry = store.guilds[guild][key] or {}
+    store.guilds[guild][key] = entry
+    entry.name = sender
+    entry.seen = time()
+
+    return entry
+end
+
+function Bridge:IsRemoteOnline(entry)
+    return entry.seen ~= nil and time() - entry.seen <= self.HELLO * 2 + 60
+end
+
+function Bridge:GetRemoteMembers()
+    local list = {}
+    local store = IsInGuild() and self:GetRemoteStore()
+    if not store then return list end
+    local now = time()
+    local Members = GuildHelper.Members
+    for guild, entries in pairs(store.guilds) do
+        for key, entry in pairs(entries) do
+            if entry.seen == nil or now - entry.seen > self.KEEP then
+                entries[key] = nil
+            elseif entry.name then
+                local short = Members:ShortName(entry.name)
+                local online = self:IsRemoteOnline(entry)
+                local className = entry.classFile and ((LOCALIZED_CLASS_NAMES_MALE and LOCALIZED_CLASS_NAMES_MALE[entry.classFile]) or entry.classFile) or ""
+                local member = {
+                    name = entry.name,
+                    short = format("%s <%s>", short, guild),
+                    key = strlower(guild) .. ">" .. key,
+                    remote = true,
+                    guild = guild,
+                    data = entry,
+                    rank = "",
+                    rankIndex = 99,
+                    isGuildLeader = false,
+                    level = entry.level or 0,
+                    className = className,
+                    classFile = entry.classFile,
+                    zone = "",
+                    note = "",
+                    officerNote = "",
+                    online = online,
+                    lastOnline = online and -1 or floor((now - entry.seen) / 3600),
+                    declaredMain = entry.main ~= nil and entry.main ~= "" and GuildHelper.Sync:GetKey(entry.main) == key,
+                }
+
+                member.search = strlower(table.concat({short, guild, className}, "\n"))
+                tinsert(list, member)
+            end
+        end
+
+        if next(entries) == nil then store.guilds[guild] = nil end
+    end
+
+    return list
+end
+
+function Bridge:FitParts(parts)
+    local message = table.concat(parts, "~")
+    while #message > 255 and #parts > 3 do
+        tremove(parts)
+        message = table.concat(parts, "~")
+    end
+
+    return #message <= 255 and message or nil
+end
+
+function Bridge:SendMember()
+    local guild = self:GetGuildName()
+    if guild == nil or self:GetChannelID() <= 0 then return end
+    local sync = GuildHelper.Sync
+    local _, classFile = UnitClass("player")
+    local _, race = UnitRace("player")
+    local sex = UnitSex("player")
+    if not GuildHelper:CanAccessValues(classFile, race, sex) then return end
+    race = type(race) == "string" and race:match("^[A-Za-z]+$") and race:lower() or ""
+    self:SendAddon(format("MC~%s~%s;%d;%s;%s", guild, classFile or "", UnitLevel("player") or 0, race, tostring(sex or "")), "MC")
+    local info = {strsplit("~", sync:BuildInfo())}
+    info[1] = guild
+    tinsert(info, 1, "MI")
+    local message = self:FitParts(info)
+    if message then self:SendAddon(message, "MI") end
+    local specs = {strsplit("~", sync:BuildSpecs())}
+    specs[1] = guild
+    tinsert(specs, 1, "MS")
+    tinsert(specs, GuildHelper.Specs:GetTwitch() or "")
+    message = table.concat(specs, "~")
+    if #message <= 255 then self:SendAddon(message, "MS") end
+end
+
+function Bridge:OnMemberClass(payload, guild, sender)
+    local classFile, level, race, sex = strsplit(";", payload)
+    local entry = self:GetRemoteEntry(guild, sender)
+    if entry == nil then return end
+    entry.classFile = classFile and classFile:match("^%u+$") or entry.classFile
+    entry.level = tonumber(level) or entry.level
+    if race and race:match("^[a-z]+$") then entry.portraitRace = race end
+    if sex == "2" or sex == "3" then entry.portraitGender = sex == "2" and "male" or "female" end
+    GuildHelper.Sync:Notify()
+end
+
+function Bridge:OnMemberInfo(payload, guild, sender)
+    local entry = self:GetRemoteEntry(guild, sender)
+    if entry == nil then return end
+    local parts = {strsplit("~", payload)}
+    local professions = {}
+    for index = 2, #parts do
+        local name, rank, maxRank, skillLineID = strsplit(";", parts[index])
+        if name and name ~= "" then tinsert(professions, {name, tonumber(rank) or 0, tonumber(maxRank) or 0, tonumber(skillLineID)}) end
+    end
+
+    local ilvl = tonumber(parts[1])
+    entry.ilvl = ilvl and ilvl > 0 and ilvl or nil
+    entry.professions = professions
+    GuildHelper.Sync:Notify()
+end
+
+function Bridge:OnMemberSpecs(payload, guild, sender)
+    local entry = self:GetRemoteEntry(guild, sender)
+    if entry == nil then return end
+    local parts = {strsplit("~", payload)}
+    local slots = #GuildHelper.Specs.SLOTS
+    local specs = {}
+    for slot = 1, slots do
+        local role, spec, icon = strsplit(";", parts[slot + 1] or "")
+        specs[slot] = {role = role or "", spec = spec or "", icon = tonumber(icon) or (icon ~= nil and icon ~= "" and icon or nil)}
+    end
+
+    entry.main = parts[1] or ""
+    entry.specs = specs
+    entry.twitch = parts[slots + 2] or entry.twitch
+    GuildHelper.Sync:Notify()
 end
 
 function Bridge:CreateBox(parent, width, password)
@@ -590,6 +756,10 @@ function Bridge:Init()
     end
 
     self:HookChat()
+    self:RegisterHandler("MC", function(payload, guild, sender) Bridge:OnMemberClass(payload, guild, sender) end)
+    self:RegisterHandler("MI", function(payload, guild, sender) Bridge:OnMemberInfo(payload, guild, sender) end)
+    self:RegisterHandler("MS", function(payload, guild, sender) Bridge:OnMemberSpecs(payload, guild, sender) end)
+    self:RegisterHandler("H", function(_, guild, sender) Bridge:GetRemoteEntry(guild, sender) end)
     C_Timer.After(10, function() Bridge:ApplyConfig() end)
     C_Timer.NewTicker(self.HELLO, function() Bridge:SendHello() end)
 end

@@ -173,10 +173,12 @@ function Professions:Update()
     local byRecipe = page.byRecipe:GetChecked()
     local byMaterial = byRecipe and page.byMaterial:GetChecked()
     local missing, captured = false, false
-    local roster = Members.list
+    Members:ScanRemote()
+    local all = Members:GetAll()
+    local roster = all
     if page.focusName then
         roster = {}
-        for _, member in ipairs(Members.list) do
+        for _, member in ipairs(all) do
             if member.name == page.focusName then
                 roster[1] = member
                 break
@@ -213,6 +215,7 @@ function Professions:Update()
             local zone = member.zone and member.zone ~= "" and ("  -  " .. member.zone) or ""
             local label = Members:NameWithTwitch(member) .. "  |cffaaaaaa" .. status .. zone .. "|r"
             if byRecipe then
+                if member.remote then seen = {} end
                 for key, skill in pairs(seen) do
                     if not page.filter or page.filter == key then
                         local known = data and data.recipes and data.recipes[tostring(key)]

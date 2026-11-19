@@ -412,6 +412,7 @@ function Sync:SendInfo(force)
     if name and GuildHelper.Recipes then GuildHelper.Recipes:ReplayRemovals(self:GetData(name)) end
     self:SendSpecs()
     self:SendAvatar()
+    if GuildHelper.Bridge then GuildHelper.Bridge:SendMember() end
 end
 
 function Sync:ScheduleInfo(delay)

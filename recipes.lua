@@ -194,7 +194,7 @@ function Recipes:PlayerRequestKey(name)
 end
 
 function Recipes:RequestPlayer(member)
-    if not member or not member.online or GuildHelper.Members:IsSelf(member) then return end
+    if not member or member.remote or not member.online or GuildHelper.Members:IsSelf(member) then return end
     local key = self:PlayerRequestKey(member.short)
     if not key then return end
     local cooldowns = GuildHelper:GetConfig("RECIPE_REQUEST_TIMES", {})
