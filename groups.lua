@@ -768,6 +768,54 @@ function Groups:Total(entry)
     return (entry.TANK or 0) + (entry.HEALER or 0) + (entry.DAMAGER or 0)
 end
 
+function Groups:CountAccepted(entry)
+    local counts = {}
+    for _, applicant in pairs(entry.applicants or {}) do
+        if applicant.accepted then counts[applicant.role] = (counts[applicant.role] or 0) + 1 end
+    end
+
+    return counts
+end
+
+function Groups:GetSlots(entry)
+    if entry.slots then return entry.slots end
+    local accepted, slots = self:CountAccepted(entry), {}
+    for _, role in ipairs(GuildHelper.Specs.ROLES) do
+        slots[role.value] = (entry[role.value] or 0) + (accepted[role.value] or 0)
+    end
+
+    return slots
+end
+
+function Groups:UpdatePlannedNeeds(entry)
+    if entry.kind ~= "P" or not self:IsOwn(entry) then return end
+    entry.slots = self:GetSlots(entry)
+    local accepted = self:CountAccepted(entry)
+    for _, role in ipairs(GuildHelper.Specs.ROLES) do
+        entry[role.value] = max(0, (entry.slots[role.value] or 0) - (accepted[role.value] or 0))
+    end
+end
+
+function Groups:Accept(entry, applicant)
+    if not entry or not applicant or entry.kind ~= "P" or not self:IsOwn(entry) or applicant.accepted then return end
+    if (entry[applicant.role] or 0) == 0 then return end
+    entry.slots = self:GetSlots(entry)
+    applicant.accepted = true
+    applicant.unread = nil
+    self:UpdatePlannedNeeds(entry)
+    self:Broadcast(entry, true)
+    self:Refresh()
+end
+
+function Groups:Unaccept(entry, applicant)
+    if not entry or not applicant or entry.kind ~= "P" or not self:IsOwn(entry) or not applicant.accepted then return end
+    entry.slots = self:GetSlots(entry)
+    applicant.accepted = nil
+    self:UpdatePlannedNeeds(entry)
+    self:Broadcast(entry, true)
+    self:Refresh()
+end
+
 function Groups:GetDraftTime()
     local draft = self.draft[self.mode]
     local stamp = date("*t", time() + (draft.day or 0) * 86400)
@@ -876,8 +924,8 @@ function Groups:BroadcastSignups(entry)
     local header = "R~" .. entry.id .. "~" .. self.signupSerial .. "~"
     local chunks, payload = {}, ""
     for _, applicant in pairs(entry.applicants or {}) do
-        if (entry.kind == "P" or (applicant.expires or 0) > GetTime()) and (entry[applicant.role] or 0) > 0 then
-            local record = "~" .. applicant.name .. "~" .. applicant.role
+        if (entry.kind == "P" or (applicant.expires or 0) > GetTime()) and (applicant.accepted or (entry[applicant.role] or 0) > 0) then
+            local record = "~" .. applicant.name .. "~" .. applicant.role .. (applicant.accepted and "!" or "")
             if #header + #payload + #record > 235 then
                 chunks[#chunks + 1] = payload
                 payload = ""
@@ -973,6 +1021,13 @@ function Groups:Publish()
     local counts = entry.kind == "L" and self:GetRecruitmentNeeds(self.mode, activity, entry.soloRole) or draft
     for _, role in ipairs(GuildHelper.Specs.ROLES) do
         entry[role.value] = counts[role.value]
+    end
+    if entry.kind == "P" then
+        entry.slots = {}
+        for _, role in ipairs(GuildHelper.Specs.ROLES) do
+            entry.slots[role.value] = counts[role.value] or 0
+        end
+        self:UpdatePlannedNeeds(entry)
     end
 
     entry.activity = activity.value
@@ -1073,9 +1128,11 @@ end
 function Groups:SendApplication(entry)
     self.applySent[entry.key] = GetTime()
     entry.applicants = entry.applicants or {}
+    local previous = entry.applicants[self:Self()]
     entry.applicants[self:Self()] = {
         name = GuildHelper.Sync:GetOwnName() or UnitName("player"),
         role = entry.applied,
+        accepted = previous and previous.accepted and previous.role == entry.applied or nil,
         expires = entry.kind == "L" and GetTime() + self.TTL or nil
     }
     self:Send(table.concat({"A", entry.owner, entry.id, entry.applied}, "~"), "A" .. entry.key)
@@ -1201,13 +1258,20 @@ function Groups:ReadSignupSnapshot(owner, parts)
     if not snapshot or snapshot.serial ~= serial or snapshot.next ~= index or snapshot.total ~= total then return false end
     for i = 7, #parts, 2 do
         local name, role = parts[i], parts[i + 1]
+        local accepted = role:sub(-1) == "!"
+        if accepted then role = role:sub(1, -2) end
         local key = self:Name(name)
-        if key and not self:IsSelfName(name) and GuildHelper.Specs:GetRole(role) and (entry[role] or 0) > 0 then
-            snapshot.applicants[key] = {
-                name = name,
-                role = role,
-                expires = entry.kind == "L" and GetTime() + self.TTL or nil
-            }
+        if key and GuildHelper.Specs:GetRole(role) and (accepted or (entry[role] or 0) > 0) then
+            if self:IsSelfName(name) then
+                snapshot.selfAccepted = accepted and role or nil
+            else
+                snapshot.applicants[key] = {
+                    name = name,
+                    role = role,
+                    accepted = accepted or nil,
+                    expires = entry.kind == "L" and GetTime() + self.TTL or nil
+                }
+            end
         end
     end
 
@@ -1219,7 +1283,9 @@ function Groups:ReadSignupSnapshot(owner, parts)
 
     local me = self:Self()
     if entry.applied and me and entry.applicants then
-        snapshot.applicants[me] = entry.applicants[me]
+        local mine = entry.applicants[me]
+        if mine then mine.accepted = snapshot.selfAccepted ~= nil and snapshot.selfAccepted == mine.role or nil end
+        snapshot.applicants[me] = mine
     end
 
     entry.applicants = snapshot.applicants
@@ -1242,15 +1308,17 @@ function Groups:ReadApplication(owner, sender, parts)
         return false
     end
     entry.applicants = entry.applicants or {}
+    local previous = entry.applicants[owner]
+    local keepsAccepted = previous and previous.accepted and previous.role == parts[5]
     if parts[2] == "W" and #parts == 4 then
         entry.applicants[owner] = nil
-    elseif parts[2] == "A" and #parts == 5 and GuildHelper.Specs:GetRole(parts[5]) and (entry[parts[5]] or 0) > 0 then
-        local previous = entry.applicants[owner]
+    elseif parts[2] == "A" and #parts == 5 and GuildHelper.Specs:GetRole(parts[5]) and (keepsAccepted or (entry[parts[5]] or 0) > 0) then
         local isNew = previous == nil
         local own = self:IsOwn(entry)
         entry.applicants[owner] = {
             name = sender,
             role = parts[5],
+            accepted = keepsAccepted or nil,
             unread = own and (isNew or previous.unread) or nil,
             expires = entry.kind == "L" and GetTime() + self.TTL or nil
         }
@@ -1259,6 +1327,10 @@ function Groups:ReadApplication(owner, sender, parts)
         end
     else
         return false
+    end
+    if previous and previous.accepted and not keepsAccepted and self:IsOwn(entry) then
+        self:UpdatePlannedNeeds(entry)
+        self:Broadcast(entry, true)
     end
 
     local snapshot = self.signupSnapshots[entry.key]
@@ -1453,8 +1525,9 @@ function Groups:LoadDraft(entry)
     draft.day = max(0, min(self.DAYS - 1, self:GetDayOffset(entry.when)))
     draft.hour = stamp.hour
     draft.minute = stamp.min - stamp.min % 5
+    local slots = self:GetSlots(entry)
     for _, role in ipairs(GuildHelper.Specs.ROLES) do
-        draft[role.value] = entry[role.value] or 0
+        draft[role.value] = slots[role.value] or 0
     end
 
     draft.editing = entry.key
@@ -1841,32 +1914,58 @@ function Groups:RefreshRequests(entry)
         tinsert(names, name)
     end
 
-    table.sort(names)
-    local canInvite = self:IsOwn(entry) and self:CanInvite()
+    table.sort(names, function(a, b)
+        local acceptedA, acceptedB = entry.applicants[a].accepted and true or false, entry.applicants[b].accepted and true or false
+        if acceptedA ~= acceptedB then return acceptedA end
+
+        return a < b
+    end)
+    local own = self:IsOwn(entry)
+    local canInvite = own and self:CanInvite()
+    local rowHeight = 58
     for index, name in ipairs(names) do
         local row = self.requestRows[index]
         if not row then
             row = CreateFrame("Frame", nil, self.requests.body)
-            row:SetPoint("TOPLEFT", self.requests.body, "TOPLEFT", 0, -(index - 1) * 52)
-            row:SetPoint("TOPRIGHT", self.requests.body, "TOPRIGHT", 0, -(index - 1) * 52)
-            row:SetHeight(52)
+            row:SetPoint("TOPLEFT", self.requests.body, "TOPLEFT", 0, -(index - 1) * rowHeight)
+            row:SetPoint("TOPRIGHT", self.requests.body, "TOPRIGHT", 0, -(index - 1) * rowHeight)
+            row:SetHeight(rowHeight)
+            row.stripe = row:CreateTexture(nil, "BACKGROUND")
+            row.stripe:SetAllPoints(row)
+            row.stripe:SetColorTexture(0.5, 0.5, 0.5, 0.08)
+            row.stripe:SetShown(index % 2 == 0)
             row.button = GuildHelper.Members:CreateButton(row, "LID_INVITE")
             row.button:SetPoint("RIGHT", row, "RIGHT", -4, 0)
-            row.text = self:Text(row, nil, 8, -5, 12, "text")
+            row.undo = GuildHelper.Members:CreateButton(row, "LID_GROUPUNACCEPT")
+            row.undo:SetPoint("RIGHT", row.button, "LEFT", -6, 0)
+            row.undo:SetScript("OnClick", function() self:Unaccept(row.entry, row.applicant) end)
+            row.text = self:Text(row, nil, 8, 0, 12, "text")
+            row.text:ClearAllPoints()
+            row.text:SetPoint("LEFT", row, "LEFT", 8, 0)
             row.text:SetPoint("RIGHT", row.button, "LEFT", -6, 0)
             row.text:SetWordWrap(true)
-            row.text:SetHeight(42)
-            row.button:SetScript("OnClick", function() self:Invite(row.applicant) end)
+            row.text:SetJustifyV("MIDDLE")
+            row.text:SetHeight(rowHeight - 6)
+            row.button:SetScript("OnClick", function()
+                if row.entry and row.entry.kind == "P" and not row.applicant.accepted then
+                    self:Accept(row.entry, row.applicant)
+                else
+                    self:Invite(row.applicant)
+                end
+            end)
             self.requestRows[index] = row
         end
 
         local applicant = entry.applicants[name]
-        row.applicant = applicant
+        row.applicant, row.entry = applicant, entry
         local role = self:IsOutdoor(self:GetListingMode(entry)) and "" or GuildHelper.Specs:Format({role = applicant.role}) or ""
+        if applicant.accepted then
+            local status = GuildHelper.Theme:GetHex("online") .. GuildHelper:Trans("LID_GROUPACCEPTED") .. "|r"
+            role = role ~= "" and role .. "  -  " .. status or status
+        end
         local member = GuildHelper.Members:FindByName(applicant.name)
-        local zone = member and member.zone ~= "" and GuildHelper.Theme:GetHex("muted") .. member.zone .. "|r" or ""
-        local details = role ~= "" and zone ~= "" and role .. "  -  " .. zone or role .. zone
-        if details ~= "" then details = "\n" .. details end
+        local details = role ~= "" and "\n" .. role or ""
+        if member and (member.zone or "") ~= "" then details = details .. "\n" .. GuildHelper.Theme:GetHex("muted") .. member.zone .. "|r" end
         local label = applicant.name
         if member then
             local r, g, b = GuildHelper.Members:GetClassColor(member)
@@ -1880,7 +1979,16 @@ function Groups:RefreshRequests(entry)
         end
         row.text:SetText(label .. details)
 
-        row.button:SetEnabled(canInvite)
+        local needsAccept = entry.kind == "P" and not applicant.accepted
+        GuildHelper.Theme:SetTrans(row.button.text, needsAccept and "LID_GROUPACCEPT" or "LID_INVITE")
+        if needsAccept then
+            row.button:SetEnabled(own and (entry[applicant.role] or 0) > 0)
+        else
+            row.button:SetEnabled(canInvite)
+        end
+        local canUndo = own and entry.kind == "P" and applicant.accepted and true or false
+        row.undo:SetShown(canUndo)
+        row.text:SetPoint("RIGHT", canUndo and row.undo or row.button, "LEFT", -6, 0)
         row:Show()
     end
 
@@ -1893,7 +2001,7 @@ function Groups:RefreshRequests(entry)
         self.requests.empty:SetPoint("RIGHT", self.requests.body, "RIGHT", -8, 0)
     end
     self.requests.empty:SetShown(#names == 0)
-    self.requests.body:SetHeight(max(30, #names * 52))
+    self.requests.body:SetHeight(max(30, #names * rowHeight))
 end
 
 function Groups:RefreshForm()
