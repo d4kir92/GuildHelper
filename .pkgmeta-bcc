@@ -7,3 +7,9 @@ ignore:
   - GuildHelper_Cata.toc
   - GuildHelper_Wrath.toc
   - GuildHelper_Vanilla.toc
+  - data/retail
+  - data/forever
+  - data/classicera
+  - data/wrath
+  - data/cata
+  - data/mists
