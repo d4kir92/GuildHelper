@@ -79,6 +79,15 @@ Members.COLUMNS = {
         label = "LID_LASTSEEN",
         width = 90
     },
+    {
+        key = "version",
+        label = "LID_ADDONVERSION",
+        width = 62
+    },
+}
+
+Members.DEFAULTHIDDEN = {
+    version = true
 }
 
 if GuildHelper.Layer:IsSupported() then
@@ -380,6 +389,31 @@ function Members:FindByName(name)
     return match
 end
 
+function Members:GetAddonVersion(member)
+    if self:IsSelf(member) then return GuildHelper:GetVersion() end
+    local data = self:GetData(member)
+
+    return data and type(data.version) == "string" and data.version or nil
+end
+
+function Members:GetVersionNumber(version)
+    if type(version) ~= "string" then return -1 end
+    local major, minor, patch = version:match("^(%d+)%.?(%d*)%.?(%d*)")
+    if not major then return -1 end
+
+    return tonumber(major) * 1e6 + (tonumber(minor) or 0) * 1e3 + (tonumber(patch) or 0)
+end
+
+function Members:GetVersionColor(member, version)
+    if self:IsSelf(member) then return "text" end
+    local own = self:GetVersionNumber(GuildHelper:GetVersion())
+    local other = self:GetVersionNumber(version)
+    if other > own then return "accent" end
+    if other < own then return "muted" end
+
+    return "text"
+end
+
 function Members:NameWithTwitch(member, fallback)
     if not member then return fallback end
     local twitch = self:GetTwitchName(member)
@@ -399,6 +433,7 @@ function Members:GetSortValue(member, key)
     end
     if key == "zone" then return member.zone == "" and "\255" or strlower(member.zone) end
     if key == "layer" then return GuildHelper.Layer:GetSortValue(member) end
+    if key == "version" then return self:GetVersionNumber(self:GetAddonVersion(member)) end
     if key == "isMain" then return member.declaredMain and 0 or (member.main and 1 or 2) end
     if key == "mainSpec" then return self:GetSpecSortValue(member, 1) end
     if key == "secondSpec" then return self:GetSpecSortValue(member, 2) end
@@ -763,8 +798,10 @@ function Members:IsColumnEnabled(key)
 
     local hidden = self:GetColumnConfig().hidden
     if key == "mainSpec" or key == "secondSpec" then return not (hidden.mainSpec and hidden.secondSpec) end
+    local value = hidden[key]
+    if value == nil then value = self.DEFAULTHIDDEN[key] == true end
 
-    return not hidden[key]
+    return not value
 end
 
 function Members:ToggleColumn(key)
@@ -778,7 +815,9 @@ function Members:ToggleColumn(key)
             config.hidden.mainSpec = hidden
             config.hidden.secondSpec = hidden
         else
-            config.hidden[key] = not config.hidden[key] or nil
+            local hide = self:IsColumnEnabled(key)
+            if hide == (self.DEFAULTHIDDEN[key] == true) then hide = nil end
+            config.hidden[key] = hide
         end
     end
 
@@ -1166,6 +1205,7 @@ function Members:CreateRow(parent, index)
     row.twitch = Theme:Text(row, 12.5, "text")
     row.zone = Theme:Text(row, 12.5, "navText")
     row.layer = Theme:Text(row, 12.5, "muted")
+    row.version = Theme:Text(row, 12, "text")
     row.professions = Theme:Text(row, 13, "text")
     row.rank = Theme:Text(row, 13, "text")
     row.ilvl = Theme:Text(row, 13, "text")
@@ -1370,6 +1410,9 @@ function Members:FillRow(row, member)
     local layerText, layerColor = GuildHelper.Layer:GetDisplay(member)
     row.layer:SetText(layerText)
     Theme:SetKey(row.layer, layerColor)
+    local version = self:GetAddonVersion(member)
+    row.version:SetText(version or "–")
+    Theme:SetKey(row.version, version and self:GetVersionColor(member, version) or "muted")
     local professionIcons = {}
     if self.COLUMNSHOWN.professions then
         local professions = GuildHelper.Sync:GetPrimaryProfessions(data)
@@ -1540,6 +1583,7 @@ function Members:LayoutRow(row)
     Place(row.ilvl, "ilvl")
     Place(row.seen, "lastOnline")
     Place(row.badge, "lastOnline", -2)
+    Place(row.version, "version", 0, 6)
     Place(row.note, "note", 0, 10)
     Place(row.officer, "officerNote", 0, 10)
 end

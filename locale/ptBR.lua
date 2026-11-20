@@ -1,5 +1,6 @@
 local _, GuildHelper = ...
 GuildHelper:AddTrans("ptBR", "LID_ADDONTITLE", "GuildHelper")
+GuildHelper:AddTrans("ptBR", "LID_ADDONVERSION", "Versão")
 GuildHelper:AddTrans("ptBR", "LID_ALLCLASSES", "Todas as classes")
 GuildHelper:AddTrans("ptBR", "LID_ALLRANKS", "Todas as patentes")
 GuildHelper:AddTrans("ptBR", "LID_ALTS", "Alts")

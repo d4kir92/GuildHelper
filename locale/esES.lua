@@ -1,5 +1,6 @@
 local _, GuildHelper = ...
 GuildHelper:AddTrans("esES", "LID_ADDONTITLE", "GuildHelper")
+GuildHelper:AddTrans("esES", "LID_ADDONVERSION", "Versión")
 GuildHelper:AddTrans("esES", "LID_ALLCLASSES", "Todas las clases")
 GuildHelper:AddTrans("esES", "LID_ALLRANKS", "Todos los rangos")
 GuildHelper:AddTrans("esES", "LID_ALTS", "Alters")

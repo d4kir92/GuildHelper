@@ -1,5 +1,6 @@
 local _, GuildHelper = ...
 GuildHelper:AddTrans("zhCN", "LID_ADDONTITLE", "GuildHelper")
+GuildHelper:AddTrans("zhCN", "LID_ADDONVERSION", "版本")
 GuildHelper:AddTrans("zhCN", "LID_ALLCLASSES", "所有职业")
 GuildHelper:AddTrans("zhCN", "LID_ALLRANKS", "所有会阶")
 GuildHelper:AddTrans("zhCN", "LID_ALTS", "小号")

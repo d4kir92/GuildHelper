@@ -1,5 +1,6 @@
 local _, GuildHelper = ...
 GuildHelper:AddTrans("koKR", "LID_ADDONTITLE", "GuildHelper")
+GuildHelper:AddTrans("koKR", "LID_ADDONVERSION", "버전")
 GuildHelper:AddTrans("koKR", "LID_ALLCLASSES", "모든 직업")
 GuildHelper:AddTrans("koKR", "LID_ALLRANKS", "모든 등급")
 GuildHelper:AddTrans("koKR", "LID_ALTS", "부캐릭터")

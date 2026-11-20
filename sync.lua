@@ -413,6 +413,8 @@ function Sync:SendInfo(force)
     self:SendSpecs()
     self:SendAvatar()
     if GuildHelper.Layer then GuildHelper.Layer:Send(true) end
+    local version = GuildHelper:GetVersion()
+    if type(version) == "string" and version ~= "" then self:Send("V~" .. version, "V") end
     if GuildHelper.Bridge then GuildHelper.Bridge:SendMember() end
 end
 
@@ -498,6 +500,13 @@ function Sync:OnMessage(message, channel, sender)
         if entry and (entry.portraitGender ~= gender or (race and entry.portraitRace ~= race)) then
             entry.portraitRace = race or entry.portraitRace
             entry.portraitGender = gender
+            self:Notify()
+        end
+    elseif kind == "V" then
+        local version = message:match("^V~([%w%.%-]+)$")
+        local entry = version and #version <= 24 and self:GetEntry(shortName)
+        if entry and entry.version ~= version then
+            entry.version = version
             self:Notify()
         end
     elseif kind == "L" and GuildHelper.Layer then

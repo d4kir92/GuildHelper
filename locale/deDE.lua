@@ -1,5 +1,6 @@
 local _, GuildHelper = ...
 GuildHelper:AddTrans("deDE", "LID_ADDONTITLE", "GildenHelfer")
+GuildHelper:AddTrans("deDE", "LID_ADDONVERSION", "Version")
 GuildHelper:AddTrans("deDE", "LID_ALLCLASSES", "Alle Klassen")
 GuildHelper:AddTrans("deDE", "LID_ALLRANKS", "Alle Ränge")
 GuildHelper:AddTrans("deDE", "LID_ALTS", "Twinks")
