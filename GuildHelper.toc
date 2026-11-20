@@ -57,6 +57,7 @@ theme.lua
 core.lua
 window.lua
 sync.lua
+layer.lua
 guildbank.lua
 specs.lua
 members.lua

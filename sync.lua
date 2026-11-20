@@ -412,6 +412,7 @@ function Sync:SendInfo(force)
     if name and GuildHelper.Recipes then GuildHelper.Recipes:ReplayRemovals(self:GetData(name)) end
     self:SendSpecs()
     self:SendAvatar()
+    if GuildHelper.Layer then GuildHelper.Layer:Send(true) end
     if GuildHelper.Bridge then GuildHelper.Bridge:SendMember() end
 end
 
@@ -499,6 +500,8 @@ function Sync:OnMessage(message, channel, sender)
             entry.portraitGender = gender
             self:Notify()
         end
+    elseif kind == "L" and GuildHelper.Layer then
+        GuildHelper.Layer:OnMessage(shortName, message)
     elseif kind == "P" and GuildHelper.Recipes then
         GuildHelper.Recipes:OnMessage(message, shortName)
     elseif kind == "Q" then

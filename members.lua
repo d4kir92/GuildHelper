@@ -81,6 +81,14 @@ Members.COLUMNS = {
     },
 }
 
+if GuildHelper.Layer:IsSupported() then
+    tinsert(Members.COLUMNS, 5, {
+        key = "layer",
+        label = "LID_LAYER",
+        width = 62
+    })
+end
+
 Members.COLUMNX = {}
 Members.COLUMNW = {}
 Members.COLUMNSHOWN = {}
@@ -390,6 +398,7 @@ function Members:GetSortValue(member, key)
         return professions[1] and professions[1].sortName or "\255"
     end
     if key == "zone" then return member.zone == "" and "\255" or strlower(member.zone) end
+    if key == "layer" then return GuildHelper.Layer:GetSortValue(member) end
     if key == "isMain" then return member.declaredMain and 0 or (member.main and 1 or 2) end
     if key == "mainSpec" then return self:GetSpecSortValue(member, 1) end
     if key == "secondSpec" then return self:GetSpecSortValue(member, 2) end
@@ -1102,9 +1111,12 @@ end
 
 function Members:ShowTooltip(row)
     local member = row.member
-    if member == nil or (member.note == "" and member.officerNote == "") then return end
+    if member == nil then return end
+    local layer = GuildHelper.Layer:GetTooltipLine(member)
+    if member.note == "" and member.officerNote == "" and layer == nil then return end
     GameTooltip:SetOwner(row, "ANCHOR_CURSOR")
     GameTooltip:AddLine(member.short, self:GetClassColor(member))
+    if layer then GameTooltip:AddDoubleLine(GuildHelper:Trans("LID_LAYER"), layer, 0.7, 0.7, 0.7, 1, 1, 1) end
     if member.note ~= "" then GameTooltip:AddDoubleLine(GuildHelper:Trans("LID_NOTE"), member.note, 0.7, 0.7, 0.7, 1, 1, 1) end
     if member.officerNote ~= "" then GameTooltip:AddDoubleLine(GuildHelper:Trans("LID_OFFICERNOTE"), member.officerNote, 0.7, 0.7, 0.7, 1, 1, 1) end
     GameTooltip:Show()
@@ -1153,6 +1165,7 @@ function Members:CreateRow(parent, index)
     row.secondSpec = Theme:Text(row, 12, "navText")
     row.twitch = Theme:Text(row, 12.5, "text")
     row.zone = Theme:Text(row, 12.5, "navText")
+    row.layer = Theme:Text(row, 12.5, "muted")
     row.professions = Theme:Text(row, 13, "text")
     row.rank = Theme:Text(row, 13, "text")
     row.ilvl = Theme:Text(row, 13, "text")
@@ -1354,6 +1367,9 @@ function Members:FillRow(row, member)
     local twitch = self:GetTwitchName(member)
     row.twitch:SetText(twitch ~= "" and twitch or "–")
     row.zone:SetText(member.zone)
+    local layerText, layerColor = GuildHelper.Layer:GetDisplay(member)
+    row.layer:SetText(layerText)
+    Theme:SetKey(row.layer, layerColor)
     local professionIcons = {}
     if self.COLUMNSHOWN.professions then
         local professions = GuildHelper.Sync:GetPrimaryProfessions(data)
@@ -1518,6 +1534,7 @@ function Members:LayoutRow(row)
     Place(row.secondSpec, "secondSpec", 0, 8)
     Place(row.twitch, "twitch", 0, 8)
     Place(row.zone, "zone", 0, 8)
+    if row.layer and self.COLUMNX.layer then Place(row.layer, "layer", 0, 8) end
     Place(row.professions, "professions", 0, 6)
     Place(row.rank, "rank", 0, 8)
     Place(row.ilvl, "ilvl")

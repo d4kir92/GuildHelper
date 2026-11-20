@@ -22,6 +22,7 @@ Many features share data between guild members who also use GuildHelper (item le
 - Main and alt detection: from the main character set in GuildHelper, or from guild notes that contain another member's name.
 - Detail panel with notes, specs, professions, alts or main, and buttons to whisper or invite the member.
 - The columns adapt to the window size.
+- Classic flavors: a layer column shows the layer of online members who use GuildHelper. Green means the same layer as you. The layer is read from nearby creatures (target, mouseover, nameplates), so it appears once you have seen an NPC.
 
 ### Professions and crafting orders
 
