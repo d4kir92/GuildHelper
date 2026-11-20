@@ -1863,7 +1863,14 @@ function Groups:RefreshRequests(entry)
         local applicant = entry.applicants[name]
         row.applicant = applicant
         local role = self:IsOutdoor(self:GetListingMode(entry)) and "" or "\n" .. GuildHelper.Specs:Format({role = applicant.role})
-        row.text:SetText(applicant.name .. role)
+        local member = GuildHelper.Members:FindByName(applicant.name)
+        local label = applicant.name
+        if member then
+            local r, g, b = GuildHelper.Members:GetClassColor(member)
+            if (member.level or 0) > 0 then label = "[" .. member.level .. "] " .. label end
+            label = format("|cff%02x%02x%02x%s|r", r * 255, g * 255, b * 255, label)
+        end
+        row.text:SetText(label .. role)
 
         row.button:SetEnabled(canInvite)
         row:Show()
