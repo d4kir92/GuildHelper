@@ -29,6 +29,9 @@ Many features share data between guild members who also use GuildHelper (item le
 - **Planned:** schedule a group up to two weeks ahead with day, time and slot counts. Planned groups stay visible to the guild while you are offline.
 - Guild members apply with their role directly from the list.
 - Optional note for every group.
+- **Guild chat posts:** publishing a group also posts it to guild chat, in a language you choose. The buttons say what they do: "Publish & post to guild", "Update & post to guild" after a change, or "Post to guild" to post the same group again.
+- **Automatic repost:** the guild leader can turn on automatic reposting of live groups for the whole guild (repeat every 2 to 20 minutes). When it is off, the group finder says so and you post again with the button.
+- Groups are never posted to guild chat while the game blocks addon chat messages (for example during boss encounters). They are posted once it is allowed again.
 
 ### World map
 
