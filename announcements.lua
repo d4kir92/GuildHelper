@@ -52,6 +52,43 @@ function Groups:AnnouncementText(entry)
     return text
 end
 
+function Groups:IsManualRepost(entry)
+    if not entry or not self:IsOwn(entry) then return false end
+    return entry.kind == "P" or not GuildHelper.Bridge:IsLiveRepeatEnabled()
+end
+
+function Groups:HasDraftChanges(entry)
+    local draft = self.draft[self.mode]
+    if not entry or not draft then return false end
+    local activity = self:GetModeActivities(self.mode).map[draft.activity]
+    if not activity or activity.value ~= entry.activity then return true end
+    if self:CleanText(draft.note, 110) ~= (entry.note or "") then return true end
+    if (draft.chatLanguage or GuildHelper:GetLanguage()) ~= (entry.chatLanguage or GuildHelper:GetLanguage()) then return true end
+    if entry.kind == "L" then return draft.soloRole ~= entry.soloRole end
+    if self:GetDraftTime() ~= entry.when then return true end
+    for _, role in ipairs(GuildHelper.Specs.ROLES) do
+        if (draft[role.value] or 0) ~= (entry[role.value] or 0) then return true end
+    end
+    return false
+end
+
+function Groups:UpdatePublishLabel(current, cooldown)
+    local label = current and "LID_GROUPUPDATE" or "LID_GROUPPUBLISH"
+    if self:IsManualRepost(current) then
+        label = self:HasDraftChanges(current) and "LID_GROUPUPDATEPOST" or "LID_GROUPPOSTGUILD"
+    end
+    GuildHelper.Theme:SetTrans(self.publish.text, label)
+    local function fit(button, minWidth)
+        local text = button.text
+        local width = text.GetUnboundedStringWidth and text:GetUnboundedStringWidth() or text:GetStringWidth()
+        button:SetWidth(max(minWidth, math.ceil(width) + 28))
+    end
+    fit(self.publish, 170)
+    fit(self.new, 104)
+    if cooldown > 0 then self.publish.text:SetText(format("0:%02d", math.ceil(cooldown))) end
+    self.publish:SetAlpha(cooldown > 0 and 0.55 or 1)
+end
+
 function Groups:QueueAnnouncement(entry)
     if entry.kind ~= "P" or not self:IsOwn(entry) then return end
     local text = self:AnnouncementText(entry)
@@ -139,6 +176,11 @@ function Groups:BuildAnnouncementOptions(form)
     self.chatRepeatLabel = self:Text(form, "LID_GROUPCHATREPEAT", 14, -153)
     self.chatRepeat = Members:CreatePill(form, "")
     self.chatRepeat:SetPoint("TOPLEFT", form, "TOPLEFT", 150, -146)
+    self.chatRepeatOff = GuildHelper.Theme:Text(form, 13, "muted")
+    self.chatRepeatOff:SetPoint("TOPLEFT", self.chatRepeatLabel, "TOPLEFT", 136, 0)
+    self.chatRepeatOff:SetPoint("RIGHT", form, "RIGHT", -16, 0)
+    self.chatRepeatOff:SetWordWrap(true)
+    GuildHelper.Theme:SetTrans(self.chatRepeatOff, "LID_GROUPCHATREPEATOFF")
     self.chatCountdown = self:Text(form, nil, 0, 0)
     self.chatCountdown:ClearAllPoints()
     self.chatCountdown:SetPoint("LEFT", self.chatRepeat, "RIGHT", 12, 0)
@@ -169,8 +211,9 @@ function Groups:RefreshAnnouncementOptions(planned, extra)
     self.chatLanguage:SetPoint("TOPLEFT", self.form, "TOPLEFT", 150, y + 7)
     GuildHelper.Members:SetPillText(self.chatLanguage, GuildHelper:Trans("LID_LANG" .. strupper(draft.chatLanguage or GuildHelper:GetLanguage())))
     local repeatEnabled = not planned and GuildHelper.Bridge:IsLiveRepeatEnabled()
-    self.chatRepeatLabel:SetShown(repeatEnabled)
+    self.chatRepeatLabel:SetShown(not planned)
     self.chatRepeat:SetShown(repeatEnabled)
+    self.chatRepeatOff:SetShown(not planned and not repeatEnabled)
     local live = repeatEnabled and self:GetOwnLive(self.mode)
     self.chatCountdown:SetShown(live and true or false)
     if live then

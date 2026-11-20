@@ -945,6 +945,7 @@ function Groups:Publish()
     local draft = self.draft[self.mode]
     local activity = self:GetModeActivities(self.mode).map[draft.activity]
     local entry = self:GetCurrent()
+    local repost = self:IsManualRepost(entry)
     if not entry then
         local stamp = time()
         local id
@@ -980,6 +981,10 @@ function Groups:Publish()
     entry.when = planned and self:GetDraftTime() or 0
     self.selected = entry.key
     entry.chatLanguage = draft.chatLanguage or GuildHelper:GetLanguage()
+    if repost then
+        entry.lastChatState = nil
+        entry.lastChatText = nil
+    end
     self:Broadcast(entry)
     self:QueueAnnouncement(entry)
     self:TickAnnouncements()
@@ -1611,7 +1616,14 @@ function Groups:BuildForm(content)
     self.noteBox = self:CreateBox(self.form, 100)
     self.noteBox:SetPoint("TOPLEFT", self.noteLabel, "TOPLEFT", 136, 7)
     self.noteBox:SetPoint("RIGHT", self.form, "RIGHT", -16, 0)
-    self.noteBox:SetScript("OnTextChanged", function(box) self.draft[self.mode].note = box:GetText() end)
+    self.notePlaceholder = GuildHelper.Theme:Text(self.noteBox, 13, "muted")
+    self.notePlaceholder:SetPoint("LEFT", self.noteBox, "LEFT", GuildHelper.Theme:IsNative() and 2 or 8, 0)
+    GuildHelper.Theme:SetTrans(self.notePlaceholder, "LID_OPTIONAL")
+    self.noteBox:SetScript("OnTextChanged", function(box, userInput)
+        self.draft[self.mode].note = box:GetText()
+        self.notePlaceholder:SetShown(box:GetText() == "")
+        if userInput then self:UpdatePublishLabel(self:GetCurrent(), self:IsPlanned(self.mode) and 0 or self:GetChatCooldown()) end
+    end)
     self.dateLabel = self:Text(self.form, "LID_GROUPDATE", 14, -143)
     self.dayPill = Members:CreatePill(self.form, "")
     self.dayPill:SetPoint("TOPLEFT", self.form, "TOPLEFT", 150, -136)
@@ -1643,7 +1655,7 @@ function Groups:BuildForm(content)
     self:BuildAnnouncementOptions(self.form)
     self.publish = Members:CreateButton(self.form, "LID_GROUPPUBLISH", true)
     self.publish:SetPoint("BOTTOMLEFT", self.form, "BOTTOMLEFT", 14, 12)
-    self.publish:SetWidth(144)
+    self.publish:SetWidth(170)
     self.publish:SetScript("OnClick", function()
         self.noteBox:ClearFocus()
         self:Publish()
@@ -1655,6 +1667,7 @@ function Groups:BuildForm(content)
     self.new:SetScript("OnClick", function() self:NewDraft() end)
     self.close = Members:CreateButton(self.form, "LID_GROUPCLOSE")
     self.close:SetWidth(144)
+    self.close:SetPoint("BOTTOMRIGHT", self.form, "BOTTOMRIGHT", -14, 12)
     self.close:SetScript("OnClick", function() self:CloseCurrent() end)
     self.status = self:Text(self.form, nil, 14, 0)
     self.status:ClearAllPoints()
@@ -1950,15 +1963,9 @@ function Groups:RefreshForm()
     local ok, status, limit = self:Validate()
     local cooldown = planned and 0 or self:GetChatCooldown()
     self.publish:SetEnabled(ok and self:IsReady() and cooldown == 0)
-    GuildHelper.Theme:SetTrans(self.publish.text, current and "LID_GROUPUPDATE" or "LID_GROUPPUBLISH")
-    if cooldown > 0 then
-        self.publish.text:SetText(format("0:%02d", math.ceil(cooldown)))
-    end
-    self.publish:SetAlpha(cooldown > 0 and 0.55 or 1)
+    self:UpdatePublishLabel(current, cooldown)
     self.new:SetShown(planned)
     self.new:SetEnabled(current ~= nil)
-    self.close:ClearAllPoints()
-    self.close:SetPoint("LEFT", planned and self.new or self.publish, "RIGHT", 12, 0)
     self.close:SetEnabled(current ~= nil)
     local text = GuildHelper:Trans(status)
     if limit then text = format(text, limit) end
