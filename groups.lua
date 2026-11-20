@@ -1862,8 +1862,11 @@ function Groups:RefreshRequests(entry)
 
         local applicant = entry.applicants[name]
         row.applicant = applicant
-        local role = self:IsOutdoor(self:GetListingMode(entry)) and "" or "\n" .. GuildHelper.Specs:Format({role = applicant.role})
+        local role = self:IsOutdoor(self:GetListingMode(entry)) and "" or GuildHelper.Specs:Format({role = applicant.role}) or ""
         local member = GuildHelper.Members:FindByName(applicant.name)
+        local zone = member and member.zone ~= "" and GuildHelper.Theme:GetHex("muted") .. member.zone .. "|r" or ""
+        local details = role ~= "" and zone ~= "" and role .. "  -  " .. zone or role .. zone
+        if details ~= "" then details = "\n" .. details end
         local label = applicant.name
         if member then
             local r, g, b = GuildHelper.Members:GetClassColor(member)
@@ -1875,7 +1878,7 @@ function Groups:RefreshRequests(entry)
                 label = classHex .. "[" .. levelHex .. member.level .. "|r" .. classHex .. "]|r " .. label
             end
         end
-        row.text:SetText(label .. role)
+        row.text:SetText(label .. details)
 
         row.button:SetEnabled(canInvite)
         row:Show()
