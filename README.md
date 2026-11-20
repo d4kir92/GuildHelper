@@ -23,6 +23,13 @@ Many features share data between guild members who also use GuildHelper (item le
 - Detail panel with notes, specs, professions, alts or main, and buttons to whisper or invite the member.
 - The columns adapt to the window size.
 
+### Professions and crafting orders
+
+- Find guild crafters by profession or by recipe, and see the materials a recipe needs.
+- Each recipe shows the skill level it is learned at.
+- Shift+click a recipe, its result or a material to link it in chat while the chat input is open.
+- Guild crafting orders: choose a crafter, note which materials you already have, and choose mail or trade for the handover. Open orders are shared with the guild, and you are notified about them.
+
 ### Group finder
 
 - **Live:** post a group for a dungeon or raid. The open tank, healer and damage slots are calculated from your current group and update automatically. The post closes when the group is full.
