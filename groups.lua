@@ -1867,8 +1867,13 @@ function Groups:RefreshRequests(entry)
         local label = applicant.name
         if member then
             local r, g, b = GuildHelper.Members:GetClassColor(member)
-            if (member.level or 0) > 0 then label = "[" .. member.level .. "] " .. label end
-            label = format("|cff%02x%02x%02x%s|r", r * 255, g * 255, b * 255, label)
+            local classHex = format("|cff%02x%02x%02x", r * 255, g * 255, b * 255)
+            label = classHex .. label .. "|r"
+            if (member.level or 0) > 0 then
+                local difficulty = (GetCreatureDifficultyColor or GetQuestDifficultyColor)(member.level)
+                local levelHex = format("|cff%02x%02x%02x", difficulty.r * 255, difficulty.g * 255, difficulty.b * 255)
+                label = classHex .. "[" .. levelHex .. member.level .. "|r" .. classHex .. "]|r " .. label
+            end
         end
         row.text:SetText(label .. role)
 
