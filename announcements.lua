@@ -67,6 +67,7 @@ end
 function Groups:TickAnnouncements()
     if not self.guild or self:GetChatCooldown() > 0 then return end
     if C_GuildInfo and C_GuildInfo.CanSpeakInGuildChat and not C_GuildInfo.CanSpeakInGuildChat() then return end
+    if C_ChatInfo and C_ChatInfo.InChatMessagingLockdown and C_ChatInfo.InChatMessagingLockdown() then return end
     local now, clock = time(), GetTime()
     local selected, oldest, text, liveState
 
