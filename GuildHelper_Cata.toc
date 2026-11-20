@@ -54,6 +54,7 @@ specs.lua
 members.lua
 dashboard.lua
 groups.lua
+data\cata\recipeskills.lua
 recipes.lua
 professions.lua
 announcements.lua

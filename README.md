@@ -90,6 +90,10 @@ GuildHelper includes translations for all World of Warcraft client locales:
 
 `deDE`, `enUS`, `esES`, `esMX`, `frFR`, `itIT`, `koKR`, `ptBR`, `ruRU`, `zhCN`, and `zhTW`.
 
+## Credits
+
+- The skill level a recipe is learned at ("Learned at") comes from [Wowhead](https://www.wowhead.com/) profession data.
+
 ## License
 
 All Rights Reserved, see `LICENSE`.

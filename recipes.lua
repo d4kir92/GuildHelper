@@ -514,11 +514,49 @@ function Recipes.ShowTooltip(owner)
     GameTooltip:Show()
 end
 
+function Recipes:LearnedAt(id)
+    local skills = GuildHelper.RecipeSkills
+    return skills and id and skills[id]
+end
+
+function Recipes:ItemLink(id)
+    local getInfo = C_Item and C_Item.GetItemInfo or GetItemInfo
+    local link = getInfo and select(2, getInfo(id))
+    if not link then self.itemRequests[id] = true end
+    return link
+end
+
+function Recipes:ChatLink(recipe, material)
+    if material and material < 0 then
+        local getCurrency = C_CurrencyInfo and C_CurrencyInfo.GetCurrencyLink or GetCurrencyLink
+        return getCurrency and getCurrency(-material, 0)
+    elseif material and material > 0 then
+        return self:ItemLink(material)
+    elseif recipe then
+        local link = self:OutputLink(recipe)
+        if link and link:find("|H", 1, true) then return link end
+        local item = link and tonumber(link:match("item:(%d+)"))
+        if item then return self:ItemLink(item) end
+        local getSpell = C_Spell and C_Spell.GetSpellLink or GetSpellLink
+        return getSpell and getSpell(recipe)
+    end
+end
+
+function Recipes.LinkClick(owner)
+    if not IsModifiedClick or not IsModifiedClick("CHATLINK") then return false end
+    if not owner.ghTooltipRecipe and not owner.ghTooltipMaterial then return false end
+    local link = Recipes:ChatLink(owner.ghTooltipRecipe, owner.ghTooltipMaterial)
+    local insert = ChatEdit_InsertLink or ChatFrameUtil and ChatFrameUtil.InsertLink
+    if not link or not insert then return false end
+    return insert(link) and true or false
+end
+
 function Recipes:SetTooltip(owner, recipe, material)
     if owner.ghTooltipRecipe == recipe and owner.ghTooltipMaterial == material then return end
     owner.ghTooltipRecipe, owner.ghTooltipMaterial = recipe, material
     if (recipe or material) and not owner.ghTooltipBound then
         owner.ghTooltipBound = true
+        if owner:GetObjectType() ~= "Button" then owner:HookScript("OnMouseUp", Recipes.LinkClick) end
         owner:HookScript("OnEnter", Recipes.ShowTooltip)
         local function hideTooltip(frame)
             if GameTooltip:IsOwned(frame) then GameTooltip:Hide() end

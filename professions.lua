@@ -149,7 +149,10 @@ function Professions:ShowRows(panel, entries, onClick, selected, splits)
                 Members:FillAvatar(row.avatar, entry.member, Members:GetData(entry.member), r, g, b)
             end
             if row.avatar then row.avatar:SetShown(entry.member ~= nil) end
-            row:SetScript("OnClick", function() onClick(entry.key) end)
+            row:SetScript("OnClick", function(button)
+                if Recipes.LinkClick(button) then return end
+                onClick(entry.key)
+            end)
             row.selected = selected == entry.key
             row.selection:SetShown(row.selected)
             if not row.native then
@@ -342,6 +345,8 @@ function Professions:Update()
         local name, icon = Recipes:OutputDisplay(recipe)
         panel.recipeTitle:SetText(name)
         panel.recipeIcon:SetTexture(icon)
+        local learnedAt = Recipes:LearnedAt(recipe)
+        panel.recipeSkill:SetText(learnedAt and format(GuildHelper:Trans("LID_RECIPELEARNEDAT"), learnedAt) or "")
         table.sort(selected.crafters, byMember)
         self:ShowRows(page.crafters, selected.crafters, function(key)
             page.selectedCrafter = key
@@ -604,6 +609,10 @@ function Professions:Build(content)
     local kind = Theme:Text(header, 11, "muted")
     kind:SetPoint("TOPLEFT")
     Theme:SetTrans(kind, "LID_RECIPE", true)
+    local skill = Theme:Text(header, 11, "muted")
+    skill:SetPoint("TOPRIGHT")
+    skill:SetJustifyH("RIGHT")
+    page.details.recipeSkill = skill
     local recipeIcon = header:CreateTexture(nil, "ARTWORK")
     recipeIcon:SetSize(24, 24)
     recipeIcon:SetPoint("TOPLEFT", 0, -15)
