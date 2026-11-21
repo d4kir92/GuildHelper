@@ -634,6 +634,7 @@ function Dashboard:CreateChat(parent)
     messages:SetPoint("TOPLEFT", card, "TOPLEFT", 16, -34)
     messages:SetPoint("BOTTOMRIGHT", input, "TOPRIGHT", -14, 6)
     messages:SetMaxLines(self.CHATMAX)
+    messages.constrainRangeToText = true
     messages:SetFading(false)
     messages:SetJustifyH("LEFT")
     messages:SetHyperlinksEnabled(true)
