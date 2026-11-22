@@ -1458,18 +1458,13 @@ end
 
 function Groups:CanInvite()
     if InCombatLockdown() then return false end
-    if C_PartyInfo and C_PartyInfo.CanInvite then return C_PartyInfo.CanInvite() end
 
-    return not IsInGroup() or UnitIsGroupLeader("player") or UnitIsGroupAssistant("player")
+    return GuildHelper.Members:GetGroupInviteMode() ~= nil
 end
 
 function Groups:Invite(applicant)
     if not applicant or not self:CanInvite() then return end
-    if C_PartyInfo and C_PartyInfo.InviteUnit then
-        C_PartyInfo.InviteUnit(applicant.name)
-    elseif InviteUnit then
-        InviteUnit(applicant.name)
-    end
+    GuildHelper.Members:InviteName(applicant.name)
 end
 
 function Groups:Needs(entry)
@@ -1980,7 +1975,7 @@ function Groups:RefreshRequests(entry)
         row.text:SetText(label .. details)
 
         local needsAccept = entry.kind == "P" and not applicant.accepted
-        GuildHelper.Theme:SetTrans(row.button.text, needsAccept and "LID_GROUPACCEPT" or "LID_INVITE")
+        GuildHelper.Theme:SetTrans(row.button.text, needsAccept and "LID_GROUPACCEPT" or GuildHelper.Members:GetInviteLabel())
         if needsAccept then
             row.button:SetEnabled(own and (entry[applicant.role] or 0) > 0)
         else

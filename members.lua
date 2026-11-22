@@ -1177,7 +1177,7 @@ function Members:OpenPlayerMenu(member, anchor)
     local r, g, b = self:GetClassColor(member)
     local options = {
         {label = member.short, header = true, color = {r = r, g = g, b = b}},
-        {label = GuildHelper:Trans("LID_INVITE"), value = "invite", disabled = own or not member.online},
+        {label = GuildHelper:Trans(self:GetInviteLabel()), value = "invite", disabled = own or not member.online},
         {label = GuildHelper:Trans("LID_WHISPER"), value = "whisper", disabled = own},
         {label = GuildHelper:Trans("LID_PROFESSIONS"), value = "professions"}
     }
@@ -1925,13 +1925,49 @@ function Members:Whisper(member)
     end
 end
 
+function Members:GetGroupInviteMode()
+    if C_PartyInfo and C_PartyInfo.CanInvite then
+        if C_PartyInfo.CanInvite() then return "invite" end
+    elseif not IsInGroup() or UnitIsGroupLeader("player") or (IsInRaid() and UnitIsGroupAssistant("player")) then
+        return "invite"
+    end
+
+    return IsInGroup() and "suggest" or nil
+end
+
+function Members:GetInviteLabel()
+    return self:GetGroupInviteMode() == "suggest" and "LID_SUGGESTINVITE" or "LID_INVITE"
+end
+
+function Members:InviteName(name)
+    if name == nil or name == "" then return end
+    local mode = self:GetGroupInviteMode()
+    if mode == nil then return end
+    if mode == "suggest" then
+        local full
+        if C_PartyInfo and C_PartyInfo.IsPartyFull then
+            full = C_PartyInfo.IsPartyFull()
+        else
+            full = not IsInRaid() and GetNumGroupMembers() >= 5
+        end
+
+        if full then
+            if UIErrorsFrame and ERR_GROUP_FULL then UIErrorsFrame:AddMessage(ERR_GROUP_FULL, 1, 0.1, 0.1) end
+
+            return
+        end
+    end
+
+    if C_PartyInfo and C_PartyInfo.InviteUnit then
+        C_PartyInfo.InviteUnit(name)
+    elseif InviteUnit then
+        InviteUnit(name)
+    end
+end
+
 function Members:Invite(member)
     if member == nil or self:IsSelf(member) or not member.online then return end
-    if C_PartyInfo and C_PartyInfo.InviteUnit then
-        C_PartyInfo.InviteUnit(member.name)
-    elseif InviteUnit then
-        InviteUnit(member.name)
-    end
+    self:InviteName(member.name)
 end
 
 function Members:ColoredName(member)
@@ -2081,6 +2117,7 @@ function Members:UpdateDetail()
     local isSelf = self:IsSelf(member)
     detail.whisper:SetAlpha(isSelf and 0.4 or 1)
     detail.whisper:SetEnabled(not isSelf)
+    Theme:SetTrans(detail.invite.text, self:GetInviteLabel())
     detail.invite:SetAlpha((isSelf or not member.online) and 0.4 or 1)
     detail.invite:SetEnabled(not isSelf and member.online)
 end
@@ -2176,9 +2213,10 @@ function Members:Init()
     events:RegisterEvent("GUILD_ROSTER_UPDATE")
     events:RegisterEvent("PLAYER_GUILD_UPDATE")
     events:RegisterEvent("PLAYER_TARGET_CHANGED")
+    events:RegisterEvent("GROUP_ROSTER_UPDATE")
     events:SetScript("OnEvent", function(_, event)
         if Members.content == nil or not Members.content:IsVisible() then return end
-        if event == "PLAYER_TARGET_CHANGED" then return Members:Update() end
+        if event == "PLAYER_TARGET_CHANGED" or event == "GROUP_ROSTER_UPDATE" then return Members:Update() end
         if event == "PLAYER_GUILD_UPDATE" then Members:RequestRoster() end
         Members:Refresh()
     end)

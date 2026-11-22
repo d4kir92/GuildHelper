@@ -339,6 +339,7 @@ GuildHelper:AddTrans("ruRU", "LID_SHOWMINIMAP", "Кнопка у миникар�
 GuildHelper:AddTrans("ruRU", "LID_SHOWMINIMAPDESC", "Показать или скрыть кнопку GuildHelper у миникарты.")
 GuildHelper:AddTrans("ruRU", "LID_SPECS", "Специализации")
 GuildHelper:AddTrans("ruRU", "LID_STRONGCLASSCOLORS", "Более насыщенные цвета классов")
+GuildHelper:AddTrans("ruRU", "LID_SUGGESTINVITE", "Предложить")
 GuildHelper:AddTrans("ruRU", "LID_TODAY", "Сегодня")
 GuildHelper:AddTrans("ruRU", "LID_TOMORROW", "Завтра")
 GuildHelper:AddTrans("ruRU", "LID_TWITCH", "Twitch")
