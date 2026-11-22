@@ -1,4 +1,6 @@
 local _, GuildHelper = ...
+GuildHelper:AddTrans("koKR", "LID_ADDMEMBER", "구성원 추가")
+GuildHelper:AddTrans("koKR", "LID_ADDMEMBERTIP", "블리자드 길드 창을 엽니다. 그곳의 초대 버튼으로 구성원을 추가하세요.")
 GuildHelper:AddTrans("koKR", "LID_ADDONTITLE", "GuildHelper")
 GuildHelper:AddTrans("koKR", "LID_ADDONVERSION", "버전")
 GuildHelper:AddTrans("koKR", "LID_ALLCLASSES", "모든 직업")

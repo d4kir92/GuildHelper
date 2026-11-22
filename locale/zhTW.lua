@@ -1,4 +1,6 @@
 local _, GuildHelper = ...
+GuildHelper:AddTrans("zhTW", "LID_ADDMEMBER", "新增成員")
+GuildHelper:AddTrans("zhTW", "LID_ADDMEMBERTIP", "開啟暴雪公會視窗。在那裡使用邀請按鈕新增成員。")
 GuildHelper:AddTrans("zhTW", "LID_ADDONTITLE", "GuildHelper")
 GuildHelper:AddTrans("zhTW", "LID_ADDONVERSION", "版本")
 GuildHelper:AddTrans("zhTW", "LID_ALLCLASSES", "所有職業")

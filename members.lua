@@ -1059,6 +1059,16 @@ function Members:CreateHeaderArea(content)
     end)
 
     self.searchBox = box
+    self.addPill = self:CreatePill(content)
+    self.addPill:SetPoint("RIGHT", box, "LEFT", -10, 0)
+    self.addPill:HookScript("OnEnter", function(sel) Window:ShowGuildOverlay(sel, "LID_ADDMEMBERTIP") end)
+    self.addPill:SetScript("OnClick", function()
+        if UIErrorsFrame then UIErrorsFrame:AddMessage(GuildHelper:Trans(InCombatLockdown() and "LID_NOTINCOMBAT" or "LID_ADDMEMBERTIP"), 1, 0.1, 0.1) end
+    end)
+end
+
+function Members:CanInvite()
+    return IsInGuild() and CanGuildInvite ~= nil and CanGuildInvite() and true or false
 end
 
 function Members:CreateFilters(content)
@@ -1127,6 +1137,7 @@ function Members:UpdateFilters()
     self:SetPillText(self.guildPill, GuildHelper:Trans("LID_OWNGUILDONLY"))
     self:SetPillActive(self.guildPill, self.filter.ownGuild)
     self:SetPillText(self.columnsPill, GuildHelper:Trans("LID_COLUMNS"))
+    self:SetPillText(self.addPill, "+ " .. GuildHelper:Trans("LID_ADDMEMBER"))
     self:SetPillActive(self.columnsPill, self.columnMenu ~= nil and self.columnMenu:IsShown())
     for _, header in ipairs(self.headers) do
         local active = header.column.key == self.sortKey
@@ -2082,6 +2093,7 @@ function Members:Update()
     self.filters:SetShown(inGuild)
     self.columnsPill:SetShown(inGuild)
     self.searchBox:SetShown(inGuild)
+    self.addPill:SetShown(self:CanInvite())
     self.noGuild:SetShown(not inGuild)
     if not inGuild then
         self.count:SetText("")
@@ -2142,6 +2154,7 @@ function Members:Reset()
     self.columnMenu = nil
     self.columnsPill = nil
     self.searchBox = nil
+    self.addPill = nil
     self.filters = nil
     self.guildPill = nil
     self.rows = {}

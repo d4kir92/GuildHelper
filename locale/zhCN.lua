@@ -1,4 +1,6 @@
 local _, GuildHelper = ...
+GuildHelper:AddTrans("zhCN", "LID_ADDMEMBER", "添加成员")
+GuildHelper:AddTrans("zhCN", "LID_ADDMEMBERTIP", "打开暴雪公会窗口。在那里使用邀请按钮添加成员。")
 GuildHelper:AddTrans("zhCN", "LID_ADDONTITLE", "GuildHelper")
 GuildHelper:AddTrans("zhCN", "LID_ADDONVERSION", "版本")
 GuildHelper:AddTrans("zhCN", "LID_ALLCLASSES", "所有职业")

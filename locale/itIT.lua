@@ -1,4 +1,6 @@
 local _, GuildHelper = ...
+GuildHelper:AddTrans("itIT", "LID_ADDMEMBER", "Aggiungi membro")
+GuildHelper:AddTrans("itIT", "LID_ADDMEMBERTIP", "Apre la finestra della gilda di Blizzard. Usa lì il pulsante di invito per aggiungere il membro.")
 GuildHelper:AddTrans("itIT", "LID_ADDONTITLE", "GuildHelper")
 GuildHelper:AddTrans("itIT", "LID_ADDONVERSION", "Versione")
 GuildHelper:AddTrans("itIT", "LID_ALLCLASSES", "Tutte le classi")
