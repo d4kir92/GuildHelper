@@ -1,15 +1,47 @@
 local _, GuildHelper = ...
 local Window, Theme, Members, Sync = GuildHelper.Window, GuildHelper.Theme, GuildHelper.Members, GuildHelper.Sync
 local Groups, Recipes, Professions = GuildHelper.Groups, GuildHelper.Recipes, GuildHelper.Professions
-local Orders = {pending = {}, heard = {}, answers = {}, queued = {}, states = {O = 1, C = 2, D = 3}}
+local Orders = {pending = {}, heard = {}, answers = {}, queued = {}, confirms = {}, states = {O = 1, C = 2, D = 3}}
 Orders.retention = 7 * 86400
+Orders.QUORUM = 3
+Orders.CONFIRMWINDOW = 600
 GuildHelper.Orders = Orders
+
+function Orders:Confirmed(key, sender)
+    local now = GetTime()
+    local entry = self.confirms[key]
+    if not entry or now - entry.at > self.CONFIRMWINDOW then
+        entry = {at = now, senders = {}, count = 0}
+        self.confirms[key] = entry
+    end
+    if not entry.senders[sender] then
+        entry.senders[sender] = true
+        entry.count = entry.count + 1
+    end
+    if entry.count < self.QUORUM then return false end
+    self.confirms[key] = nil
+    return true
+end
+
+function Orders:Hear(id, status, sender)
+    local now = GetTime()
+    local heard = self.heard[id]
+    if not heard or heard.status ~= status or now - heard.at > 120 then
+        heard = {status = status, senders = {}, count = 0}
+        self.heard[id] = heard
+    end
+    heard.at = now
+    if not heard.senders[sender] then
+        heard.senders[sender] = true
+        heard.count = heard.count + 1
+    end
+end
 
 function Orders:GetStore()
     local guild = Sync:GetGuildKey()
     if guild ~= self.guild then
         self.guild = guild
-        self.pending, self.heard, self.answers, self.queued = {}, {}, {}, {}
+        self.pending, self.heard, self.answers, self.queued, self.confirms = {}, {}, {}, {}, {}
         self.draft, self.selected, self.lastRequest = nil, nil, nil
     end
     if not guild then return end
@@ -173,7 +205,7 @@ function Orders:OnRequest(sender, digest)
         for id, order in pairs(store) do
             if order and (order.requester == sender or order.crafter == sender) then
                 local heard = self.heard[id]
-                if not heard or heard.at < requested or heard.status ~= order.status then self:Send(order, true) end
+                if not heard or heard.at < requested or heard.status ~= order.status or heard.count < self.QUORUM then self:Send(order, true) end
                 self:SendComments(order)
             end
         end
@@ -238,10 +270,12 @@ function Orders:OnMessage(message, sender)
     if closedID then
         local order = store[closedID]
         if not order or order.status ~= closedStatus then return end
-        if closedMode == "S" and sender ~= (closedStatus == "D" and order.crafter or order.requester) then return end
+        local authority = sender == (closedStatus == "D" and order.crafter or order.requester)
+        if closedMode == "S" and not authority then return end
         local closedAt = tonumber(stamp)
         if closedAt < tonumber(closedID:match("^%d+")) or closedAt > time() + 86400 then return end
         if order.closedAt and (closedMode == "R" or order.closedAt == closedAt) then return end
+        if not authority and not self:Confirmed(closedID .. "|T|" .. closedStatus .. "|" .. stamp, sender) then return end
         order.closedAt = closedAt
         self:Refresh()
         return
@@ -271,11 +305,16 @@ function Orders:OnMessage(message, sender)
     self.pending[key] = nil
     local order = self:Decode(id, table.concat(state.parts))
     if not order then return end
-    if mode == "S" and sender ~= (order.status == "D" and order.crafter or order.requester) then return end
+    local authority = sender == (order.status == "D" and order.crafter or order.requester)
+    if mode == "S" and not authority then return end
     local previous = store[id]
     if previous and (previous.requester ~= order.requester or previous.crafter ~= order.crafter or previous.recipe ~= order.recipe or previous.delivery ~= order.delivery) then return end
-    self.heard[id] = {status = order.status, at = GetTime()}
+    self:Hear(id, order.status, sender)
     if previous and self.states[previous.status] >= self.states[order.status] then return end
+    if not authority and sender ~= order.requester and sender ~= order.crafter then
+        local confirmKey = table.concat({id, order.status, order.requester or "", order.crafter or "", tostring(order.recipe or ""), tostring(order.delivery or "")}, "|")
+        if not self:Confirmed(confirmKey, sender) then return end
+    end
     if previous then
         previous.status = order.status
         previous.closedAt, previous.archivedAt = nil, nil
