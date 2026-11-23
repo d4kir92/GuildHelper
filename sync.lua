@@ -12,12 +12,85 @@ Sync.tokens = Sync.BURST
 Sync.queue = {}
 Sync.pump = CreateFrame("Frame")
 Sync.pump:SetScript("OnUpdate", function(_, elapsed) Sync:Pump(elapsed) end)
+Sync.GUILDTABLES = {"MEMBERDATA", "FEEDBACK", "ORDERS", "EVENTS", "GROUPS", "BRIDGE", "BRIDGEDATA", "MAINS"}
+Sync.CHARTABLES = {"FEEDBACKUNREAD", "GROUPSVIEWED", "BANK"}
+Sync.migrated = {}
 function Sync:GetGuildKey()
     if not IsInGuild() then return nil end
     local guild = GetGuildInfo("player")
     if guild == nil then return nil end
+    local realm = GetRealmName and GetRealmName()
+    if not GuildHelper:CanAccessValue(realm) or type(realm) ~= "string" then realm = "" end
+    if IsLoggedIn and not IsLoggedIn() then return guild .. "-" .. realm end
+    realm = self:GetGuildRealm(guild, realm)
+    if realm ~= "" and not self.migrated[guild] then
+        self.migrated[guild] = true
+        self:MigrateGuildKey(guild .. "-", guild .. "-" .. realm)
+    end
 
-    return guild .. "-" .. (GetRealmName() or "")
+    return guild .. "-" .. realm
+end
+
+function Sync:GetGuildRealm(guild, realm)
+    GHTABPC = GHTABPC or {}
+    if realm ~= "" then
+        GHTABPC.REALM = realm
+
+        return realm
+    end
+
+    local known = GHTABPC.REALM or self:FindGuildRealm(guild)
+    if known then GHTABPC.REALM = known end
+
+    return known or ""
+end
+
+function Sync:FindGuildRealm(guild)
+    local prefix = guild .. "-"
+    local counts = {}
+    for _, name in ipairs(self.GUILDTABLES) do
+        for key, value in pairs(GHTAB and GHTAB[name] or {}) do
+            if type(key) == "string" and #key > #prefix and strsub(key, 1, #prefix) == prefix then
+                local realm = strsub(key, #prefix + 1)
+                local size = 1
+                if type(value) == "table" then
+                    for _ in pairs(value) do
+                        size = size + 1
+                    end
+                end
+
+                counts[realm] = (counts[realm] or 0) + size
+            end
+        end
+    end
+
+    local best, bestCount = nil, 0
+    for realm, count in pairs(counts) do
+        if count > bestCount then best, bestCount = realm, count end
+    end
+
+    return best
+end
+
+function Sync:MergeSaved(target, source)
+    if type(target) ~= "table" or type(source) ~= "table" or source[1] ~= nil or target[1] ~= nil then return source end
+    for key, value in pairs(source) do
+        target[key] = self:MergeSaved(target[key], value)
+    end
+
+    return target
+end
+
+function Sync:MigrateGuildKey(old, new)
+    for _, list in ipairs({{GHTAB, self.GUILDTABLES}, {GHTABPC, self.CHARTABLES}}) do
+        for _, name in ipairs(list[2]) do
+            local tab = list[1] and list[1][name]
+            if type(tab) == "table" and tab[old] ~= nil then
+                tab[new] = self:MergeSaved(tab[new], tab[old])
+                tab[old] = nil
+            end
+        end
+    end
 end
 
 function Sync:GetStore()
