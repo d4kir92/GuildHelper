@@ -9,7 +9,21 @@ Dashboard.TOP = 70
 Dashboard.MOTDTOP = 146
 Dashboard.SCROLLTOP = 66
 Dashboard.SCROLLPAD = 4
-Dashboard.MINLOWER = 580
+Dashboard.MINLOWER = 398
+Dashboard.TABS = {
+    {
+        key = "zones",
+        label = "LID_WHOISWHERE"
+    },
+    {
+        key = "professions",
+        label = "LID_GUILDPROFESSIONS"
+    },
+    {
+        key = "history",
+        label = "LID_ONLINEHISTORY"
+    }
+}
 Dashboard.CHATLIMIT = 50
 Dashboard.CHATMAX = 500
 function Dashboard:CheckGuild()
@@ -430,23 +444,38 @@ function Dashboard:Build(content)
     self.newsFilterButton:SetScript("OnClick", function() Dashboard:ToggleNewsFilters() end)
     self.newsFilterButton:SetEnabled(GetGuildNewsFilters ~= nil and SetGuildNewsFilter ~= nil)
     self.news.title:SetPoint("RIGHT", self.newsFilterButton, "LEFT", -8, 0)
-    self.news:SetPoint("TOPLEFT", self.motd, "BOTTOMLEFT", 0, -12)
-    self.news:SetPoint("RIGHT", self.motd, "RIGHT")
-    self.news:SetHeight(110)
-    self.professions = self:CreateList(self:CreateCard(body, "LID_GUILDPROFESSIONS"))
-    self.professions:SetPoint("TOPLEFT", self.news, "TOPRIGHT", 12, 0)
-    self.professions:SetPoint("RIGHT", self.stats, "RIGHT")
-    self.professions:SetPoint("BOTTOM", self.news, "BOTTOM")
-    self.history:SetPoint("TOPLEFT", self.professions, "BOTTOMLEFT", 0, -12)
-    self.history:SetPoint("RIGHT", self.professions, "RIGHT")
+    self.news:SetPoint("TOPLEFT", self.motd, "TOPRIGHT", 12, 0)
+    self.news:SetPoint("RIGHT", self.stats, "RIGHT")
+    self.news:SetPoint("BOTTOM", self.motd, "BOTTOM")
+    self.information:ClearAllPoints()
+    self.information:SetPoint("TOPLEFT", self.motd, "BOTTOMLEFT", 0, -12)
+    self.information:SetPoint("RIGHT", self.motd, "RIGHT")
+    self.information:SetHeight(110)
     self.chat = self:CreateChat(body)
-    self.chat:SetPoint("TOPLEFT", self.news, "BOTTOMLEFT", 0, -12)
-    self.chat:SetPoint("RIGHT", self.news, "RIGHT")
+    self.chat:SetPoint("TOPLEFT", self.information, "BOTTOMLEFT", 0, -12)
+    self.chat:SetPoint("RIGHT", self.information, "RIGHT")
     self.chat:SetPoint("BOTTOM", body, "BOTTOM", 0, self.SCROLLPAD)
-    self.zones = self:CreateList(self:CreateCard(body, "LID_WHOISWHERE"))
-    self.zones:SetPoint("TOPLEFT", self.history, "BOTTOMLEFT", 0, -12)
-    self.zones:SetPoint("RIGHT", self.professions, "RIGHT")
-    self.zones:SetPoint("BOTTOM", self.chat, "BOTTOM")
+    self.zones = self:CreateList(self:CreateCard(body))
+    self.professions = self:CreateList(self:CreateCard(body))
+    self.tabs = {}
+    local anchor
+    for _, tab in ipairs(self.TABS) do
+        local card = self[tab.key]
+        card:SetPoint("TOPLEFT", self.news, "BOTTOMLEFT", 0, -12)
+        card:SetPoint("RIGHT", self.news, "RIGHT")
+        card:SetPoint("BOTTOM", self.chat, "BOTTOM")
+        local pill = Members:CreatePill(body, GuildHelper:Trans(tab.label))
+        pill:SetFrameLevel(card:GetFrameLevel() + 10)
+        if anchor then
+            pill:SetPoint("LEFT", anchor, "RIGHT", 6, 0)
+        else
+            pill:SetPoint("TOPLEFT", card, "TOPLEFT", 10, -6)
+        end
+
+        pill:SetScript("OnClick", function() Dashboard:SelectTab(tab.key) end)
+        self.tabs[tab.key] = pill
+        anchor = pill
+    end
     content:SetScript("OnSizeChanged", function(_, width)
         local available = width - Window.PADDING - Window.MARGIN
         self.motd:SetWidth(max(1, (available - 12) / 2))
@@ -828,9 +857,11 @@ end
 function Dashboard:Update()
     if not self:IsVisible() then return end
     local inGuild = IsInGuild()
-    for _, region in ipairs({self.motd, self.information, self.news, self.stats, self.history, self.professions, self.zones, self.chat}) do
+    for _, region in ipairs({self.motd, self.information, self.news, self.stats, self.chat}) do
         region:SetShown(inGuild)
     end
+
+    self:ApplyTab(inGuild)
 
     self.noGuild:SetShown(not inGuild)
     if self.newsFilterButton then Members:SetPillText(self.newsFilterButton, GuildHelper:Trans("LID_NEWSFILTERS")) end
@@ -862,7 +893,36 @@ function Dashboard:Reset()
     self.history = nil
     self.zones = nil
     self.professions = nil
+    self.tabs = nil
     GuildHelper.History:ResetChart()
+end
+
+function Dashboard:GetTab()
+    local wanted = GHTABPC and GHTABPC.DASHBOARDTAB
+    for _, tab in ipairs(self.TABS) do
+        if tab.key == wanted then return wanted end
+    end
+
+    return self.TABS[1].key
+end
+
+function Dashboard:SelectTab(key)
+    GHTABPC = GHTABPC or {}
+    GHTABPC.DASHBOARDTAB = key
+    self:ApplyTab(IsInGuild())
+    if key == "history" then GuildHelper.History:UpdateChart() end
+end
+
+function Dashboard:ApplyTab(inGuild)
+    if not self.tabs then return end
+    local current = self:GetTab()
+    for _, tab in ipairs(self.TABS) do
+        local pill = self.tabs[tab.key]
+        self[tab.key]:SetShown(inGuild and tab.key == current)
+        pill:SetShown(inGuild)
+        Members:SetPillText(pill, GuildHelper:Trans(tab.label))
+        Members:SetPillActive(pill, tab.key == current)
+    end
 end
 
 Window:OnRebuild(function() Dashboard:Reset() end)

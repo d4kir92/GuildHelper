@@ -11,7 +11,6 @@ local History = {
     FOLLOWUP = 150,
     ANSWERAGAIN = 120,
     MAXANSWER = 60,
-    CHART = 170,
     active = {},
     answered = {},
     answerTo = {},
@@ -464,7 +463,7 @@ function History:CreateLegend(card, key, label, anchor)
     if anchor then
         swatch:SetPoint("LEFT", anchor, "RIGHT", 14, 0)
     else
-        swatch:SetPoint("TOPLEFT", card, "TOPLEFT", 16, -40)
+        swatch:SetPoint("TOPLEFT", card, "TOPLEFT", 16, -49)
     end
     local text = Theme:Text(card, 11, "muted")
     text:SetPoint("LEFT", swatch, "RIGHT", 5, 0)
@@ -474,8 +473,7 @@ function History:CreateLegend(card, key, label, anchor)
 end
 
 function History:CreateChart(parent)
-    local card = Dashboard:CreateCard(parent, "LID_ONLINEHISTORY")
-    card:SetHeight(self.CHART)
+    local card = Dashboard:CreateCard(parent)
     self.card = card
     local legend = self:CreateLegend(card, "online", "LID_ONLINENOW")
     self:CreateLegend(card, "accent", "LID_GUILDHELPERUSERS", legend)
@@ -487,7 +485,7 @@ function History:CreateChart(parent)
         if anchor then
             pill:SetPoint("RIGHT", anchor, "LEFT", -6, 0)
         else
-            pill:SetPoint("TOPRIGHT", card, "TOPRIGHT", -12, -10)
+            pill:SetPoint("TOPRIGHT", card, "TOPRIGHT", -12, -40)
         end
 
         pill:SetScript("OnClick", function() History:SetRange(range.key) end)
@@ -496,14 +494,14 @@ function History:CreateChart(parent)
     end
 
     self.maxLabel = Theme:Text(card, 10, "muted")
-    self.maxLabel:SetPoint("TOPRIGHT", card, "TOPLEFT", 40, -58)
+    self.maxLabel:SetPoint("TOPRIGHT", card, "TOPLEFT", 40, -78)
     self.maxLabel:SetJustifyH("RIGHT")
     self.zeroLabel = Theme:Text(card, 10, "muted")
     self.zeroLabel:SetPoint("BOTTOMRIGHT", card, "BOTTOMLEFT", 40, 26)
     self.zeroLabel:SetJustifyH("RIGHT")
     self.zeroLabel:SetText("0")
     local plot = CreateFrame("Frame", nil, card)
-    plot:SetPoint("TOPLEFT", card, "TOPLEFT", 48, -62)
+    plot:SetPoint("TOPLEFT", card, "TOPLEFT", 48, -82)
     plot:SetPoint("BOTTOMRIGHT", card, "BOTTOMRIGHT", -16, 28)
     self.plot = plot
     local top = Theme:Line(plot, "divider")
