@@ -6,10 +6,10 @@ local Dashboard = {}
 GuildHelper.Dashboard = Dashboard
 Dashboard.LINE = 22
 Dashboard.TOP = 70
-Dashboard.MOTDTOP = 328
+Dashboard.MOTDTOP = 146
 Dashboard.SCROLLTOP = 66
 Dashboard.SCROLLPAD = 4
-Dashboard.MINLOWER = 398
+Dashboard.MINLOWER = 580
 Dashboard.CHATLIMIT = 50
 Dashboard.CHATMAX = 500
 function Dashboard:CheckGuild()
@@ -423,7 +423,13 @@ function Dashboard:Build(content)
     local body = self:CreatePage(content)
     self:CreateMOTD(body)
     self:CreateStats(body)
-    self.history = GuildHelper.History:CreateChart(body, self.stats)
+    self.history = GuildHelper.History:CreateChart(body)
+    self.history:SetPoint("TOPLEFT", self.motd, "TOPRIGHT", 12, 0)
+    self.history:SetPoint("RIGHT", self.stats, "RIGHT")
+    self.information:ClearAllPoints()
+    self.information:SetPoint("TOPLEFT", self.history, "BOTTOMLEFT", 0, -12)
+    self.information:SetPoint("RIGHT", self.history, "RIGHT")
+    self.information:SetHeight(102)
     self.news = self:CreateTextCard(body, "LID_GUILDNEWS")
     self.newsFilterButton = Members:CreatePill(self.news, GuildHelper:Trans("LID_NEWSFILTERS"))
     self.newsFilterButton:SetPoint("TOPRIGHT", self.news, "TOPRIGHT", -10, -5)
@@ -434,9 +440,9 @@ function Dashboard:Build(content)
     self.news:SetPoint("RIGHT", self.motd, "RIGHT")
     self.news:SetHeight(110)
     self.professions = self:CreateList(self:CreateCard(body, "LID_GUILDPROFESSIONS"))
-    self.professions:SetPoint("TOPLEFT", self.news, "TOPRIGHT", 12, 0)
+    self.professions:SetPoint("TOPLEFT", self.information, "BOTTOMLEFT", 0, -12)
     self.professions:SetPoint("RIGHT", self.stats, "RIGHT")
-    self.professions:SetPoint("BOTTOM", self.news, "BOTTOM")
+    self.professions:SetHeight(110)
     self.chat = self:CreateChat(body)
     self.chat:SetPoint("TOPLEFT", self.news, "BOTTOMLEFT", 0, -12)
     self.chat:SetPoint("RIGHT", self.news, "RIGHT")

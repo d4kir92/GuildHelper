@@ -461,7 +461,11 @@ function History:CreateLegend(card, key, label, anchor)
     swatch:SetSize(10, 10)
     Theme:Fill(swatch, key)
     if key == "online" then swatch:SetAlpha(0.35) end
-    swatch:SetPoint("LEFT", anchor, "RIGHT", 14, 0)
+    if anchor then
+        swatch:SetPoint("LEFT", anchor, "RIGHT", 14, 0)
+    else
+        swatch:SetPoint("TOPLEFT", card, "TOPLEFT", 16, -40)
+    end
     local text = Theme:Text(card, 11, "muted")
     text:SetPoint("LEFT", swatch, "RIGHT", 5, 0)
     Theme:SetTrans(text, label)
@@ -469,13 +473,11 @@ function History:CreateLegend(card, key, label, anchor)
     return text
 end
 
-function History:CreateChart(parent, above)
+function History:CreateChart(parent)
     local card = Dashboard:CreateCard(parent, "LID_ONLINEHISTORY")
-    card:SetPoint("TOPLEFT", above, "BOTTOMLEFT", 0, -12)
-    card:SetPoint("RIGHT", above, "RIGHT")
     card:SetHeight(self.CHART)
     self.card = card
-    local legend = self:CreateLegend(card, "online", "LID_ONLINENOW", card.title)
+    local legend = self:CreateLegend(card, "online", "LID_ONLINENOW")
     self:CreateLegend(card, "accent", "LID_GUILDHELPERUSERS", legend)
     self.pills = {}
     local anchor
@@ -494,14 +496,14 @@ function History:CreateChart(parent, above)
     end
 
     self.maxLabel = Theme:Text(card, 10, "muted")
-    self.maxLabel:SetPoint("TOPRIGHT", card, "TOPLEFT", 40, -42)
+    self.maxLabel:SetPoint("TOPRIGHT", card, "TOPLEFT", 40, -58)
     self.maxLabel:SetJustifyH("RIGHT")
     self.zeroLabel = Theme:Text(card, 10, "muted")
     self.zeroLabel:SetPoint("BOTTOMRIGHT", card, "BOTTOMLEFT", 40, 26)
     self.zeroLabel:SetJustifyH("RIGHT")
     self.zeroLabel:SetText("0")
     local plot = CreateFrame("Frame", nil, card)
-    plot:SetPoint("TOPLEFT", card, "TOPLEFT", 48, -46)
+    plot:SetPoint("TOPLEFT", card, "TOPLEFT", 48, -62)
     plot:SetPoint("BOTTOMRIGHT", card, "BOTTOMRIGHT", -16, 28)
     self.plot = plot
     local top = Theme:Line(plot, "divider")
