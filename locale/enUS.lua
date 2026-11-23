@@ -111,6 +111,8 @@ GuildHelper:AddTrans("enUS", "LID_FBSHARED", "The addon developer can read entri
 GuildHelper:AddTrans("enUS", "LID_FBSUBMIT", "Submit")
 GuildHelper:AddTrans("enUS", "LID_FBSUBSCRIBE", "Subscribe")
 GuildHelper:AddTrans("enUS", "LID_FBSUBSCRIBED", "Subscribed")
+GuildHelper:AddTrans("enUS", "LID_FBTAGDONE", "Done")
+GuildHelper:AddTrans("enUS", "LID_FBTAGWIP", "WIP")
 GuildHelper:AddTrans("enUS", "LID_FBTEXT", "Description")
 GuildHelper:AddTrans("enUS", "LID_FBTITLE", "Title")
 GuildHelper:AddTrans("enUS", "LID_FBTYPE", "Type")

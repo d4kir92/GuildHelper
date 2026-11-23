@@ -14,6 +14,18 @@ Feedback.REQUESTAGAIN = 300
 Feedback.BURST = 6
 Feedback.ROW = 60
 Feedback.DIGITS = "0123456789abcdefghijklmnopqrstuvwxyz"
+Feedback.TAGS = {
+    W = {
+        label = "LID_FBTAGWIP",
+        color = "accent"
+    },
+    D = {
+        label = "LID_FBTAGDONE",
+        color = "online"
+    }
+}
+
+Feedback.TAGORDER = {"W", "D"}
 Feedback.filter = "A"
 Feedback.queue = {}
 Feedback.queued = {}
@@ -179,6 +191,19 @@ function Feedback:IsOwn(entry)
     return entry ~= nil and not entry.deleted and GuildHelper.Groups:IsSelfName(entry.owner)
 end
 
+function Feedback:CanManage(entry)
+    if entry == nil or entry.deleted or self.remote ~= nil or not IsInGuild() then return false end
+    if self:IsOwn(entry) or GuildHelper.FeedbackShare:IsDeveloper() then return true end
+
+    return GuildHelper.Bridge ~= nil and GuildHelper.Bridge:CanEdit()
+end
+
+function Feedback:CanTag(entry)
+    if self.remote == nil then return self:CanManage(entry) end
+
+    return entry ~= nil and not entry.deleted and GuildHelper.FeedbackShare:IsDeveloper()
+end
+
 function Feedback:Rev(id)
     local store = self:GetStore()
     local entry = store and store.entries[id]
@@ -194,6 +219,7 @@ function Feedback:Rev(id)
     end
 
     if entry.edited then tinsert(parts, "!" .. entry.edited) end
+    if entry.statusAt then tinsert(parts, "s" .. (entry.status or "-") .. entry.statusAt) end
     if #parts == 0 then return "0" end
     table.sort(parts)
 
@@ -304,9 +330,17 @@ function Feedback:SendComments(id, target)
     end
 end
 
+function Feedback:SendStatus(id, target)
+    local store = self:GetStore()
+    local entry = store and store.entries[id]
+    if not entry or entry.deleted or not entry.statusAt then return end
+    self:Queue(table.concat({"S", id, entry.status or "-", tostring(entry.statusAt)}, "~"), target)
+end
+
 function Feedback:SendExtras(id, target)
     self:SendVotes(id, target)
     self:SendComments(id, target)
+    self:SendStatus(id, target)
 end
 
 function Feedback:Request(force)
@@ -344,9 +378,10 @@ end
 
 function Feedback:OnRequest(senderKey, sum)
     if sum == self:GetSum() or self.answerTo[senderKey] then return end
+    self:ResendOwn()
     local token = {}
     self.answerTo[senderKey] = token
-    C_Timer.After(random(2, 9), function()
+    C_Timer.After(self:IsGlobalAuthority() and 1 or random(2, 9), function()
         if self.answerTo[senderKey] ~= token then return end
         self.answerTo[senderKey] = nil
         if self:CheckGuild() then self:SendIndex(senderKey) end
@@ -505,7 +540,11 @@ end
 function Feedback:Commit(entry)
     local store = self:GetStore()
     if not store or not self:Accepts(entry) then return end
-    local isNew = store.entries[entry.id] == nil
+    local current = store.entries[entry.id]
+    local isNew = current == nil
+    if current and current.statusAt and (entry.statusAt or 0) < current.statusAt then
+        entry.status, entry.statusAt = current.status, current.statusAt
+    end
     store.entries[entry.id] = entry
     if isNew and not GuildHelper.Groups:IsSelfName(entry.owner) then self:GetUnread().entries[entry.id] = true end
     if isNew and GuildHelper.Notifications then
@@ -538,7 +577,61 @@ function Feedback:ReadVotes(id, list)
     if changed then self:Changed() end
 end
 
-function Feedback:ReadDelete(id, stamp, owner)
+function Feedback:SameName(a, b)
+    local Groups = GuildHelper.Groups
+    local ka, kb = Groups:Name(a), Groups:Name(b)
+    if ka == nil or kb == nil then return false end
+    if ka == kb or ka:gsub("%-", "") == kb:gsub("%-", "") then return true end
+    local sa, ra = ka:match("^(.-)%-(.*)$")
+    local sb, rb = kb:match("^(.-)%-(.*)$")
+
+    return sa ~= nil and sa == sb and (ra == "" or rb == "")
+end
+
+function Feedback:IsAuthority(sender, owner)
+    if type(sender) ~= "string" then return false end
+    if owner and self:SameName(sender, owner) then return true end
+    if GuildHelper.FeedbackShare:IsDeveloperName(sender) then return true end
+
+    return self:IsOfficerName(sender)
+end
+
+function Feedback:IsOfficerName(sender)
+    local api = C_GuildInfo and C_GuildInfo.GuildControlGetRankFlags
+    for index = 1, GetNumGuildMembers() or 0 do
+        local name, _, rankIndex = GetGuildRosterInfo(index)
+        if GuildHelper:CanAccessValues(name, rankIndex) and name and rankIndex and self:SameName(sender, name) then
+            if rankIndex == 0 then return true end
+            if api == nil then return false end
+            local ok, flags = pcall(api, rankIndex + 1)
+
+            return ok and type(flags) == "table" and flags[11] == true
+        end
+    end
+
+    return false
+end
+
+function Feedback:IsGlobalAuthority()
+    return GuildHelper.FeedbackShare:IsDeveloper() or (GuildHelper.Bridge ~= nil and GuildHelper.Bridge:CanEdit())
+end
+
+function Feedback:ResendOwn()
+    local store = self:GetStore()
+    if not store or (self.lastResend and time() - self.lastResend < self.REQUESTAGAIN) then return end
+    self.lastResend = time()
+    for id, entry in pairs(store.entries) do
+        if GuildHelper.Groups:IsSelfName(entry.owner) then
+            if entry.deleted then
+                self:SendEntry(id)
+            elseif entry.statusAt then
+                self:SendStatus(id)
+            end
+        end
+    end
+end
+
+function Feedback:ReadDelete(id, stamp, owner, sender)
     local store = self:GetStore()
     stamp = tonumber(stamp)
     if not store or not id or #id > 16 or id:find("[^%w]") or not stamp then return end
@@ -546,6 +639,7 @@ function Feedback:ReadDelete(id, stamp, owner)
     if entry and entry.deleted then return end
     owner = GuildHelper.Groups:Name(owner)
     if entry and owner and entry.owner ~= owner then return end
+    if not self:IsAuthority(sender, (entry and entry.owner) or owner) then return end
     store.entries[id] = {
         id = id,
         owner = owner or (entry and entry.owner),
@@ -556,6 +650,38 @@ function Feedback:ReadDelete(id, stamp, owner)
     store.comments[id] = nil
     self:SetSubscribed(id, nil)
     self.pending[id] = nil
+    self:Changed()
+end
+
+function Feedback:ReadStatus(id, status, stamp, sender)
+    local store = self:GetStore()
+    stamp = tonumber(stamp)
+    if not store or not self:ValidId(id) or not stamp or (status ~= "-" and not self.TAGS[status]) then return end
+    local pending = self.pending[id]
+    local entry = store.entries[id] or (pending and pending.entry)
+    if not entry or entry.deleted or (entry.statusAt and stamp <= entry.statusAt) then return end
+    if not self:IsAuthority(sender, entry.owner) then return end
+    entry.status = status ~= "-" and status or nil
+    entry.statusAt = floor(stamp)
+    self:Changed()
+end
+
+function Feedback:SetStatus(id, status)
+    local Share = GuildHelper.FeedbackShare
+    local remote = self.remote and Share:GetRemoteStore(self.remote)
+    local entry = remote and remote.entries[id] or (not remote and self:Find(id))
+    if not entry or not self:CanTag(entry) or (status ~= nil and not self.TAGS[status]) then return end
+    if entry.status == status then status = nil end
+    entry.status = status
+    entry.statusAt = max(time(), (entry.statusAt or 0) + 1)
+    if remote then
+        if remote.target then GuildHelper.Sync:Send(table.concat({"S", id, status or "-", tostring(entry.statusAt)}, "~"), nil, Share.PREFIX, nil, remote.target) end
+        self:Refresh()
+
+        return
+    end
+
+    self:SendStatus(id)
     self:Changed()
 end
 
@@ -634,11 +760,13 @@ function Feedback:OnMessage(message, channel, sender)
     elseif kind == "V~" then
         self:ReadVotes(parts[2], parts[3])
     elseif kind == "D~" then
-        self:ReadDelete(parts[2], parts[3], parts[4])
+        self:ReadDelete(parts[2], parts[3], parts[4], sender)
     elseif kind == "C~" then
         if not own then self:ReadComment(parts) end
     elseif kind == "K~" then
         self:ReadCommentDelete(parts[2], parts[3], parts[4], parts[5])
+    elseif kind == "S~" then
+        self:ReadStatus(parts[2], parts[3], parts[4], sender)
     end
 end
 
@@ -763,7 +891,7 @@ end
 function Feedback:Delete(id)
     local store = self:GetStore()
     local entry = store and store.entries[id]
-    if not self:IsOwn(entry) then return end
+    if not self:CanManage(entry) then return end
     store.entries[id] = {
         id = id,
         owner = entry.owner,
@@ -1105,22 +1233,35 @@ function Feedback:BuildDetail(side)
     detail:SetAllPoints(side)
     self.detail = detail
     self.detailKind = self:Text(detail, nil, 16, -40, 12, "accent")
+    self.detailStatus = self:Text(detail, nil, 0, 0, 12, "accent")
+    self.detailStatus:ClearAllPoints()
+    self.detailStatus:SetPoint("LEFT", self.detailKind, "RIGHT", 10, 0)
+    self.tagPills = {}
+    local anchor = self.detailKind
+    for _, key in ipairs(self.TAGORDER) do
+        local pill = Members:CreatePill(detail, GuildHelper:Trans(self.TAGS[key].label))
+        pill:SetPoint("LEFT", anchor, "RIGHT", anchor == self.detailKind and 10 or 6, 0)
+        pill:SetScript("OnClick", function() self:SetStatus(self.selected, key) end)
+        pill.tagKey = key
+        self.tagPills[key] = pill
+        anchor = pill
+    end
     self.detailDate = self:Text(detail, nil, 0, 0, 11)
     self.detailDate:ClearAllPoints()
     self.detailDate:SetPoint("TOPRIGHT", detail, "TOPRIGHT", -16, -40)
     self.detailDate:SetJustifyH("RIGHT")
-    self.detailTitle = self:Text(detail, nil, 16, -60, 15, "text")
+    self.detailTitle = self:Text(detail, nil, 16, -70, 15, "text")
     self.detailTitle:SetPoint("RIGHT", detail, "RIGHT", -16, 0)
     self.detailTitle:SetWordWrap(true)
     self.detailTitle:SetHeight(38)
     self.detailTitle:SetJustifyV("TOP")
     self.detailAvatar = Members:CreateAvatar(detail, 16, 9)
-    self.detailAvatar:SetPoint("TOPLEFT", 16, -98)
-    self.detailMeta = self:Text(detail, nil, 37, -100, 12)
+    self.detailAvatar:SetPoint("TOPLEFT", 16, -108)
+    self.detailMeta = self:Text(detail, nil, 37, -110, 12)
     self.detailMeta:SetPoint("RIGHT", detail, "RIGHT", -16, 0)
     self.body = Dashboard:CreateTextCard(detail, "LID_FBTEXT")
-    self.body:SetPoint("TOPLEFT", detail, "TOPLEFT", 8, -124)
-    self.body:SetPoint("TOPRIGHT", detail, "TOPRIGHT", -8, -124)
+    self.body:SetPoint("TOPLEFT", detail, "TOPLEFT", 8, -134)
+    self.body:SetPoint("TOPRIGHT", detail, "TOPRIGHT", -8, -134)
     self.body:SetHeight(110)
     self:AddThumb(self.body.scroll)
     self.comments = Dashboard:CreateList(Dashboard:CreateCard(detail, "LID_FBCOMMENTS"))
@@ -1347,8 +1488,12 @@ function Feedback:GetRow(index)
     row.tag:ClearAllPoints()
     row.tag:SetPoint("TOPRIGHT", row, "TOPRIGHT", -10, -9)
     row.tag:SetJustifyH("RIGHT")
+    row.status = self:Text(row, nil, 0, 0, 12, "accent")
+    row.status:ClearAllPoints()
+    row.status:SetPoint("RIGHT", row.tag, "LEFT", -8, 0)
+    row.status:SetJustifyH("RIGHT")
     row.title = self:Text(row, nil, 10, -8, 14, "text")
-    row.title:SetPoint("RIGHT", row.tag, "LEFT", -10, 0)
+    row.title:SetPoint("RIGHT", row.status, "LEFT", -10, 0)
     row.downCount = self:Text(row, nil, 0, 0, 12, "text")
     row.downCount:ClearAllPoints()
     row.downCount:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT", -10, 10)
@@ -1377,12 +1522,19 @@ function Feedback:GetRow(index)
     return row
 end
 
+function Feedback:ShowStatus(text, entry)
+    local tag = entry and self.TAGS[entry.status or ""]
+    text:SetText(tag and GuildHelper:Trans(tag.label) or "")
+    if tag then GuildHelper.Theme:SetKey(text, tag.color) end
+end
+
 function Feedback:FillRow(row, entry)
     local up, down = self:Count(entry.id)
     local bug = entry.kind == "B"
     row.id = entry.id
     row.title:SetText(entry.title)
     row.tag:SetText(GuildHelper:Trans(bug and "LID_FBBUG" or "LID_FBIDEA"))
+    self:ShowStatus(row.status, entry)
     local info = {self:AuthorLabel(entry, row.avatar), "v" .. (entry.version or "?"), self:FormatDate(entry.created)}
     local comments = #self:GetComments(entry.id)
     if comments > 0 then tinsert(info, format(GuildHelper:Trans("LID_FBCOMMENTCOUNT"), comments)) end
@@ -1460,7 +1612,16 @@ function Feedback:RefreshDetail()
     self.down:SetShown(shown and entry.kind ~= "B")
     self.bug:SetShown(shown and entry.kind == "B")
     local remote = self.remote ~= nil
-    self.delete:SetShown(not remote and self:IsOwn(entry))
+    self.delete:SetShown(self:CanManage(entry))
+    local manage = self:CanTag(entry)
+    self.detailStatus:SetShown(shown and not manage)
+    for key, pill in pairs(self.tagPills) do
+        pill:SetShown(manage)
+        if manage then
+            GuildHelper.Members:SetPillText(pill, GuildHelper:Trans(self.TAGS[key].label))
+            GuildHelper.Members:SetPillActive(pill, entry.status == key)
+        end
+    end
     self.edit:SetShown(not remote and self:IsOwn(entry))
     for _, region in ipairs({self.commentBox, self.send, self.subscribe}) do
         region:SetShown(shown and not remote)
@@ -1476,6 +1637,7 @@ function Feedback:RefreshDetail()
     local up, down = self:Count(entry.id)
     local vote = self:GetVote(entry.id)
     self.detailKind:SetText(GuildHelper:Trans(entry.kind == "B" and "LID_FBBUG" or "LID_FBIDEA"))
+    self:ShowStatus(self.detailStatus, entry)
     self.detailDate:SetText(self:FormatDate(entry.created))
     self.detailTitle:SetText(entry.title)
     local meta = format(GuildHelper:Trans("LID_FBBY"), self:AuthorLabel(entry, self.detailAvatar)) .. " · " .. format(GuildHelper:Trans("LID_FBVERSION"), entry.version or "?")

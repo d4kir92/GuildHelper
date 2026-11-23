@@ -111,6 +111,8 @@ GuildHelper:AddTrans("koKR", "LID_FBSHARED", "애드온 개발자는 이 서버�
 GuildHelper:AddTrans("koKR", "LID_FBSUBMIT", "등록")
 GuildHelper:AddTrans("koKR", "LID_FBSUBSCRIBE", "구독")
 GuildHelper:AddTrans("koKR", "LID_FBSUBSCRIBED", "구독 중")
+GuildHelper:AddTrans("koKR", "LID_FBTAGDONE", "완료")
+GuildHelper:AddTrans("koKR", "LID_FBTAGWIP", "진행 중")
 GuildHelper:AddTrans("koKR", "LID_FBTEXT", "설명")
 GuildHelper:AddTrans("koKR", "LID_FBTITLE", "제목")
 GuildHelper:AddTrans("koKR", "LID_FBTYPE", "유형")

@@ -18,11 +18,20 @@ Share.detailSent = {}
 Share.responders = {}
 Share.chunks = {}
 Share.asked = {}
-function Share:IsDeveloperName(name)
+function Share:SplitName(name)
     local key = GuildHelper.Groups:Name(name)
-    if key == nil then return false end
+    if key == nil then return nil end
+    local short, realm = key:match("^(.-)%-(.*)$")
+
+    return short or key, realm or ""
+end
+
+function Share:IsDeveloperName(name)
+    local short, realm = self:SplitName(name)
+    if short == nil then return false end
     for _, developer in ipairs(self.DEVELOPERS) do
-        if GuildHelper.Groups:Name(developer) == key then return true end
+        local devShort, devRealm = self:SplitName(developer)
+        if short == devShort and (realm == "" or realm == devRealm) then return true end
     end
 
     return false
@@ -33,7 +42,13 @@ function Share:IsDeveloper()
         if GuildHelper.Groups:IsSelfName(developer) then return true end
     end
 
-    return false
+    local name, surname = UnitName("player")
+    if not GuildHelper:CanAccessValues(name, surname) or type(name) ~= "string" or name == "" then return false end
+    if GuildHelper:IsForever() and not name:find(" ", 1, true) and type(surname) == "string" and surname ~= "" then name = name .. " " .. surname end
+    local realm = GetNormalizedRealmName and GetNormalizedRealmName()
+    if not GuildHelper:CanAccessValue(realm) or type(realm) ~= "string" then realm = "" end
+
+    return self:IsDeveloperName(name .. "-" .. realm)
 end
 
 function Share:IsOfficer()
@@ -197,6 +212,7 @@ function Share:Answer(reqid, target, developer)
         local id = list[index].id
         Feedback:SendEntry(id, target, true)
         Feedback:SendVotes(id, target)
+        Feedback:SendStatus(id, target)
     end
 end
 
@@ -316,6 +332,23 @@ function Share:ReadComment(store, parts)
     }
 end
 
+function Share:ReadStatus(store, id, status, stamp)
+    local entry = store.entries[id]
+    stamp = tonumber(stamp)
+    if not entry or entry.deleted or not stamp or (status ~= "-" and not GuildHelper.Feedback.TAGS[status]) then return end
+    if entry.statusAt and stamp <= entry.statusAt then return end
+    entry.status = status ~= "-" and status or nil
+    entry.statusAt = floor(stamp)
+end
+
+function Share:OnTag(message, sender)
+    local Feedback = GuildHelper.Feedback
+    local id, status, stamp = message:match("^S~(%w+)~([%w%-])~(%d+)$")
+    if not id or not self:IsDeveloperName(sender) or not Feedback:CheckGuild() or not Feedback:Find(id) then return end
+    Feedback:ReadStatus(id, status, stamp, sender)
+    Feedback:SendStatus(id)
+end
+
 function Share:OnData(message, sender)
     if not self:IsDeveloper() then return end
     local senderKey = GuildHelper.Groups:Name(sender)
@@ -342,6 +375,8 @@ function Share:OnData(message, sender)
             self:ReadVotes(store, parts[2], parts[3])
         elseif kind == "C" then
             self:ReadComment(store, parts)
+        elseif kind == "S" then
+            self:ReadStatus(store, parts[2], parts[3], parts[4])
         else
             return
         end
@@ -374,6 +409,8 @@ function Share:OnMessage(message, channel, sender)
         local id = message:match("^G~(%w+)$")
         if id then
             self:OnDetail(id, sender)
+        elseif strsub(message, 1, 2) == "S~" and self:IsDeveloperName(sender) and IsInGuild() then
+            self:OnTag(message, sender)
         else
             self:OnData(message, sender)
         end

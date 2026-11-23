@@ -7,7 +7,7 @@ Layer.CONFIRM = 2
 Layer.peers = {}
 
 function Layer:IsSupported()
-    return WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE
+    return WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE and not GuildHelper:IsForever()
 end
 
 function Layer:GetContinent()
@@ -91,6 +91,7 @@ function Layer:Withdraw()
 end
 
 function Layer:OnMessage(shortName, message)
+    if not self:IsSupported() then return end
     local key = GuildHelper.Sync:GetKey(shortName)
     if message == "L" then
         if self.peers[key] then
@@ -115,7 +116,7 @@ function Layer:OnMessage(shortName, message)
 end
 
 function Layer:GetEntry(member)
-    if member == nil or member.remote or not member.online then return nil end
+    if member == nil or member.remote or not member.online or not self:IsSupported() then return nil end
     if GuildHelper.Members:IsSelf(member) then return self:GetOwn() end
     local entry = self.peers[GuildHelper.Sync:GetKey(member.short)]
     if entry and GetTime() - entry.time < self.FRESH then return entry end

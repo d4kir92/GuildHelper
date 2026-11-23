@@ -111,6 +111,8 @@ GuildHelper:AddTrans("zhCN", "LID_FBSHARED", "插件开发者可以读取本服�
 GuildHelper:AddTrans("zhCN", "LID_FBSUBMIT", "提交")
 GuildHelper:AddTrans("zhCN", "LID_FBSUBSCRIBE", "订阅")
 GuildHelper:AddTrans("zhCN", "LID_FBSUBSCRIBED", "已订阅")
+GuildHelper:AddTrans("zhCN", "LID_FBTAGDONE", "已完成")
+GuildHelper:AddTrans("zhCN", "LID_FBTAGWIP", "进行中")
 GuildHelper:AddTrans("zhCN", "LID_FBTEXT", "描述")
 GuildHelper:AddTrans("zhCN", "LID_FBTITLE", "标题")
 GuildHelper:AddTrans("zhCN", "LID_FBTYPE", "类型")

@@ -111,6 +111,8 @@ GuildHelper:AddTrans("esES", "LID_FBSHARED", "El desarrollador del addon puede l
 GuildHelper:AddTrans("esES", "LID_FBSUBMIT", "Enviar")
 GuildHelper:AddTrans("esES", "LID_FBSUBSCRIBE", "Suscribirse")
 GuildHelper:AddTrans("esES", "LID_FBSUBSCRIBED", "Suscrito")
+GuildHelper:AddTrans("esES", "LID_FBTAGDONE", "Hecho")
+GuildHelper:AddTrans("esES", "LID_FBTAGWIP", "En curso")
 GuildHelper:AddTrans("esES", "LID_FBTEXT", "Descripción")
 GuildHelper:AddTrans("esES", "LID_FBTITLE", "Título")
 GuildHelper:AddTrans("esES", "LID_FBTYPE", "Tipo")

@@ -111,6 +111,8 @@ GuildHelper:AddTrans("ruRU", "LID_FBSHARED", "Разработчик аддон�
 GuildHelper:AddTrans("ruRU", "LID_FBSUBMIT", "Отправить")
 GuildHelper:AddTrans("ruRU", "LID_FBSUBSCRIBE", "Подписаться")
 GuildHelper:AddTrans("ruRU", "LID_FBSUBSCRIBED", "Подписка активна")
+GuildHelper:AddTrans("ruRU", "LID_FBTAGDONE", "Готово")
+GuildHelper:AddTrans("ruRU", "LID_FBTAGWIP", "В работе")
 GuildHelper:AddTrans("ruRU", "LID_FBTEXT", "Описание")
 GuildHelper:AddTrans("ruRU", "LID_FBTITLE", "Заголовок")
 GuildHelper:AddTrans("ruRU", "LID_FBTYPE", "Тип")

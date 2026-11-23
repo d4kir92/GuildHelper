@@ -111,6 +111,8 @@ GuildHelper:AddTrans("zhTW", "LID_FBSHARED", "插件開發者可以讀取本伺�
 GuildHelper:AddTrans("zhTW", "LID_FBSUBMIT", "提交")
 GuildHelper:AddTrans("zhTW", "LID_FBSUBSCRIBE", "訂閱")
 GuildHelper:AddTrans("zhTW", "LID_FBSUBSCRIBED", "已訂閱")
+GuildHelper:AddTrans("zhTW", "LID_FBTAGDONE", "已完成")
+GuildHelper:AddTrans("zhTW", "LID_FBTAGWIP", "進行中")
 GuildHelper:AddTrans("zhTW", "LID_FBTEXT", "描述")
 GuildHelper:AddTrans("zhTW", "LID_FBTITLE", "標題")
 GuildHelper:AddTrans("zhTW", "LID_FBTYPE", "類型")

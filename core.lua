@@ -34,8 +34,20 @@ function GuildHelper:ToggleWindow()
     GuildHelper.Window:Toggle()
 end
 
+function GuildHelper:ToggleSettings()
+    local window = GuildHelper.Window
+    if window.frame == nil then return end
+    if window.frame:IsShown() and window.current == "settings" then
+        window.frame:Hide()
+        return
+    end
+
+    window.frame:Show()
+    window:SelectPage("settings")
+end
+
 function GuildHelper:GetMinimapTooltip(icon)
-    return {{format("|T%s:16:16:0:0|t GuildHelper", icon), "v" .. (GuildHelper:GetVersion() or "")}, {GuildHelper:Trans("LID_LEFTCLICK"), GuildHelper:Trans("LID_OPENWINDOW")}, {GuildHelper:Trans("LID_RIGHTCLICK"), GuildHelper:Trans("LID_HIDEMINIMAPBUTTON")}}
+    return {{format("|T%s:16:16:0:0|t GuildHelper", icon), "v" .. (GuildHelper:GetVersion() or "")}, {GuildHelper:Trans("LID_LEFTCLICK"), GuildHelper:Trans("LID_OPENWINDOW")}, {GuildHelper:Trans("LID_RIGHTCLICK"), GuildHelper:Trans("LID_OPENSETTINGS")}, {GuildHelper:Trans("LID_SHIFTRIGHTCLICK"), GuildHelper:Trans("LID_HIDEMINIMAPBUTTON")}}
 end
 
 function GuildHelper:SetMinimapVisible(visible)
@@ -78,7 +90,8 @@ function GuildHelper:InitMinimapButton()
         ["dbtab"] = GHTABPC,
         ["vTT"] = GuildHelper:GetMinimapTooltip(icon),
         ["funcL"] = function() GuildHelper:ToggleWindow() end,
-        ["funcR"] = function()
+        ["funcR"] = function() GuildHelper:ToggleSettings() end,
+        ["funcSR"] = function()
             GuildHelper:SetMinimapVisible(false)
         end,
         ["dbkey"] = "MMBTN"

@@ -111,6 +111,8 @@ GuildHelper:AddTrans("deDE", "LID_FBSHARED", "Der Addon-Entwickler kann die Eint
 GuildHelper:AddTrans("deDE", "LID_FBSUBMIT", "Absenden")
 GuildHelper:AddTrans("deDE", "LID_FBSUBSCRIBE", "Abonnieren")
 GuildHelper:AddTrans("deDE", "LID_FBSUBSCRIBED", "Abonniert")
+GuildHelper:AddTrans("deDE", "LID_FBTAGDONE", "Erledigt")
+GuildHelper:AddTrans("deDE", "LID_FBTAGWIP", "In Arbeit")
 GuildHelper:AddTrans("deDE", "LID_FBTEXT", "Beschreibung")
 GuildHelper:AddTrans("deDE", "LID_FBTITLE", "Titel")
 GuildHelper:AddTrans("deDE", "LID_FBTYPE", "Art")
