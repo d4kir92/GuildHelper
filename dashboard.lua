@@ -6,7 +6,8 @@ local Dashboard = {}
 GuildHelper.Dashboard = Dashboard
 Dashboard.LINE = 22
 Dashboard.TOP = 70
-Dashboard.MOTDTOP = 146
+Dashboard.MOTDTOP = 252
+Dashboard.STATSHEIGHT = 170
 Dashboard.SCROLLTOP = 66
 Dashboard.SCROLLPAD = 4
 Dashboard.MINLOWER = 398
@@ -380,8 +381,7 @@ end
 function Dashboard:CreateStats(content)
     local stats = CreateFrame("Frame", nil, content)
     stats:SetPoint("TOPLEFT", content, "TOPLEFT", Window.PADDING, -self.TOP + self.SCROLLTOP)
-    stats:SetPoint("TOPRIGHT", content, "TOPRIGHT", -Window.MARGIN, -self.TOP + self.SCROLLTOP)
-    stats:SetHeight(64)
+    stats:SetSize(1, self.STATSHEIGHT)
     Theme:Panel(stats, "card", "border", 9)
     local fields = {
         {"online", "LID_ONLINENOW"},
@@ -392,23 +392,23 @@ function Dashboard:CreateStats(content)
     for _, field in ipairs(fields) do
         local cell = CreateFrame("Frame", nil, stats)
         local label = Theme:Text(cell, 11, "muted")
-        label:SetPoint("TOPLEFT", cell, "TOPLEFT", 14, -12)
+        label:SetPoint("TOPLEFT", cell, "TOPLEFT", 16, -22)
         label:SetPoint("RIGHT", cell, "RIGHT", -8, 0)
         label:SetJustifyH("LEFT")
         label:SetWordWrap(false)
         Theme:SetTrans(label, field[2], true)
         local value = Theme:Text(cell, 22, "text")
-        value:SetPoint("TOPLEFT", cell, "TOPLEFT", 14, -30)
+        value:SetPoint("TOPLEFT", cell, "TOPLEFT", 16, -40)
         stats[field[1]] = cell
         cell.value = value
     end
     stats:SetScript("OnSizeChanged", function(_, width)
-        local cellWidth = max(1, width / #fields)
+        local cellWidth, cellHeight = max(1, width / 2), self.STATSHEIGHT / 2
         for index, field in ipairs(fields) do
             local cell = stats[field[1]]
             cell:ClearAllPoints()
-            cell:SetPoint("TOPLEFT", stats, "TOPLEFT", (index - 1) * cellWidth, 0)
-            cell:SetSize(cellWidth, 64)
+            cell:SetPoint("TOPLEFT", stats, "TOPLEFT", (index - 1) % 2 * cellWidth, -floor((index - 1) / 2) * cellHeight)
+            cell:SetSize(cellWidth, cellHeight)
         end
     end)
     stats:GetScript("OnSizeChanged")(stats, stats:GetWidth())
@@ -423,6 +423,10 @@ function Dashboard:Build(content)
     local body = self:CreatePage(content)
     self:CreateMOTD(body)
     self:CreateStats(body)
+    self.history = GuildHelper.History:CreateChart(body)
+    self.history:SetPoint("TOPLEFT", self.stats, "TOPRIGHT", 12, 0)
+    self.history:SetPoint("RIGHT", self.information, "RIGHT")
+    self.history:SetHeight(self.STATSHEIGHT)
     self.news = self:CreateTextCard(body, "LID_GUILDNEWS")
     self.newsFilterButton = Members:CreatePill(self.news, GuildHelper:Trans("LID_NEWSFILTERS"))
     self.newsFilterButton:SetPoint("TOPRIGHT", self.news, "TOPRIGHT", -10, -5)
@@ -447,6 +451,7 @@ function Dashboard:Build(content)
     content:SetScript("OnSizeChanged", function(_, width)
         local available = width - Window.PADDING - Window.MARGIN
         self.motd:SetWidth(max(1, (available - 12) / 2))
+        self.stats:SetWidth(max(1, (available - 12) / 2))
     end)
 
     content:GetScript("OnSizeChanged")(content, content:GetWidth())
@@ -825,7 +830,7 @@ end
 function Dashboard:Update()
     if not self:IsVisible() then return end
     local inGuild = IsInGuild()
-    for _, region in ipairs({self.motd, self.information, self.news, self.stats, self.professions, self.zones, self.chat}) do
+    for _, region in ipairs({self.motd, self.information, self.news, self.stats, self.history, self.professions, self.zones, self.chat}) do
         region:SetShown(inGuild)
     end
 
@@ -841,6 +846,7 @@ function Dashboard:Update()
     self:UpdateMOTD()
     self:UpdateNews()
     self:UpdateStats()
+    GuildHelper.History:UpdateChart()
     self:UpdateZones()
     self:UpdateProfessions()
     self:UpdateChat()
@@ -855,8 +861,10 @@ function Dashboard:Reset()
     self.news = nil
     self.chat = nil
     self.stats = nil
+    self.history = nil
     self.zones = nil
     self.professions = nil
+    GuildHelper.History:ResetChart()
 end
 
 Window:OnRebuild(function() Dashboard:Reset() end)

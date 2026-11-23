@@ -12,7 +12,7 @@ Sync.tokens = Sync.BURST
 Sync.queue = {}
 Sync.pump = CreateFrame("Frame")
 Sync.pump:SetScript("OnUpdate", function(_, elapsed) Sync:Pump(elapsed) end)
-Sync.GUILDTABLES = {"MEMBERDATA", "FEEDBACK", "ORDERS", "EVENTS", "GROUPS", "BRIDGE", "BRIDGEDATA", "MAINS"}
+Sync.GUILDTABLES = {"MEMBERDATA", "FEEDBACK", "ORDERS", "EVENTS", "GROUPS", "BRIDGE", "BRIDGEDATA", "MAINS", "ONLINEHISTORY"}
 Sync.CHARTABLES = {"FEEDBACKUNREAD", "GROUPSVIEWED", "BANK"}
 Sync.migrated = {}
 function Sync:GetGuildKey()
@@ -507,6 +507,7 @@ function Sync:OnMessage(message, channel, sender)
 
         return
     end
+    if channel == "GUILD" and GuildHelper.History then GuildHelper.History:Heard(sender) end
     if strsub(message, 1, 3) == "BK~" and GuildHelper.Bank then
         GuildHelper.Bank:OnMessage(message, channel, sender)
         return
@@ -584,6 +585,8 @@ function Sync:OnMessage(message, channel, sender)
         end
     elseif kind == "L" and GuildHelper.Layer then
         GuildHelper.Layer:OnMessage(shortName, message)
+    elseif kind == "H" and GuildHelper.History then
+        GuildHelper.History:OnMessage(message, sender)
     elseif kind == "P" and GuildHelper.Recipes then
         GuildHelper.Recipes:OnMessage(message, shortName)
     elseif kind == "Q" then
