@@ -469,8 +469,11 @@ function History:CreateLegend(card, key, label, anchor)
     return text
 end
 
-function History:CreateChart(parent)
+function History:CreateChart(parent, above)
     local card = Dashboard:CreateCard(parent, "LID_ONLINEHISTORY")
+    card:SetPoint("TOPLEFT", above, "BOTTOMLEFT", 0, -12)
+    card:SetPoint("RIGHT", above, "RIGHT")
+    card:SetHeight(self.CHART)
     self.card = card
     local legend = self:CreateLegend(card, "online", "LID_ONLINENOW", card.title)
     self:CreateLegend(card, "accent", "LID_GUILDHELPERUSERS", legend)
