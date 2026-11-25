@@ -347,15 +347,23 @@ function Log:GetGroupGuildMembers()
 end
 
 function Log:OnEncounterEnd(encounterID, encounterName, success)
-    if success ~= 1 and success ~= true then return end
+    if success ~= 1 and success ~= true then
+        self:Debug("ENCOUNTER_END ohne Erfolg, ignoriert")
+        return
+    end
     local kind, instanceID, instanceName = self:GetInstance()
-    if not kind or type(encounterID) ~= "number" then return end
+    if not kind or type(encounterID) ~= "number" then
+        self:Debug("ENCOUNTER_END ignoriert: keine Dungeon-/Raid-Instanz oder ID unlesbar", kind, instanceID)
+        return
+    end
     self:CollectEncounter(kind, instanceID, instanceName, encounterID, encounterName)
     if GuildHelper.FinalEncounters then
         local value = GuildHelper.FinalEncounters[encounterID]
+        self:Debug("Endboss-Daten:", encounterID, value and ("-> Endboss, Wert " .. value) or "-> kein Endboss")
         if value then self:RecordClear(kind, value, instanceName) end
         return
     end
+    self:Debug("Keine Endboss-Datei geladen, prüfe Flügel/Encounter Journal")
     if self.WINGS[instanceID] then
         local wing = self:FindWing(instanceID, "encounters", encounterID)
         if wing then self:RecordClear(kind, wing.id, instanceName) end
@@ -387,6 +395,7 @@ function Log:OnUnitDied(guid)
     local npcID = self:GetNpcID(guid)
     if not npcID then return end
     local kind, instanceID, instanceName = self:GetInstance()
+    if kind then self:Debug("Kampflog UNIT_DIED NPC", npcID, "in", instanceID) end
     if kind and self.WINGS[instanceID] then
         local wing = self:FindWing(instanceID, "npcs", npcID)
         if wing then self:RecordClear(kind, wing.id, instanceName) end
@@ -405,10 +414,17 @@ end
 function Log:RecordClear(kind, instanceID, instanceName)
     local stamp = self:Now()
     self.lastClear = self.lastClear or {}
-    if self.lastClear[instanceID] and stamp - self.lastClear[instanceID] < self.CLEARWINDOW then return end
+    if self.lastClear[instanceID] and stamp - self.lastClear[instanceID] < self.CLEARWINDOW then
+        self:Debug("Clear übersprungen (schon erfasst):", kind, instanceID)
+        return
+    end
     self.lastClear[instanceID] = stamp
     local own = self:OwnName()
-    if not own then return end
+    if not own then
+        self:Debug("Clear übersprungen: eigener Name unbekannt")
+        return
+    end
+    self:Debug("Clear erfasst:", kind, instanceID, instanceName, "als", own)
     local _, classFile = UnitClass("player")
     self:Add(kind, own, instanceID, stamp, true, {class = classFile, run = stamp, instanceName = instanceName})
     self:Send(kind, instanceID, stamp)
@@ -922,6 +938,39 @@ function Log:Build(content)
     end
 end
 
+function Log:DebugValue(value)
+    if not GuildHelper:CanAccessValue(value) then return "<geheim>" end
+
+    return tostring(value)
+end
+
+function Log:Debug(...)
+    if not self.debug then return end
+    local parts = {}
+    for index = 1, select("#", ...) do parts[index] = self:DebugValue(select(index, ...)) end
+    print("|cff33ff99[GuildHelper Log]|r " .. table.concat(parts, " "))
+end
+
+function Log:SetDebug(enabled)
+    self.debug = enabled and true or nil
+    GuildHelper:SetConfig("LOGDEBUG", self.debug == true)
+    self.debugEvents = self.debugEvents or CreateFrame("Frame")
+    for _, event in ipairs({"ENCOUNTER_START", "ENCOUNTER_END", "BOSS_KILL", "UNIT_DIED", "PARTY_KILL"}) do
+        if self.debug then pcall(self.debugEvents.RegisterEvent, self.debugEvents, event) else pcall(self.debugEvents.UnregisterEvent, self.debugEvents, event) end
+    end
+    self.debugEvents:SetScript("OnEvent", function(_, event, ...)
+        local kind, instanceID, instanceName = self:GetInstance()
+        self:Debug(event, ...)
+        self:Debug("  Instanz:", instanceName or "-", instanceID or "-", kind or "keine Dungeon-/Raid-Instanz")
+    end)
+    print("|cff33ff99[GuildHelper Log]|r Debug " .. (self.debug and "an" or "aus"))
+end
+
+GuildHelper:AddSlash("ghlogdebug", function()
+    if not GuildHelper.FeedbackShare or not GuildHelper.FeedbackShare:IsDeveloper() then return end
+    Log:SetDebug(not Log.debug)
+end)
+
 Log.events = CreateFrame("Frame")
 Log.events:RegisterEvent("GUILD_ROSTER_UPDATE")
 for _, event in ipairs({"PLAYER_LEVEL_UP", "ACHIEVEMENT_EARNED", "CHAT_MSG_GUILD_ACHIEVEMENT", "ENCOUNTER_END"}) do
@@ -930,8 +979,11 @@ end
 if Log.FINALNPCLAYERS[GuildHelper:GetWoWBuild()] and CombatLogGetCurrentEventInfo then
     pcall(Log.events.RegisterEvent, Log.events, "COMBAT_LOG_EVENT_UNFILTERED")
 end
+Log.events:RegisterEvent("PLAYER_LOGIN")
 Log.events:SetScript("OnEvent", function(_, event, arg1, arg2, _, _, arg5)
-    if event == "COMBAT_LOG_EVENT_UNFILTERED" then
+    if event == "PLAYER_LOGIN" then
+        if GuildHelper:GetConfig("LOGDEBUG", false) == true and GuildHelper.FeedbackShare and GuildHelper.FeedbackShare:IsDeveloper() then Log:SetDebug(true) end
+    elseif event == "COMBAT_LOG_EVENT_UNFILTERED" then
         local _, subEvent, _, _, _, _, _, destGUID = CombatLogGetCurrentEventInfo()
         if subEvent == "UNIT_DIED" then Log:OnUnitDied(destGUID) end
     elseif event == "ENCOUNTER_END" then
