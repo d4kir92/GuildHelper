@@ -97,6 +97,10 @@ function Log:GetStore()
     store.levels = nil
     store.roster = store.roster or {}
     store.profs = store.profs or {}
+    if self.pruned ~= guild then
+        self.pruned = guild
+        self:Prune(store)
+    end
 
     return store
 end
@@ -183,7 +187,7 @@ function Log:Prune(store)
     local list = {}
     local cutoff = self:Now() - self.KEEPDAYS * 86400
     for key, entry in pairs(store.entries) do
-        if entry.time < cutoff then
+        if entry.time < cutoff or (entry.kind == "profession" and not Sync:IsCraftingProfession(entry.value)) then
             store.entries[key] = nil
         else
             tinsert(list, {key = key, time = entry.time})
