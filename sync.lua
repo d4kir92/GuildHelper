@@ -234,11 +234,17 @@ function Sync:GetPrimaryProfessions(data)
     return professions
 end
 
+Sync.gatheringProfessions = {[182] = true, [186] = true, [393] = true}
+
+function Sync:IsCraftingProfession(id)
+    return id ~= nil and self.primaryProfessionIcons[id] ~= nil and not self.gatheringProfessions[id]
+end
+
 function Sync:GroupProfessions(entries, getID)
     local crafting, gathering, secondary = {}, {}, {}
     for _, entry in ipairs(entries) do
         local id = getID(entry)
-        if id == 182 or id == 186 or id == 393 then
+        if self.gatheringProfessions[id] then
             tinsert(gathering, entry)
         elseif id == 129 or id == 185 or id == 356 or id == 794 then
             tinsert(secondary, entry)

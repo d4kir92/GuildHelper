@@ -557,7 +557,7 @@ function Log:CheckProfessions(shortName, professions, own)
     store.profs[key] = store.profs[key] or {}
     for _, entry in ipairs(professions) do
         local id, rank = Sync:GetProfessionID(entry[1], entry[4]), tonumber(entry[2]) or 0
-        if id and Sync.primaryProfessionIcons[id] then
+        if Sync:IsCraftingProfession(id) then
             local previous = store.profs[key][id]
             if known and (previous or 0) < cap and rank >= cap then
                 self:Add("profession", name, id, self:Now(), self.live or own, {class = classFile})

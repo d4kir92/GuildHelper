@@ -22,6 +22,7 @@ function Bank:Store()
     local guild, rank = self:Identity()
     if not guild then return nil end
     if self.guild ~= guild or self.rank ~= rank then
+        self:Debug("Bank-Schlüssel:", self.guild and (self.guild .. "#" .. tostring(self.rank)) or "-", "->", guild .. "#" .. rank, self.guild and "(alter Speicher gelöscht)" or "")
         if self.guild and self.rank and GHTABPC and GHTABPC.BANK then
             GHTABPC.BANK[self.guild .. "#" .. self.rank] = nil
         end
@@ -239,6 +240,7 @@ function Bank:OnMessage(message, channel, sender)
                 end
             end
             if self:IsLeader() then
+                self:Debug("Sende Freigaben an Gilde wegen Anfrage von", name, "Zeitstempel", store.policyStamp or "FEHLT (aktuelle Zeit)")
                 for index = 1, self.MAXTABS do
                     self:Send("BK~P~" .. index .. "~" .. (store.public[index] and "1" or "0") .. "~" .. (store.policyStamp or time() * 100), "policy:" .. index)
                 end
@@ -259,12 +261,26 @@ function Bank:OnMessage(message, channel, sender)
         end
         return
     end
-    if command == "P" and #parts == 5 and rank == 0 and channel == "GUILD" then
+    if command == "P" and #parts == 5 and rank ~= 0 then
+        self:Debug("Freigabe von", name, "ignoriert: Rang", rank, "ist nicht Gildenleiter")
+        return
+    end
+    if command == "P" and #parts == 5 and channel == "GUILD" then
         local stamp = tonumber(parts[5])
-        if not stamp or stamp < (store.policyStamp or 0) then return end
+        if not stamp or stamp < (store.policyStamp or 0) then
+            self:Debug("Freigabe Tab", tab, "von", name, "ignoriert: älter", parts[5], "<", store.policyStamp or 0)
+            return
+        end
         store.policyStamp = stamp
+        local was = store.public[tab] == true
         store.public[tab] = parts[4] == "1" or nil
-        if not store.public[tab] and store.tabs[tab] and store.tabs[tab].public then store.tabs[tab] = nil end
+        if was ~= (store.public[tab] == true) then
+            self:Debug("Freigabe Tab", tab, "von", name, was and "öffentlich -> privat" or "privat -> öffentlich", "Zeitstempel", stamp)
+        end
+        if not store.public[tab] and store.tabs[tab] and store.tabs[tab].public then
+            self:Debug("Tab", tab, "gelöscht: Gildenleiter", name, "hat ihn auf privat gesetzt")
+            store.tabs[tab] = nil
+        end
         self:Refresh()
         return
     end
@@ -285,11 +301,18 @@ function Bank:OnMessage(message, channel, sender)
         local count, public = tonumber(parts[5]), parts[6] == "1"
         if not count or count < 1 or count > 20 or count ~= floor(count) or #parts[7] > 90 then return end
         if public then
-            if not store.public[tab] then return end
+            if not store.public[tab] then
+                self:Debug("Tab", tab, "von", name, "ignoriert: hier nicht als öffentlich markiert")
+                return
+            end
         elseif channel ~= "WHISPER" or rank ~= self.rank then
+            self:Debug("Tab", tab, "von", name, "ignoriert: privat, Rang", rank, "~= eigener Rang", self.rank)
             return
         end
-        if store.tabs[tab] and store.tabs[tab].stamp > stamp then return end
+        if store.tabs[tab] and store.tabs[tab].stamp > stamp then
+            self:Debug("Tab", tab, "von", name, "ignoriert: älter als gespeicherter Stand")
+            return
+        end
         local pendingCount = 0
         for pendingKey, pending in pairs(self.pending) do
             if pending.expires < GetTime() then self.pending[pendingKey] = nil else pendingCount = pendingCount + 1 end
@@ -313,6 +336,7 @@ function Bank:OnMessage(message, channel, sender)
         self.pending[key] = nil
         if not items or (store.tabs[tab] and store.tabs[tab].stamp > stamp) then return end
         store.tabs[tab] = {items = items, name = pending.name, stamp = stamp, public = pending.public, rank = rank, authorized = true}
+        self:Debug("Tab", tab, "von", name, "gespeichert:", pending.public and "öffentlich" or "privat", "Rang", rank, "Zeitstempel", stamp)
         self:Refresh()
     end
 end
@@ -325,6 +349,7 @@ function Bank:Capture(tab)
     if icon then self:Store().icons[tab] = icon end
     if not view then
         local store = self:Store()
+        if store.tabs[tab] then self:Debug("Tab", tab, "gelöscht: eigene Bank zeigt ihn als nicht einsehbar") end
         store.tabs[tab] = nil
         self:Refresh()
         return
@@ -343,7 +368,18 @@ function Bank:Capture(tab)
     local store = self:Store()
     local record = {items = items, name = GuildHelper.Groups:CleanText(name, 90), stamp = time(), rank = self.rank, authorized = true}
     local previous = store.tabs[tab]
-    if previous and previous.name == record.name and self:Encode(previous) == self:Encode(record) then return end
+    local encoded = self:Encode(record)
+    self.emptySeen = self.emptySeen or {}
+    if encoded == "" and previous and next(previous.items) and not self.emptySeen[tab] then
+        self.emptySeen[tab] = true
+        self:Debug("Tab", tab, "leer gelesen, gespeicherter Stand hat Gegenstände: warte auf Bestätigung")
+        return
+    end
+    if encoded ~= "" then self.emptySeen[tab] = nil end
+    if previous and previous.name == record.name and self:Encode(previous) == encoded then return end
+    local count = 0
+    for _ in pairs(items) do count = count + 1 end
+    self:Debug("Tab", tab, "aus eigener Bank erfasst:", count, "Gegenstände")
     if previous then record.stamp = max(record.stamp, previous.stamp + 1) end
     store.tabs[tab] = record
     self:QueueTab(tab)
@@ -359,6 +395,61 @@ function Bank:TabCount()
         self:Send("BK~N~" .. count, "tabcount")
     end
 end
+
+function Bank:Debug(...)
+    if not self.debug then return end
+    local parts = {}
+    for index = 1, select("#", ...) do
+        local value = select(index, ...)
+        parts[index] = GuildHelper:CanAccessValue(value) and tostring(value) or "<geheim>"
+    end
+    print("|cff33ff99[GuildHelper Bank]|r " .. table.concat(parts, " "))
+end
+
+function Bank:DebugTab(tab, record, allowed, store)
+    local state = "leer"
+    if record then
+        state = allowed and "sichtbar" or "versteckt"
+        if not allowed then
+            local name, _, view
+            if GetGuildBankTabInfo then name, _, view = GetGuildBankTabInfo(tab) end
+            if name and name ~= "" and not view then
+                state = state .. " (eigene Bankrechte: nicht einsehbar)"
+            elseif record.public and not store.public[tab] then
+                state = state .. " (öffentlicher Tab, hier aber nicht freigegeben)"
+            elseif record.rank ~= self.rank then
+                state = state .. " (privat von Rang " .. tostring(record.rank) .. ", eigener Rang " .. tostring(self.rank) .. ")"
+            end
+        end
+    end
+    self.debugState = self.debugState or {}
+    if self.debugState[tab] ~= state then
+        if self.debugState[tab] then self:Debug("Anzeige Tab", tab, ":", self.debugState[tab], "->", state) end
+        self.debugState[tab] = state
+    end
+end
+
+function Bank:SetDebug(enabled)
+    self.debug = enabled and true or nil
+    self.debugState = nil
+    GuildHelper:SetConfig("BANKDEBUG", self.debug == true)
+    print("|cff33ff99[GuildHelper Bank]|r Debug " .. (self.debug and "an" or "aus"))
+    if not self.debug then return end
+    local store = self:Store()
+    if not store then
+        self:Debug("Kein Bank-Speicher: nicht in Gilde oder Rang unbekannt")
+        return
+    end
+    self:Debug("Schlüssel", self.guild .. "#" .. self.rank, "Gildenleiter:", self:IsLeader() and "ja" or "nein", "Freigabe-Zeitstempel", store.policyStamp or "-")
+    for tab = 1, self.MAXTABS do
+        local record = store.tabs[tab]
+        if record or store.public[tab] then
+            self:Debug("Tab", tab, record and "Daten" or "keine Daten", store.public[tab] and "öffentlich" or "privat", "sichtbar:", self:Allowed(tab) and "ja" or "nein")
+        end
+    end
+end
+
+GuildHelper:AddSlash("ghbankdebug", function() Bank:SetDebug(not Bank.debug) end)
 
 function Bank:Matches(item, search)
     if search == "" then return true end
@@ -377,6 +468,7 @@ function Bank:Refresh()
     for tab = 1, self.MAXTABS do
         local record = store.tabs[tab]
         local allowed = self:Allowed(tab)
+        if self.debug then self:DebugTab(tab, record, allowed, store) end
         local count = 0
         if record and allowed then
             for _, item in pairs(record.items) do if self:Matches(item, search) then count = count + 1 end end
@@ -522,7 +614,7 @@ Bank.events:SetScript("OnEvent", function(_, event, kind)
         Bank.open = false
         Bank.scanAt = nil
         Bank.queryTab, Bank.queryNext = nil, nil
-        Bank.queried = {}
+        Bank.queried, Bank.emptySeen = {}, {}
     elseif event == "GUILDBANKBAGSLOTS_CHANGED" and Bank.open then
         Bank.scanAt = GetTime() + 1
     elseif event == "GUILDBANK_UPDATE_TABS" and Bank.open then
@@ -530,15 +622,11 @@ Bank.events:SetScript("OnEvent", function(_, event, kind)
         Bank.queryNext = Bank.queryNext or 1
         Bank.queryAt = GetTime() + 1
     elseif event == "PLAYER_LOGIN" then
+        if GuildHelper:GetConfig("BANKDEBUG", false) == true then C_Timer.After(5, function() Bank:SetDebug(true) end) end
         C_Timer.After(random(12, 20), function() Bank:Request() end)
     end
     Bank:Refresh()
 end)
-if hooksecurefunc and QueryGuildBankTab then
-    hooksecurefunc("QueryGuildBankTab", function(tab)
-        if type(tab) == "number" and tab >= 1 and tab <= Bank.MAXTABS then Bank.queried[tab] = true end
-    end)
-end
 Bank.elapsed = 0
 Bank.events:SetScript("OnUpdate", function(_, elapsed)
     Bank.elapsed = Bank.elapsed + elapsed
