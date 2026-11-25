@@ -557,6 +557,7 @@ function Members:SetPillCount(pill, label, count)
         pill.countBadge:SetPoint("RIGHT", pill, "RIGHT", -8, 0)
         pill.countText = Theme:Text(pill, 11, "window")
         pill.countText:SetPoint("CENTER", pill.countBadge, "CENTER")
+        self:StylePill(pill)
     end
     local visible = (count or 0) > 0
     pill.countBadge:SetShown(visible)
@@ -575,6 +576,11 @@ end
 
 function Members:StylePill(pill)
     local active = pill.active
+    if pill.countBadge then
+        local accent = pill.native or active
+        Theme:SetKey(pill.countBadge, accent and "accent" or "border")
+        Theme:SetKey(pill.countText, accent and "accentText" or "text")
+    end
     if pill.native then
         if active then
             pill:LockHighlight()
