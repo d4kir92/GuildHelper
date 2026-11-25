@@ -549,6 +549,30 @@ function Members:SetPillText(pill, label)
     pill:SetWidth(floor(pill.text:GetStringWidth() + 32))
 end
 
+function Members:SetPillCount(pill, label, count)
+    self:SetPillText(pill, label)
+    if not pill.countBadge then
+        pill.countBadge = Theme:Icon(pill, "circle", 16, "online")
+        pill.countBadge:SetDrawLayer("ARTWORK", 1)
+        pill.countBadge:SetPoint("RIGHT", pill, "RIGHT", -8, 0)
+        pill.countText = Theme:Text(pill, 11, "window")
+        pill.countText:SetPoint("CENTER", pill.countBadge, "CENTER")
+    end
+    local visible = (count or 0) > 0
+    pill.countBadge:SetShown(visible)
+    pill.countText:SetShown(visible)
+    pill.text:ClearAllPoints()
+    if not visible then
+        pill.text:SetPoint("CENTER", pill, "CENTER", 0, 0)
+        return
+    end
+    pill.countText:SetText(tostring(count))
+    local size = max(16, ceil(pill.countText:GetStringWidth()) + 6)
+    pill.countBadge:SetSize(size, size)
+    pill:SetWidth(pill:GetWidth() + size + 6)
+    pill.text:SetPoint("CENTER", pill, "CENTER", -(size + 6) / 2, 0)
+end
+
 function Members:StylePill(pill)
     local active = pill.active
     if pill.native then

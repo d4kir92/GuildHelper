@@ -2012,7 +2012,7 @@ function Groups:RefreshForm()
     for _, mode in ipairs(raid and self.raidModes or self.modes) do
         local pill = self.modePills[mode.value]
         Members:SetPillActive(pill, self.mode == mode.value)
-        Members:SetPillText(pill, GuildHelper:Trans(mode.label) .. " (" .. #self:GetList(mode.value) .. ")")
+        Members:SetPillCount(pill, GuildHelper:Trans(mode.label), #self:GetList(mode.value))
     end
     local outdoor = self:IsOutdoor(self.mode)
     local activityLabel = self.mode == "Q" and "LID_GROUPQUEST" or (self.mode == "Z" and "LID_ZONE" or "LID_GROUPACTIVITY")
