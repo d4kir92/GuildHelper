@@ -489,8 +489,30 @@ function Settings:CreateNotificationPanel(content, anchor)
         self.notificationRows[index] = self:CreateMapRow(panel, index, option)
     end
 
+    local y = -36 - #GuildHelper.Notifications.NEW_TYPES * self.MAPROW - 10
+    local logHeader = Theme:Text(panel, 11, "muted")
+    logHeader:SetPoint("TOPLEFT", panel, "TOPLEFT", 18, y - 8)
+    Theme:SetTrans(logHeader, "LID_GUILDLOG", true)
+    local all = Members:CreateButton(panel, "LID_LOGNOTIFYALL")
+    all:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -18, y)
+    all:SetWidth(max(140, all.text:GetStringWidth() + 32))
+    all:SetScript("OnClick", function() Settings:ToggleLogNotifications() end)
+    y = y - 38
+    self.logNotificationOptions = {}
+    for _, option in ipairs(GuildHelper.Log and GuildHelper.Log:GetNotifyOptions() or {}) do
+        local entry = self:CreateMapRow(panel, 1, option)
+        entry.row:ClearAllPoints()
+        entry.row:SetPoint("TOPLEFT", panel, "TOPLEFT", 10, y)
+        entry.row:SetPoint("RIGHT", panel, "RIGHT", -10, 0)
+        y = y - self.MAPROW
+        tinsert(self.notificationOptions, option)
+        tinsert(self.notificationRows, entry)
+        tinsert(self.logNotificationOptions, option)
+    end
+
     local position = Members:CreateButton(panel, "LID_NOTIFICATIONPOSITION")
-    position:SetPoint("TOPLEFT", panel, "TOPLEFT", 18, -202)
+    position:SetPoint("TOPLEFT", panel, "TOPLEFT", 18, y - 6)
+    panel:SetHeight(-y + 6 + 32 + 4 + 32 + 16)
     position:SetWidth(self.WIDTH - 36)
     position:SetScript("OnClick", function()
         GuildHelper.Notifications:SetEditing(not GuildHelper.Notifications.editing)
@@ -500,6 +522,17 @@ function Settings:CreateNotificationPanel(content, anchor)
     test:SetPoint("TOPLEFT", position, "BOTTOMLEFT", 0, -4)
     test:SetWidth(self.WIDTH - 36)
     test:SetScript("OnClick", function() GuildHelper.Notifications:Test() end)
+
+    return panel
+end
+
+function Settings:ToggleLogNotifications()
+    local enable = false
+    for _, option in ipairs(self.logNotificationOptions or {}) do
+        if not self:GetMapOption(option.key) then enable = true end
+    end
+    for _, option in ipairs(self.logNotificationOptions or {}) do GuildHelper:SetConfig(option.key, enable) end
+    self:UpdateMap()
 end
 
 function Settings:Build(content)
@@ -554,7 +587,8 @@ function Settings:Build(content)
     self:CreateWindowKey(panel)
     self:CreateMapPanel(body, panel)
     self:CreateInvitePanel(body, panel)
-    self:CreateNotificationPanel(body, panel)
+    local notifications = self:CreateNotificationPanel(body, panel)
+    body:SetHeight(max(630, 330 + 16 + notifications:GetHeight() + 16))
     if not self.hooked then
         self.hooked = true
         Theme:OnRefresh(function() Settings:Update() end)

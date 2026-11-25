@@ -1,7 +1,8 @@
 local _, GuildHelper = ...
 local Theme, Groups, Sync, Dashboard = GuildHelper.Theme, GuildHelper.Groups, GuildHelper.Sync, GuildHelper.Dashboard
 local Log = {
-    KEEP = 500,
+    KEEP = 5000,
+    KEEPDAYS = 365,
     SCANDELAY = 3,
     MAXAGE = 86400 * 30,
     LEVELS = {
@@ -13,6 +14,8 @@ local Log = {
     },
     TESTACHIEVEMENT = 6,
     PROFESSIONCAPS = {CLASSIC = 300, TBC = 375, WRATH = 450, CATA = 525, MISTS = 600},
+    CLEARWINDOW = 900,
+    FINALBOSSES = {},
     types = {},
     order = {},
     testEntries = {}
@@ -45,8 +48,11 @@ function Log:GetStore()
     return store
 end
 
-function Log:Key(kind, name, value)
-    return kind .. ":" .. name .. ":" .. tostring(value)
+function Log:Key(kind, name, value, run)
+    local key = kind .. ":" .. name .. ":" .. tostring(value)
+    if run then key = key .. ":" .. tostring(run) end
+
+    return key
 end
 
 function Log:Add(kind, name, value, stamp, exact, extra)
@@ -59,7 +65,7 @@ function Log:Add(kind, name, value, stamp, exact, extra)
     extra = extra or {}
     if display and display ~= "" then extra.display, extra.full = display, raw end
     exact = exact and true or nil
-    local key = self:Key(kind, name, value)
+    local key = self:Key(kind, name, value, extra.run)
     local entry = store.entries[key]
     if entry then
         if entry.exact and not exact then return false end
@@ -68,9 +74,14 @@ function Log:Add(kind, name, value, stamp, exact, extra)
     else
         entry = {kind = kind, name = name, value = value, time = stamp, exact = exact}
         store.entries[key] = entry
+        entry.isNew = true
     end
     if extra then
         for field, data in pairs(extra) do entry[field] = data end
+    end
+    if entry.isNew then
+        entry.isNew = nil
+        self:Notify(entry)
     end
     self:Prune(store)
     self:Refresh()
@@ -78,9 +89,53 @@ function Log:Add(kind, name, value, stamp, exact, extra)
     return true
 end
 
+function Log:GetNotifyOptions()
+    local list = {}
+    for _, filter in ipairs(self.FILTERS) do
+        if not filter.available or filter.available() then
+            tinsert(list, {key = "LOGNOTIFY" .. strupper(filter.key), default = false, label = filter.label, display = true})
+        end
+    end
+
+    return list
+end
+
+function Log:Notify(entry)
+    local definition = self.types[entry.kind]
+    local Notifications = GuildHelper.Notifications
+    if not definition or not entry.exact or not Notifications or entry.time < Notifications.started or entry.time < self:Now() - 600 then return end
+    if GuildHelper:GetConfig("LOGNOTIFY" .. strupper(definition.filter or entry.kind), false) ~= true then return end
+    if not definition.group and Groups:IsSelfName(entry.name) then return end
+    local seenKey = "log:" .. entry.kind .. ":" .. tostring(entry.value) .. ":" .. (definition.group and tostring(entry.run or entry.time) or entry.name)
+    if Notifications.seen[seenKey] then return end
+    Notifications.seen[seenKey] = true
+    C_Timer.After(1, function()
+        local view = entry
+        if definition.group then
+            local store, list = self:GetStore(), {}
+            for _, other in pairs(store and store.entries or {}) do
+                if other.kind == entry.kind and other.value == entry.value and abs(other.time - entry.time) <= self.CLEARWINDOW then
+                    if Groups:IsSelfName(other.name) then return end
+                    tinsert(list, other)
+                end
+            end
+            table.sort(list, function(a, b) return a.time > b.time end)
+            view = self:MergeClears(list)[1] or entry
+        end
+        Notifications:LogEntry(self:FormatEntry(view))
+    end)
+end
+
 function Log:Prune(store)
     local list = {}
-    for key, entry in pairs(store.entries) do tinsert(list, {key = key, time = entry.time}) end
+    local cutoff = self:Now() - self.KEEPDAYS * 86400
+    for key, entry in pairs(store.entries) do
+        if entry.time < cutoff then
+            store.entries[key] = nil
+        else
+            tinsert(list, {key = key, time = entry.time})
+        end
+    end
     if #list <= self.KEEP then return end
     table.sort(list, function(a, b) return a.time > b.time end)
     for index = self.KEEP + 1, #list do store.entries[list[index].key] = nil end
@@ -106,7 +161,35 @@ function Log:GetEntries()
         return tostring(a.value) > tostring(b.value)
     end)
 
-    return list
+    return self:MergeClears(list)
+end
+
+function Log:MergeClears(list)
+    local result, groups = {}, {}
+    for _, entry in ipairs(list) do
+        local definition = self.types[entry.kind]
+        if definition.group then
+            local groupKey = entry.kind .. ":" .. tostring(entry.value)
+            local group = groups[groupKey]
+            if group and group.time - entry.time <= self.CLEARWINDOW then
+                if not group.names[entry.name] then
+                    group.names[entry.name] = true
+                    tinsert(group.members, entry)
+                end
+                group.exact = group.exact or entry.exact
+                group.instanceName = group.instanceName or entry.instanceName
+            else
+                group = {kind = entry.kind, value = entry.value, time = entry.time, exact = entry.exact, order = entry.order,
+                    name = entry.name, instanceName = entry.instanceName, members = {entry}, names = {[entry.name] = true}}
+                groups[groupKey] = group
+                tinsert(result, group)
+            end
+        else
+            tinsert(result, entry)
+        end
+    end
+
+    return result
 end
 
 function Log:Send(kind, value, stamp)
@@ -114,14 +197,132 @@ function Log:Send(kind, value, stamp)
 end
 
 function Log:OnMessage(message, sender)
-    if #message > 120 or Groups:IsSelfName(sender) then return end
-    local kind, value, stamp = message:match("^GL~(%a+)~(%d+)~(%d+)$")
+    if #message > 250 or Groups:IsSelfName(sender) then return end
+    local kind, value, stamp, names = message:match("^GL~(%a+)~(%d+)~(%d+)~(.+)$")
+    if kind then
+        self:ReceiveMembers(kind, tonumber(value), tonumber(stamp), names)
+        return
+    end
+    kind, value, stamp = message:match("^GL~(%a+)~(%d+)~(%d+)$")
     local definition = kind and self.types[kind]
     if not definition or not definition.receive then return end
     value, stamp = tonumber(value), tonumber(stamp)
     local now = self:Now()
     if not value or not stamp or stamp > now + 300 or stamp < now - self.MAXAGE then return end
     definition.receive(self, sender, value, stamp)
+end
+
+function Log:ReceiveMembers(kind, value, stamp, names)
+    local definition = self.types[kind]
+    local now = self:Now()
+    if not definition or not definition.group or not value or not stamp or stamp > now + 300 or stamp < now - self.MAXAGE then return end
+    for name in names:gmatch("[^,]+") do
+        local level, classFile, member = self:RosterMember(name)
+        if level then self:Add(kind, member, value, stamp, true, {class = classFile, run = stamp}) end
+    end
+end
+
+function Log:GetInstance()
+    if not GetInstanceInfo then return nil end
+    local name, instanceType, _, _, _, _, _, instanceID = GetInstanceInfo()
+    local kind = instanceType == "party" and "dungeon" or (instanceType == "raid" and "raid" or nil)
+    if not kind or type(instanceID) ~= "number" then return nil end
+
+    return kind, instanceID, name
+end
+
+function Log:InstanceName(instanceID)
+    if GetRealZoneText then
+        local ok, name = pcall(GetRealZoneText, instanceID)
+        if ok and type(name) == "string" and name ~= "" then return name end
+    end
+
+    return "#" .. tostring(instanceID)
+end
+
+function Log:IsFinalBoss(instanceID, encounterID)
+    local known = self.FINALBOSSES[instanceID]
+    if known then return known == encounterID end
+    if not EJ_GetInstanceForMap or not EJ_GetEncounterInfoByIndex or not C_Map or not C_Map.GetBestMapForUnit then return false end
+    local mapID = C_Map.GetBestMapForUnit("player")
+    local okInstance, journal = pcall(EJ_GetInstanceForMap, mapID or 0)
+    if not okInstance or type(journal) ~= "number" or journal <= 0 then return false end
+    local last
+    for index = 1, 40 do
+        local ok, name, _, _, _, _, _, dungeonEncounterID = pcall(EJ_GetEncounterInfoByIndex, index, journal)
+        if not ok or not name then break end
+        last = dungeonEncounterID
+    end
+
+    return last ~= nil and last == encounterID
+end
+
+function Log:GetGroupGuildMembers()
+    local list = {}
+    local count = GetNumGroupMembers and GetNumGroupMembers() or 0
+    local prefix = IsInRaid and IsInRaid() and "raid" or "party"
+    for index = 1, prefix == "raid" and count or count - 1 do
+        local unit = prefix .. index
+        local name, realm = UnitName(unit)
+        if GuildHelper:CanAccessValues(name, realm) and name then
+            local level, classFile, member = self:RosterMember(realm and realm ~= "" and (name .. "-" .. realm) or name)
+            if level and not Groups:IsSelfName(member) then tinsert(list, {name = member, class = classFile}) end
+        end
+    end
+
+    return list
+end
+
+function Log:OnEncounterEnd(encounterID, encounterName, success)
+    if success ~= 1 and success ~= true then return end
+    local kind, instanceID, instanceName = self:GetInstance()
+    if not kind or type(encounterID) ~= "number" then return end
+    self:CollectEncounter(kind, instanceID, instanceName, encounterID, encounterName)
+    if not self:IsFinalBoss(instanceID, encounterID) then return end
+    local own = self:OwnName()
+    if not own then return end
+    local stamp = self:Now()
+    local _, classFile = UnitClass("player")
+    self:Add(kind, own, instanceID, stamp, true, {class = classFile, run = stamp, instanceName = instanceName})
+    self:Send(kind, instanceID, stamp)
+    local names = {}
+    for _, member in ipairs(self:GetGroupGuildMembers()) do
+        self:Add(kind, member.name, instanceID, stamp, true, {class = member.class, run = stamp, instanceName = instanceName})
+        tinsert(names, member.name)
+    end
+    local head = table.concat({"GL", kind, instanceID, stamp}, "~") .. "~"
+    local chunk, part = {}, 0
+    local function flush()
+        if #chunk == 0 then return end
+        part = part + 1
+        Sync:Send(head .. table.concat(chunk, ","), "logmembers:" .. stamp .. ":" .. part)
+        chunk = {}
+    end
+    for _, name in ipairs(names) do
+        if #head + #table.concat(chunk, ",") + #name + 1 > 200 then flush() end
+        tinsert(chunk, name)
+    end
+    flush()
+end
+
+function Log:CollectEncounter(kind, instanceID, instanceName, encounterID, encounterName)
+    if not GuildHelper.FeedbackShare or not GuildHelper.FeedbackShare:IsDeveloper() then return end
+    GHTAB.ENCOUNTERS = GHTAB.ENCOUNTERS or {}
+    local build = GuildHelper:IsForever() and "FOREVER" or GuildHelper:GetWoWBuild()
+    GHTAB.ENCOUNTERS[build] = GHTAB.ENCOUNTERS[build] or {}
+    local instances = GHTAB.ENCOUNTERS[build]
+    local instance = instances[instanceID] or {bosses = {}, count = 0}
+    instances[instanceID] = instance
+    instance.name, instance.kind = instanceName, kind
+    local boss = instance.bosses[encounterID]
+    if not boss then
+        instance.count = instance.count + 1
+        boss = {order = instance.count, kills = 0}
+        instance.bosses[encounterID] = boss
+    end
+    boss.name, boss.kills, boss.last = encounterName, boss.kills + 1, self:Now()
+    instance.lastKill = encounterID
+    print("[GuildHelper]", "Boss erfasst:", tostring(encounterName), encounterID, "in", tostring(instanceName), instanceID, self:IsFinalBoss(instanceID, encounterID) and "(Endboss)" or "")
 end
 
 function Log:GetLevelList()
@@ -307,13 +508,29 @@ Log:RegisterType("leave", {text = function(entry) return format(GuildHelper:Tran
 Log:RegisterType("promote", {filter = "rank", text = function(entry) return format(GuildHelper:Trans("LID_LOGPROMOTE"), entry.short, entry.rank or "?") end})
 Log:RegisterType("demote", {filter = "rank", text = function(entry) return format(GuildHelper:Trans("LID_LOGDEMOTE"), entry.short, entry.rank or "?") end})
 
+for _, clearKind in ipairs({"dungeon", "raid"}) do
+    local kind = clearKind
+    Log:RegisterType(kind, {
+        group = true,
+        text = function(entry)
+            return format(GuildHelper:Trans((entry.count or 1) > 1 and "LID_LOGCLEARS" or "LID_LOGCLEAR"), entry.short, entry.instanceName or Log:InstanceName(entry.value))
+        end,
+        receive = function(self, sender, value, stamp)
+            local level, classFile, member = self:RosterMember(sender)
+            if level then self:Add(kind, member, value, stamp, true, {class = classFile, run = stamp}) end
+        end
+    })
+end
+
 Log.FILTERS = {
     {key = "level", label = "LID_LOGFILTERLEVEL"},
     {key = "join", label = "LID_LOGFILTERJOIN"},
     {key = "leave", label = "LID_LOGFILTERLEAVE"},
     {key = "rank", label = "LID_LOGFILTERRANK"},
     {key = "profession", label = "LID_LOGFILTERPROF", available = function() return Log:GetProfessionCap() ~= nil end},
-    {key = "legacy", label = "LID_LOGFILTERLEGACY", available = function() return GuildHelper:IsForever() end}
+    {key = "legacy", label = "LID_LOGFILTERLEGACY", available = function() return GuildHelper:IsForever() end},
+    {key = "dungeon", label = "LID_LOGFILTERDUNGEON"},
+    {key = "raid", label = "LID_LOGFILTERRAID"}
 }
 
 function Log:ParseDate(text, endOfDay)
@@ -389,6 +606,14 @@ function Log:FindLegacyAchievement()
     return found[random(1, #found)]
 end
 
+function Log:RandomGuildMember()
+    local total = GetNumGuildMembers and GetNumGuildMembers() or 0
+    for _ = 1, 10 do
+        local name, _, _, level, _, _, _, _, _, _, classFile = GetGuildRosterInfo(random(1, max(1, total)))
+        if name and GuildHelper:CanAccessValues(name, level) and not Groups:IsSelfName(name) then return name, classFile end
+    end
+end
+
 function Log:AddTestEntries()
     local name = self:OwnName()
     if not name then return end
@@ -405,10 +630,21 @@ function Log:AddTestEntries()
         {kind = "legacy", value = self:FindLegacyAchievement() or self.TESTACHIEVEMENT},
         {kind = "leave"}
     }
+    local zone = GetRealZoneText and GetRealZoneText() or "?"
+    self.testPress = (self.testPress or 0) + 1
+    local press = self.testPress
+    for _, kind in ipairs({"dungeon", "raid"}) do
+        tinsert(samples, {kind = kind, value = press, instanceName = zone})
+        for _ = 1, kind == "raid" and 4 or 2 do
+            local member, memberClass = self:RandomGuildMember()
+            if member then tinsert(samples, {kind = kind, value = press, instanceName = zone, member = member, memberClass = memberClass}) end
+        end
+    end
     for index, sample in ipairs(samples) do
         self.testSerial = (self.testSerial or 0) + 1
-        sample.name, sample.class, sample.time, sample.exact = name, classFile, now, index % 2 == 1 or nil
-        sample.display, sample.full = strsplit("-", name), name
+        local sampleName = sample.member or name
+        sample.name, sample.class, sample.time, sample.exact = Groups:Name(sampleName) or sampleName, sample.memberClass or classFile, now, index % 2 == 1 or nil
+        sample.display, sample.full = strsplit("-", sampleName), sampleName
         sample.order = self.testSerial
         sample.value = sample.value or now
         tinsert(self.testEntries, sample)
@@ -416,28 +652,73 @@ function Log:AddTestEntries()
     self:Refresh()
 end
 
-function Log:FormatEntry(entry)
-    local definition = self.types[entry.kind]
+function Log:FormatName(entry, plain)
     local short = entry.display or strsplit("-", entry.name)
     local color = Theme:GetClassColor(entry.class)
-    local full = entry.full or entry.display or entry.name
-    short = format("|Hplayer:%s|h[%s]|h", full, short)
+    if not plain then short = format("|Hplayer:%s|h[%s]|h", entry.full or entry.display or entry.name, short) end
     if color then short = format("|cff%02x%02x%02x%s|r", color.r * 255, color.g * 255, color.b * 255, short) end
 
-    local view = {short = short}
+    return short
+end
+
+function Log:FormatEntry(entry)
+    local definition = self.types[entry.kind]
+    local view = {}
     for field, data in pairs(entry) do view[field] = data end
+    if entry.members and #entry.members > 1 then
+        view.count = #entry.members
+        view.short = "|cffffd100|Hghlog:players|h[" .. format(GuildHelper:Trans("LID_LOGPLAYERS"), view.count) .. "]|h|r"
+    else
+        view.short = self:FormatName(entry.members and entry.members[1] or entry)
+    end
 
     return definition.text(view)
+end
+
+function Log:ShowPlayers(owner, entry)
+    if not entry or not entry.members then return end
+    GameTooltip:SetOwner(owner, "ANCHOR_CURSOR")
+    GameTooltip:AddLine(format(GuildHelper:Trans("LID_LOGPLAYERS"), #entry.members))
+    local names = {}
+    for _, member in ipairs(entry.members) do tinsert(names, {sort = strlower(member.display or member.name), text = self:FormatName(member, true)}) end
+    table.sort(names, function(a, b) return a.sort < b.sort end)
+    for _, name in ipairs(names) do GameTooltip:AddLine(name.text) end
+    GameTooltip:Show()
+end
+
+function Log:FindMember(name)
+    local Members = GuildHelper.Members
+    local key = Groups:Name(name)
+    if not key then return nil end
+    if #Members.list == 0 then Members:Scan() end
+    for _, member in ipairs(Members.list) do
+        if Groups:Name(member.name) == key then return member end
+    end
 end
 
 function Log:EnableLinks(line)
     if not line or line.logLinks or not line.SetHyperlinksEnabled then return end
     line.logLinks = true
     line:SetHyperlinksEnabled(true)
-    line:SetScript("OnHyperlinkClick", function(_, link, text, button)
-        if SetItemRef then SetItemRef(link, text, button) end
+    line:SetScript("OnHyperlinkClick", function(sel, link, text, button)
+        if strsub(link, 1, 6) == "ghlog:" then return end
+        local player = link:match("^player:(.+)$")
+        if not player then
+            if SetItemRef then SetItemRef(link, text, button) end
+            return
+        end
+        local member = self:FindMember(player)
+        if button == "RightButton" then
+            if member then GuildHelper.Members:OpenPlayerMenu(member, sel) end
+        elseif member then
+            GuildHelper.Members:Whisper(member)
+        end
     end)
     line:SetScript("OnHyperlinkEnter", function(sel, link)
+        if strsub(link, 1, 6) == "ghlog:" then
+            self:ShowPlayers(sel, sel.logEntry)
+            return
+        end
         if strsub(link, 1, 12) ~= "achievement:" then return end
         GameTooltip:SetOwner(sel, "ANCHOR_CURSOR")
         pcall(GameTooltip.SetHyperlink, GameTooltip, link)
@@ -457,6 +738,7 @@ function Log:Refresh()
         local stamp = date("%d.%m.%Y %H:%M", entry.time)
         Dashboard:SetLine(card, index, self:FormatEntry(entry), entry.exact and stamp or ("~" .. stamp))
         self:EnableLinks(card.lines[index])
+        card.lines[index].logEntry = entry
     end
     Dashboard:FinishList(card, #entries)
     self.empty:SetShown(#entries == 0)
@@ -515,11 +797,13 @@ end
 
 Log.events = CreateFrame("Frame")
 Log.events:RegisterEvent("GUILD_ROSTER_UPDATE")
-for _, event in ipairs({"PLAYER_LEVEL_UP", "ACHIEVEMENT_EARNED", "CHAT_MSG_GUILD_ACHIEVEMENT"}) do
+for _, event in ipairs({"PLAYER_LEVEL_UP", "ACHIEVEMENT_EARNED", "CHAT_MSG_GUILD_ACHIEVEMENT", "ENCOUNTER_END"}) do
     if not C_EventUtils or not C_EventUtils.IsEventValid or C_EventUtils.IsEventValid(event) then Log.events:RegisterEvent(event) end
 end
-Log.events:SetScript("OnEvent", function(_, event, arg1, arg2)
-    if event == "PLAYER_LEVEL_UP" then
+Log.events:SetScript("OnEvent", function(_, event, arg1, arg2, _, _, arg5)
+    if event == "ENCOUNTER_END" then
+        Log:OnEncounterEnd(arg1, arg2, arg5)
+    elseif event == "PLAYER_LEVEL_UP" then
         Log:OnLevelUp(arg1)
     elseif event == "ACHIEVEMENT_EARNED" then
         Log:OnAchievement(arg1)
