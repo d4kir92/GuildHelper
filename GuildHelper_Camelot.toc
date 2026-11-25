@@ -57,6 +57,7 @@ dashboard.lua
 onlinehistory.lua
 groups.lua
 data\forever\recipeskills.lua
+data\forever\finalencounters.lua
 recipes.lua
 professions.lua
 announcements.lua

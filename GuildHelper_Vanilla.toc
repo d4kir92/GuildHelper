@@ -57,6 +57,7 @@ dashboard.lua
 onlinehistory.lua
 groups.lua
 data\classicera\recipeskills.lua
+data\classicera\finalencounters.lua
 recipes.lua
 professions.lua
 announcements.lua

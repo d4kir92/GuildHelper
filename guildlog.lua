@@ -15,30 +15,6 @@ local Log = {
     TESTACHIEVEMENT = 6,
     PROFESSIONCAPS = {CLASSIC = 300, TBC = 375, WRATH = 450, CATA = 525, MISTS = 600},
     CLEARWINDOW = 900,
-    FINALENCOUNTERS = {
-        [3496] = true,
-        [433] = true,
-        [167] = true,
-        [471] = true,
-        [226] = true,
-        [382] = true,
-        [443] = true,
-        [450] = true,
-        [437] = true,
-        [429] = true,
-        [245] = true,
-        [275] = true,
-        [280] = true,
-        [368] = true,
-        [346] = true,
-        [361] = true,
-        [478] = true,
-        [592] = true,
-        [554] = true,
-        [600] = true,
-        [493] = true,
-        [484] = true
-    },
     FINALNPCS = {
         CATA = {
             [645] = {39705},
@@ -340,7 +316,6 @@ function Log:InstanceName(instanceID)
 end
 
 function Log:IsFinalBoss(instanceID, encounterID)
-    if self.FINALENCOUNTERS[encounterID] then return true end
     if not EJ_GetInstanceForMap or not EJ_GetEncounterInfoByIndex or not C_Map or not C_Map.GetBestMapForUnit then return false end
     local mapID = C_Map.GetBestMapForUnit("player")
     local okInstance, journal = pcall(EJ_GetInstanceForMap, mapID or 0)
@@ -376,6 +351,11 @@ function Log:OnEncounterEnd(encounterID, encounterName, success)
     local kind, instanceID, instanceName = self:GetInstance()
     if not kind or type(encounterID) ~= "number" then return end
     self:CollectEncounter(kind, instanceID, instanceName, encounterID, encounterName)
+    if GuildHelper.FinalEncounters then
+        local value = GuildHelper.FinalEncounters[encounterID]
+        if value then self:RecordClear(kind, value, instanceName) end
+        return
+    end
     if self.WINGS[instanceID] then
         local wing = self:FindWing(instanceID, "encounters", encounterID)
         if wing then self:RecordClear(kind, wing.id, instanceName) end
@@ -469,7 +449,7 @@ function Log:CollectEncounter(kind, instanceID, instanceName, encounterID, encou
     end
     boss.name, boss.kills, boss.last = encounterName, boss.kills + 1, self:Now()
     instance.lastKill = encounterID
-    print("[GuildHelper]", "Boss erfasst:", tostring(encounterName), encounterID, "in", tostring(instanceName), instanceID, self:IsFinalBoss(instanceID, encounterID) and "(Endboss)" or "")
+    print("[GuildHelper]", "Boss erfasst:", tostring(encounterName), encounterID, "in", tostring(instanceName), instanceID, (GuildHelper.FinalEncounters and GuildHelper.FinalEncounters[encounterID] or (not GuildHelper.FinalEncounters and self:IsFinalBoss(instanceID, encounterID))) and "(Endboss)" or "")
 end
 
 function Log:GetLevelList()
