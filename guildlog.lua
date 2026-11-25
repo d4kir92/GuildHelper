@@ -15,7 +15,84 @@ local Log = {
     TESTACHIEVEMENT = 6,
     PROFESSIONCAPS = {CLASSIC = 300, TBC = 375, WRATH = 450, CATA = 525, MISTS = 600},
     CLEARWINDOW = 900,
-    FINALBOSSES = {},
+    FINALENCOUNTERS = {
+        [3496] = true,
+        [433] = true,
+        [167] = true,
+        [471] = true,
+        [226] = true,
+        [382] = true,
+        [443] = true,
+        [450] = true,
+        [437] = true,
+        [429] = true,
+        [245] = true,
+        [275] = true,
+        [280] = true,
+        [368] = true,
+        [346] = true,
+        [361] = true,
+        [478] = true,
+        [592] = true,
+        [554] = true,
+        [600] = true,
+        [493] = true,
+        [484] = true
+    },
+    FINALNPCS = {
+        CATA = {
+            [645] = {39705},
+            [643] = {44566},
+            [725] = {42333},
+            [657] = {43875},
+            [670] = {40484},
+            [644] = {39378},
+            [755] = {44819},
+            [36] = {49541},
+            [33] = {46964},
+            [568] = {23863},
+            [859] = {52155},
+            [938] = {54432},
+            [939] = {54969},
+            [940] = {54938}
+        },
+        CLASSIC = {
+        [389] = {11519},
+        [36] = {639},
+        [43] = {3654},
+        [33] = {4275},
+        [48] = {4829},
+        [34] = {1716},
+        [90] = {7800},
+        [47] = {4421},
+        [129] = {7358},
+        [70] = {2748},
+        [209] = {7267},
+        [349] = {12201},
+        [109] = {8443, 5709},
+        [230] = {9019},
+        [229] = {9568, 10363},
+        [289] = {1853}
+        }
+    },
+    WINGS = {
+        [189] = {
+            {id = 189001, label = "LID_WING_GRAVEYARD", npcs = {4543}, encounters = {445}},
+            {id = 189002, label = "LID_WING_LIBRARY", npcs = {6487}, encounters = {447}},
+            {id = 189003, label = "LID_WING_ARMORY", npcs = {3975}, encounters = {448}},
+            {id = 189004, label = "LID_WING_CATHEDRAL", npcs = {3977}, encounters = {450}}
+        },
+        [429] = {
+            {id = 429003, label = "LID_WING_EAST", npcs = {11492}, encounters = {346}},
+            {id = 429002, label = "LID_WING_WEST", npcs = {11486}, encounters = {361}},
+            {id = 429001, label = "LID_WING_NORTH", npcs = {11501}, encounters = {368}}
+        },
+        [329] = {
+            {id = 329001, label = "LID_WING_LIVING", npcs = {10813}, encounters = {478}},
+            {id = 329002, label = "LID_WING_UNDEAD", npcs = {10440}, encounters = {484}}
+        }
+    },
+    FINALNPCLAYERS = {CLASSIC = {"CLASSIC"}, TBC = {"CLASSIC"}, WRATH = {"CLASSIC"}, CATA = {"CLASSIC", "CATA"}, MISTS = {"CLASSIC", "CATA"}},
     types = {},
     order = {},
     testEntries = {}
@@ -231,6 +308,28 @@ function Log:GetInstance()
     return kind, instanceID, name
 end
 
+function Log:FindWing(instanceID, field, value)
+    for _, wing in ipairs(self.WINGS[instanceID] or {}) do
+        for _, id in ipairs(wing[field]) do
+            if id == value then return wing end
+        end
+    end
+end
+
+function Log:GetWing(value)
+    local instanceID = floor((tonumber(value) or 0) / 1000)
+    for _, wing in ipairs(self.WINGS[instanceID] or {}) do
+        if wing.id == value then return wing, instanceID end
+    end
+end
+
+function Log:ClearName(entry)
+    local wing, instanceID = self:GetWing(entry.value)
+    if not wing then return entry.instanceName or self:InstanceName(entry.value) end
+
+    return format("%s (%s)", entry.instanceName or self:InstanceName(instanceID), GuildHelper:Trans(wing.label))
+end
+
 function Log:InstanceName(instanceID)
     if GetRealZoneText then
         local ok, name = pcall(GetRealZoneText, instanceID)
@@ -241,8 +340,7 @@ function Log:InstanceName(instanceID)
 end
 
 function Log:IsFinalBoss(instanceID, encounterID)
-    local known = self.FINALBOSSES[instanceID]
-    if known then return known == encounterID end
+    if self.FINALENCOUNTERS[encounterID] then return true end
     if not EJ_GetInstanceForMap or not EJ_GetEncounterInfoByIndex or not C_Map or not C_Map.GetBestMapForUnit then return false end
     local mapID = C_Map.GetBestMapForUnit("player")
     local okInstance, journal = pcall(EJ_GetInstanceForMap, mapID or 0)
@@ -278,10 +376,59 @@ function Log:OnEncounterEnd(encounterID, encounterName, success)
     local kind, instanceID, instanceName = self:GetInstance()
     if not kind or type(encounterID) ~= "number" then return end
     self:CollectEncounter(kind, instanceID, instanceName, encounterID, encounterName)
+    if self.WINGS[instanceID] then
+        local wing = self:FindWing(instanceID, "encounters", encounterID)
+        if wing then self:RecordClear(kind, wing.id, instanceName) end
+        return
+    end
     if not self:IsFinalBoss(instanceID, encounterID) then return end
+    self:RecordClear(kind, instanceID, instanceName)
+end
+
+function Log:GetNpcID(guid)
+    if type(guid) ~= "string" or not GuildHelper:CanAccessValue(guid) then return nil end
+    local unitType, _, _, _, _, npcID = strsplit("-", guid)
+    if unitType ~= "Creature" and unitType ~= "Vehicle" then return nil end
+
+    return tonumber(npcID)
+end
+
+function Log:GetFinalNPCs(instanceID)
+    local finals
+    for _, layer in ipairs(self.FINALNPCLAYERS[GuildHelper:GetWoWBuild()] or {}) do
+        finals = self.FINALNPCS[layer][instanceID] or finals
+    end
+
+    return finals
+end
+
+function Log:OnUnitDied(guid)
+    if GuildHelper:IsForever() then return end
+    local npcID = self:GetNpcID(guid)
+    if not npcID then return end
+    local kind, instanceID, instanceName = self:GetInstance()
+    if kind and self.WINGS[instanceID] then
+        local wing = self:FindWing(instanceID, "npcs", npcID)
+        if wing then self:RecordClear(kind, wing.id, instanceName) end
+        return
+    end
+    local finals = kind and self:GetFinalNPCs(instanceID)
+    if not finals then return end
+    for _, finalID in ipairs(finals) do
+        if finalID == npcID then
+            self:RecordClear(kind, instanceID, instanceName)
+            return
+        end
+    end
+end
+
+function Log:RecordClear(kind, instanceID, instanceName)
+    local stamp = self:Now()
+    self.lastClear = self.lastClear or {}
+    if self.lastClear[instanceID] and stamp - self.lastClear[instanceID] < self.CLEARWINDOW then return end
+    self.lastClear[instanceID] = stamp
     local own = self:OwnName()
     if not own then return end
-    local stamp = self:Now()
     local _, classFile = UnitClass("player")
     self:Add(kind, own, instanceID, stamp, true, {class = classFile, run = stamp, instanceName = instanceName})
     self:Send(kind, instanceID, stamp)
@@ -513,7 +660,7 @@ for _, clearKind in ipairs({"dungeon", "raid"}) do
     Log:RegisterType(kind, {
         group = true,
         text = function(entry)
-            return format(GuildHelper:Trans((entry.count or 1) > 1 and "LID_LOGCLEARS" or "LID_LOGCLEAR"), entry.short, entry.instanceName or Log:InstanceName(entry.value))
+            return format(GuildHelper:Trans((entry.count or 1) > 1 and "LID_LOGCLEARS" or "LID_LOGCLEAR"), entry.short, Log:ClearName(entry))
         end,
         receive = function(self, sender, value, stamp)
             local level, classFile, member = self:RosterMember(sender)
@@ -800,8 +947,14 @@ Log.events:RegisterEvent("GUILD_ROSTER_UPDATE")
 for _, event in ipairs({"PLAYER_LEVEL_UP", "ACHIEVEMENT_EARNED", "CHAT_MSG_GUILD_ACHIEVEMENT", "ENCOUNTER_END"}) do
     if not C_EventUtils or not C_EventUtils.IsEventValid or C_EventUtils.IsEventValid(event) then Log.events:RegisterEvent(event) end
 end
+if Log.FINALNPCLAYERS[GuildHelper:GetWoWBuild()] and CombatLogGetCurrentEventInfo then
+    pcall(Log.events.RegisterEvent, Log.events, "COMBAT_LOG_EVENT_UNFILTERED")
+end
 Log.events:SetScript("OnEvent", function(_, event, arg1, arg2, _, _, arg5)
-    if event == "ENCOUNTER_END" then
+    if event == "COMBAT_LOG_EVENT_UNFILTERED" then
+        local _, subEvent, _, _, _, _, _, destGUID = CombatLogGetCurrentEventInfo()
+        if subEvent == "UNIT_DIED" then Log:OnUnitDied(destGUID) end
+    elseif event == "ENCOUNTER_END" then
         Log:OnEncounterEnd(arg1, arg2, arg5)
     elseif event == "PLAYER_LEVEL_UP" then
         Log:OnLevelUp(arg1)
