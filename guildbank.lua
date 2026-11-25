@@ -10,6 +10,7 @@ Bank.claims = {}
 Bank.queried = {}
 Bank.SLOTS = 98
 Bank.MAXTABS = 8
+Bank.MINVERSION = "0.8.11"
 
 function Bank:Identity()
     local guild = GuildHelper.Sync:GetGuildKey()
@@ -47,6 +48,14 @@ function Bank:Member(name)
             return rank, member, online
         end
     end
+end
+
+function Bank:TrustedVersion(name)
+    local data = GuildHelper.Sync:GetData(name)
+    local Members = GuildHelper.Members
+    if not data or not Members then return false end
+
+    return Members:GetVersionNumber(data.version) >= Members:GetVersionNumber(self.MINVERSION)
 end
 
 function Bank:IsLeader()
@@ -298,6 +307,11 @@ function Bank:OnMessage(message, channel, sender)
         return
     end
     if command == "H" and #parts == 7 then
+        if not self:TrustedVersion(name) then
+            local data = GuildHelper.Sync:GetData(name)
+            self:Debug("Tab", tab, "von", name, "ignoriert: Version", data and data.version or "unbekannt", "älter als", self.MINVERSION)
+            return
+        end
         local count, public = tonumber(parts[5]), parts[6] == "1"
         if not count or count < 1 or count > 20 or count ~= floor(count) or #parts[7] > 90 then return end
         if public then
