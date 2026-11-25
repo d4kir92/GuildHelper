@@ -7,6 +7,7 @@ Bank.lastRequest = 0
 Bank.serial = 0
 Bank.peers = {}
 Bank.claims = {}
+Bank.queried = {}
 Bank.SLOTS = 98
 Bank.MAXTABS = 8
 
@@ -32,6 +33,7 @@ function Bank:Store()
     GHTABPC.BANK = GHTABPC.BANK or {}
     local key = guild .. "#" .. rank
     GHTABPC.BANK[key] = GHTABPC.BANK[key] or {tabs = {}, public = {}}
+    GHTABPC.BANK[key].icons = GHTABPC.BANK[key].icons or {}
     return GHTABPC.BANK[key]
 end
 
@@ -47,6 +49,7 @@ function Bank:Member(name)
 end
 
 function Bank:IsLeader()
+    if GuildHelper.testLeader then return true end
     local _, rank = self:Identity()
     return rank == 0
 end
@@ -96,6 +99,25 @@ function Bank:Policy(tab, enabled)
     self:Send("BK~P~" .. tab .. "~" .. (enabled and "1" or "0") .. "~" .. stamp, "policy:" .. tab)
     if enabled and store.tabs[tab] then self:QueueTab(tab) end
     self:Refresh()
+end
+
+function Bank:ValidIcon(icon)
+    if type(icon) == "string" and tonumber(icon) then icon = tonumber(icon) end
+    if type(icon) == "number" then
+        if icon >= 1 and icon <= 2147483647 and icon == floor(icon) then return icon end
+        return nil
+    end
+    if type(icon) == "string" and #icon <= 120 and icon:match("^[%w_%.%-\\/]+$") then return icon end
+end
+
+function Bank:TabIcon(tab)
+    if self.open and GetGuildBankTabInfo then
+        local _, icon = GetGuildBankTabInfo(tab)
+        icon = self:ValidIcon(icon)
+        if icon then return icon end
+    end
+    local store = self:Store()
+    return store and store.icons[tab]
 end
 
 function Bank:Encode(record)
@@ -167,6 +189,8 @@ function Bank:Pump()
                 for offset = 1, max(1, #payload), 160 do transfer.parts[#transfer.parts + 1] = payload:sub(offset, offset + 159) end
                 transfer.index = 0
                 self:Send(table.concat({"BK", "H", transfer.tab, record.stamp, #transfer.parts, transfer.public and "1" or "0", record.name}, "~"), "head:" .. key, transfer.target)
+                local icon = store.icons[transfer.tab]
+                if icon then self:Send(table.concat({"BK", "I", transfer.tab, record.stamp, icon}, "~"), "icon:" .. key, transfer.target) end
             else
                 transfer.index = transfer.index + 1
                 self:Send(table.concat({"BK", "D", transfer.tab, record.stamp, transfer.index, transfer.parts[transfer.index]}, "~"), "part:" .. key .. ":" .. transfer.index, transfer.target)
@@ -247,6 +271,16 @@ function Bank:OnMessage(message, channel, sender)
     local stamp = tonumber(parts[4])
     if not stamp or stamp < 1 or stamp > time() + 300 then return end
     local key = name .. ":" .. tab
+    if command == "I" and #parts == 5 then
+        if channel == "WHISPER" and rank ~= self.rank and not store.public[tab] then return end
+        if channel ~= "WHISPER" and not store.public[tab] then return end
+        local icon = self:ValidIcon(parts[5])
+        if icon then
+            store.icons[tab] = icon
+            self:Refresh()
+        end
+        return
+    end
     if command == "H" and #parts == 7 then
         local count, public = tonumber(parts[5]), parts[6] == "1"
         if not count or count < 1 or count > 20 or count ~= floor(count) or #parts[7] > 90 then return end
@@ -285,8 +319,10 @@ end
 
 function Bank:Capture(tab)
     if not self.open or not self:Store() or not GetGuildBankTabInfo then return end
-    local name, _, view = GetGuildBankTabInfo(tab)
+    local name, icon, view = GetGuildBankTabInfo(tab)
     if not name then return end
+    icon = self:ValidIcon(icon)
+    if icon then self:Store().icons[tab] = icon end
     if not view then
         local store = self:Store()
         store.tabs[tab] = nil
@@ -327,7 +363,8 @@ end
 function Bank:Matches(item, search)
     if search == "" then return true end
     if tostring(item.id):find(search, 1, true) then return true end
-    local name = GetItemInfo(item.id)
+    local getter = C_Item and C_Item.GetItemInfo or GetItemInfo
+    local name = getter and getter(item.id)
     return name and strlower(name):find(search, 1, true) ~= nil or false
 end
 
@@ -347,8 +384,19 @@ function Bank:Refresh()
         self.tabs[tab]:SetShown(tab <= (store.count or self.MAXTABS))
         local label = record and record.name or format(GuildHelper:Trans("LID_BANKTAB"), tab)
         if search ~= "" then label = label .. " (" .. count .. ")" end
-        GuildHelper.Members:SetPillText(self.tabs[tab], label)
-        GuildHelper.Members:SetPillActive(self.tabs[tab], tab == self.selected)
+        local button = self.tabs[tab]
+        local icon = self:TabIcon(tab)
+        GuildHelper.Members:SetPillText(button, label)
+        button.tabIcon:SetTexture(icon)
+        button.tabIcon:SetShown(icon ~= nil)
+        button.text:ClearAllPoints()
+        if icon then
+            button:SetWidth(button:GetWidth() + 24)
+            button.text:SetPoint("LEFT", button.tabIcon, "RIGHT", 6, 0)
+        else
+            button.text:SetPoint("CENTER", button, "CENTER", 0, 0)
+        end
+        GuildHelper.Members:SetPillActive(button, tab == self.selected)
     end
     local record = store.tabs[self.selected]
     local allowed = self:Allowed(self.selected)
@@ -356,8 +404,8 @@ function Bank:Refresh()
     self.status:SetText(record and allowed and format(GuildHelper:Trans("LID_BANKUPDATED"), date("%Y-%m-%d %H:%M", record.stamp))
         or GuildHelper:Trans(status))
     self.release:SetShown(self:IsLeader())
-    self.release:SetEnabled(record ~= nil)
     GuildHelper.Theme:SetTrans(self.release.text, store.public[self.selected] and "LID_BANKPRIVATE" or "LID_BANKPUBLIC")
+    self.release:SetSize(max(200, self.release.text:GetStringWidth() + 40), 34)
     for slot, button in ipairs(self.slots) do
         local item = record and allowed and record.items[slot]
         local texture
@@ -409,6 +457,10 @@ function Bank:Build(content)
         button:SetPoint("TOPLEFT", self.grid, "TOPRIGHT", 12, -(tab - 1) * 36)
         button:SetWidth(154)
         button:SetScript("OnClick", function() self.selected = index self:Refresh() end)
+        button.tabIcon = button:CreateTexture(nil, "OVERLAY")
+        button.tabIcon:SetSize(18, 18)
+        button.tabIcon:SetPoint("LEFT", button, "LEFT", 8, 0)
+        button.tabIcon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
         self.tabs[tab] = button
     end
     for slot = 1, self.SLOTS do
@@ -446,10 +498,20 @@ end
 
 Bank.events = CreateFrame("Frame")
 for _, event in ipairs({"PLAYER_LOGIN", "PLAYER_GUILD_UPDATE", "GUILD_ROSTER_UPDATE", "GUILDBANKFRAME_OPENED",
-    "GUILDBANKFRAME_CLOSED", "GUILDBANKBAGSLOTS_CHANGED", "GUILDBANK_UPDATE_TABS", "GET_ITEM_INFO_RECEIVED"}) do
+    "GUILDBANKFRAME_CLOSED", "GUILDBANKBAGSLOTS_CHANGED", "GUILDBANK_UPDATE_TABS", "GET_ITEM_INFO_RECEIVED",
+    "PLAYER_INTERACTION_MANAGER_FRAME_SHOW", "PLAYER_INTERACTION_MANAGER_FRAME_HIDE"}) do
     if not C_EventUtils or not C_EventUtils.IsEventValid or C_EventUtils.IsEventValid(event) then Bank.events:RegisterEvent(event) end
 end
-Bank.events:SetScript("OnEvent", function(_, event)
+Bank.events:SetScript("OnEvent", function(_, event, kind)
+    if event == "PLAYER_INTERACTION_MANAGER_FRAME_SHOW" or event == "PLAYER_INTERACTION_MANAGER_FRAME_HIDE" then
+        local banker = Enum and Enum.PlayerInteractionType and Enum.PlayerInteractionType.GuildBanker
+        if not banker or kind ~= banker then return end
+        event = event == "PLAYER_INTERACTION_MANAGER_FRAME_SHOW" and "GUILDBANKFRAME_OPENED" or "GUILDBANKFRAME_CLOSED"
+        if event == "GUILDBANKFRAME_OPENED" and Bank.open then return end
+    end
+    if event == "GUILDBANKBAGSLOTS_CHANGED" and not Bank.open then
+        Bank.events:GetScript("OnEvent")(Bank.events, "GUILDBANKFRAME_OPENED")
+    end
     if event == "GUILDBANKFRAME_OPENED" then
         Bank.open = true
         Bank:Store()
@@ -460,6 +522,7 @@ Bank.events:SetScript("OnEvent", function(_, event)
         Bank.open = false
         Bank.scanAt = nil
         Bank.queryTab, Bank.queryNext = nil, nil
+        Bank.queried = {}
     elseif event == "GUILDBANKBAGSLOTS_CHANGED" and Bank.open then
         Bank.scanAt = GetTime() + 1
     elseif event == "GUILDBANK_UPDATE_TABS" and Bank.open then
@@ -471,6 +534,11 @@ Bank.events:SetScript("OnEvent", function(_, event)
     end
     Bank:Refresh()
 end)
+if hooksecurefunc and QueryGuildBankTab then
+    hooksecurefunc("QueryGuildBankTab", function(tab)
+        if type(tab) == "number" and tab >= 1 and tab <= Bank.MAXTABS then Bank.queried[tab] = true end
+    end)
+end
 Bank.elapsed = 0
 Bank.events:SetScript("OnUpdate", function(_, elapsed)
     Bank.elapsed = Bank.elapsed + elapsed
@@ -479,7 +547,8 @@ Bank.events:SetScript("OnUpdate", function(_, elapsed)
     if Bank.scanAt and GetTime() >= Bank.scanAt then
         Bank.scanAt = nil
         local tab = Bank.queryTab or (GetCurrentGuildBankTab and GetCurrentGuildBankTab())
-        if tab then Bank:Capture(tab) end
+        if tab then Bank.queried[tab] = true end
+        for index in pairs(Bank.queried) do Bank:Capture(index) end
         Bank.queryTab = nil
     end
     if Bank.queryTab and GetTime() > (Bank.queryDeadline or 0) then

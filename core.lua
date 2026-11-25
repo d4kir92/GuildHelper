@@ -116,4 +116,14 @@ loader:SetScript("OnEvent", function(self, event)
     GuildHelper:InitWindowKey()
     GuildHelper:AddSlash("guildhelper", GuildHelper.ToggleWindow)
     GuildHelper:AddSlash("guhe", GuildHelper.ToggleWindow)
+    GuildHelper:AddSlash("ghtestlead", function()
+        if not GuildHelper.FeedbackShare or not GuildHelper.FeedbackShare:IsDeveloper() then
+            GuildHelper.testLeader = nil
+            return
+        end
+        GuildHelper.testLeader = not GuildHelper.testLeader
+        print("[GuildHelper]", GuildHelper.testLeader and "Testmodus Gildenleiter an" or "Testmodus Gildenleiter aus")
+        local window = GuildHelper.Window
+        if window and window.frame and window.frame:IsShown() and window.current then window:SelectPage(window.current) end
+    end)
 end)

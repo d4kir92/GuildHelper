@@ -131,6 +131,7 @@ end
 function Events:CanDelete(event)
     if not event then return false end
     if self:IsOwn(event) then return true end
+    if GuildHelper.testLeader then return true end
     if IsGuildLeader then return IsGuildLeader() == true end
     local leader = self:GetLeader()
     return leader ~= nil and Groups:IsSelfName(leader)

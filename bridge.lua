@@ -34,6 +34,7 @@ end
 
 function Bridge:CanEdit()
     if not IsInGuild() then return false end
+    if GuildHelper.testLeader then return true end
     if IsGuildLeader then return IsGuildLeader() == true end
     local leader = self:GetLeader()
 
