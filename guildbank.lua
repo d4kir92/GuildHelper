@@ -10,7 +10,7 @@ Bank.claims = {}
 Bank.queried = {}
 Bank.SLOTS = 98
 Bank.MAXTABS = 8
-Bank.MINVERSION = "0.8.11"
+Bank.MINVERSION = "0.8.14"
 
 function Bank:Identity()
     local guild = GuildHelper.Sync:GetGuildKey()
@@ -383,13 +383,12 @@ function Bank:Capture(tab)
     local record = {items = items, name = GuildHelper.Groups:CleanText(name, 90), stamp = time(), rank = self.rank, authorized = true}
     local previous = store.tabs[tab]
     local encoded = self:Encode(record)
-    self.emptySeen = self.emptySeen or {}
-    if encoded == "" and previous and next(previous.items) and not self.emptySeen[tab] then
-        self.emptySeen[tab] = true
-        self:Debug("Tab", tab, "leer gelesen, gespeicherter Stand hat Gegenstände: warte auf Bestätigung")
+    self.sessionItems, self.emptyAt = self.sessionItems or {}, self.emptyAt or {}
+    if encoded ~= "" then
+        self.sessionItems[tab], self.emptyAt[tab] = true, nil
+    elseif not self:ConfirmEmpty(tab, previous) then
         return
     end
-    if encoded ~= "" then self.emptySeen[tab] = nil end
     if previous and previous.name == record.name and self:Encode(previous) == encoded then return end
     local count = 0
     for _ in pairs(items) do count = count + 1 end
@@ -398,6 +397,30 @@ function Bank:Capture(tab)
     store.tabs[tab] = record
     self:QueueTab(tab)
     self:Refresh()
+end
+
+function Bank:ConfirmEmpty(tab, previous)
+    if previous and not next(previous.items) then return true end
+    local current = GetCurrentGuildBankTab and GetCurrentGuildBankTab() == tab
+    if current and self.sessionItems[tab] then
+        self:Debug("Tab", tab, "leer: in dieser Sitzung geleert")
+        return true
+    end
+    local frame = _G.GuildBankFrame
+    if not current or not frame or not frame:IsShown() then
+        self:Debug("Tab", tab, "leer gelesen: nicht bestätigt (Tab nicht im Standard-Bankfenster offen), wird nicht gesendet")
+        return false
+    end
+    local first = self.emptyAt[tab]
+    if not first then
+        self.emptyAt[tab] = GetTime()
+        self.scanAt = min(self.scanAt or math.huge, GetTime() + 4)
+        self:Debug("Tab", tab, "leer gelesen: prüfe in 4 s erneut")
+        return false
+    end
+    if GetTime() - first < 3 then return false end
+    self:Debug("Tab", tab, "leer bestätigt: zweimal leer im offenen Standard-Bankfenster")
+    return true
 end
 
 function Bank:TabCount()
@@ -628,7 +651,7 @@ Bank.events:SetScript("OnEvent", function(_, event, kind)
         Bank.open = false
         Bank.scanAt = nil
         Bank.queryTab, Bank.queryNext = nil, nil
-        Bank.queried, Bank.emptySeen = {}, {}
+        Bank.queried, Bank.sessionItems, Bank.emptyAt = {}, {}, {}
     elseif event == "GUILDBANKBAGSLOTS_CHANGED" and Bank.open then
         Bank.scanAt = GetTime() + 1
     elseif event == "GUILDBANK_UPDATE_TABS" and Bank.open then
