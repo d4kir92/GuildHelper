@@ -62,6 +62,7 @@ GuildHelper:AddTrans("koKR", "LID_DEVFBNOCHANNEL", "%s 채널에 참여할 수 �
 GuildHelper:AddTrans("koKR", "LID_DEVFBNOTDEV", "%s은(는) 개발자 캐릭터가 아닙니다.")
 GuildHelper:AddTrans("koKR", "LID_DEVFBSENT", "%s(%d)에 요청을 보냈습니다. 다른 길드의 관리자를 기다리는 중...")
 GuildHelper:AddTrans("koKR", "LID_EDITINBLIZZARD", "클릭하면 블리자드 길드 창이 열리며 거기서 변경할 수 있습니다. 애드온은 변경할 수 없습니다.")
+GuildHelper:AddTrans("koKR", "LID_EVENTCHATNEW", "새 길드 일정 %s: %s")
 GuildHelper:AddTrans("koKR", "LID_EVENTS", "이벤트")
 GuildHelper:AddTrans("koKR", "LID_EVENT_ACCEPT", "수락")
 GuildHelper:AddTrans("koKR", "LID_EVENT_ACCEPTED", "수락함")

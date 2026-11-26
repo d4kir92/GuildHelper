@@ -62,6 +62,7 @@ GuildHelper:AddTrans("deDE", "LID_DEVFBNOCHANNEL", "Channel %s konnte nicht betr
 GuildHelper:AddTrans("deDE", "LID_DEVFBNOTDEV", "%s ist kein Entwickler-Charakter.")
 GuildHelper:AddTrans("deDE", "LID_DEVFBSENT", "Anfrage in %s (%d) gesendet. Warte auf Offiziere anderer Gilden ...")
 GuildHelper:AddTrans("deDE", "LID_EDITINBLIZZARD", "Klicken öffnet das Blizzard-Gildenfenster, dort kannst du es ändern. Addons dürfen das nicht.")
+GuildHelper:AddTrans("deDE", "LID_EVENTCHATNEW", "Neues Gildenevent %s: %s")
 GuildHelper:AddTrans("deDE", "LID_EVENTS", "Events")
 GuildHelper:AddTrans("deDE", "LID_EVENT_ACCEPT", "Zusagen")
 GuildHelper:AddTrans("deDE", "LID_EVENT_ACCEPTED", "Zugesagt")

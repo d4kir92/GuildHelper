@@ -62,6 +62,7 @@ GuildHelper:AddTrans("ptBR", "LID_DEVFBNOCHANNEL", "Não foi possível entrar no
 GuildHelper:AddTrans("ptBR", "LID_DEVFBNOTDEV", "%s não é um personagem de desenvolvedor.")
 GuildHelper:AddTrans("ptBR", "LID_DEVFBSENT", "Solicitação enviada em %s (%d). Aguardando oficiais de outras guildas ...")
 GuildHelper:AddTrans("ptBR", "LID_EDITINBLIZZARD", "Clique para abrir a janela de guilda da Blizzard e altere lá. Addons não podem alterar isso.")
+GuildHelper:AddTrans("ptBR", "LID_EVENTCHATNEW", "Novo evento da guilda %s: %s")
 GuildHelper:AddTrans("ptBR", "LID_EVENTS", "Eventos")
 GuildHelper:AddTrans("ptBR", "LID_EVENT_ACCEPT", "Aceitar")
 GuildHelper:AddTrans("ptBR", "LID_EVENT_ACCEPTED", "Aceito")

@@ -450,6 +450,21 @@ function Events:Publish(when, title, info, icon)
     end
 end
 
+function Events:Announce(id)
+    local bucket = self:Get(id)
+    local event = bucket and bucket.event
+    if not event or not self:IsOwn(event) or not IsInGuild() then return end
+    if C_GuildInfo and C_GuildInfo.CanSpeakInGuildChat and not C_GuildInfo.CanSpeakInGuildChat() then return end
+    if Groups:IsChatRestricted() then return end
+    local send = C_ChatInfo and C_ChatInfo.SendChatMessage or SendChatMessage
+    if not send then return end
+    local function compose(title) return "[GuildHelper] " .. format(GuildHelper:Trans("LID_EVENTCHATNEW"), event.when, title) end
+    local text = compose(Groups:CleanText(event.title, max(0, 255 - #compose(""))))
+    if #text > 255 then return end
+    Groups.chatSendingAt = GetTime()
+    send(text, "GUILD")
+end
+
 function Events:UpdateEvent(id, when, title, info, icon)
     local bucket = self:Get(id)
     local current = bucket and bucket.event

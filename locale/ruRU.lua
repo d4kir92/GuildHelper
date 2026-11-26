@@ -62,6 +62,7 @@ GuildHelper:AddTrans("ruRU", "LID_DEVFBNOCHANNEL", "Не удалось войт
 GuildHelper:AddTrans("ruRU", "LID_DEVFBNOTDEV", "%s не является персонажем разработчика.")
 GuildHelper:AddTrans("ruRU", "LID_DEVFBSENT", "Запрос отправлен в %s (%d). Ожидание офицеров других гильдий ...")
 GuildHelper:AddTrans("ruRU", "LID_EDITINBLIZZARD", "Нажмите, чтобы открыть окно гильдии Blizzard и изменить это там. Аддоны не могут это менять.")
+GuildHelper:AddTrans("ruRU", "LID_EVENTCHATNEW", "Новое событие гильдии %s: %s")
 GuildHelper:AddTrans("ruRU", "LID_EVENTS", "События")
 GuildHelper:AddTrans("ruRU", "LID_EVENT_ACCEPT", "Принять")
 GuildHelper:AddTrans("ruRU", "LID_EVENT_ACCEPTED", "Принято")

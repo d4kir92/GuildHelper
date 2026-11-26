@@ -62,6 +62,7 @@ GuildHelper:AddTrans("itIT", "LID_DEVFBNOCHANNEL", "Impossibile entrare nel cana
 GuildHelper:AddTrans("itIT", "LID_DEVFBNOTDEV", "%s non è un personaggio sviluppatore.")
 GuildHelper:AddTrans("itIT", "LID_DEVFBSENT", "Richiesta inviata in %s (%d). In attesa degli ufficiali di altre gilde ...")
 GuildHelper:AddTrans("itIT", "LID_EDITINBLIZZARD", "Clicca per aprire la finestra di gilda di Blizzard e modificalo lì. Gli addon non possono modificarlo.")
+GuildHelper:AddTrans("itIT", "LID_EVENTCHATNEW", "Nuovo evento di gilda %s: %s")
 GuildHelper:AddTrans("itIT", "LID_EVENTS", "Eventi")
 GuildHelper:AddTrans("itIT", "LID_EVENT_ACCEPT", "Accetta")
 GuildHelper:AddTrans("itIT", "LID_EVENT_ACCEPTED", "Accettato")

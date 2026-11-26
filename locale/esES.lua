@@ -62,6 +62,7 @@ GuildHelper:AddTrans("esES", "LID_DEVFBNOCHANNEL", "No se pudo unir al canal %s.
 GuildHelper:AddTrans("esES", "LID_DEVFBNOTDEV", "%s no es un personaje de desarrollador.")
 GuildHelper:AddTrans("esES", "LID_DEVFBSENT", "Solicitud enviada en %s (%d). Esperando a oficiales de otras hermandades ...")
 GuildHelper:AddTrans("esES", "LID_EDITINBLIZZARD", "Haz clic para abrir la ventana de hermandad de Blizzard y cámbialo allí. Los addons no pueden cambiarlo.")
+GuildHelper:AddTrans("esES", "LID_EVENTCHATNEW", "Nuevo evento de hermandad %s: %s")
 GuildHelper:AddTrans("esES", "LID_EVENTS", "Eventos")
 GuildHelper:AddTrans("esES", "LID_EVENT_ACCEPT", "Aceptar")
 GuildHelper:AddTrans("esES", "LID_EVENT_ACCEPTED", "Aceptado")

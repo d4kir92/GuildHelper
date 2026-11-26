@@ -193,6 +193,7 @@ function Events:BuildForm(panel)
             id = self:UpdateEvent(draft.event, when, title, draft.info, draft.icon)
         else
             id = self:Publish(when, title, draft.info, draft.icon)
+            if id then self:Announce(id) end
         end
         if id then self:Select(id) end
     end, true)
