@@ -800,7 +800,7 @@ function Members:OpenMenu(anchor, options, current, onSelect, atCursor, searchab
     local width = 140
     for _, option in ipairs(options) do
         menu.measure:SetText(option.label)
-        width = max(width, menu.measure:GetStringWidth() + (option.texture and 126 or 36))
+        width = max(width, menu.measure:GetStringWidth() + (option.texture and 126 or 36) + (option.count and 30 or 0))
     end
 
     menu:SetSize(min(width, 420), menu.top + menu.visible * menu.rowHeight + 10)
@@ -877,6 +877,22 @@ function Members:RenderMenu()
         button:SetEnabled(not option.disabled)
         button.value = option.value
         button.text:SetText(option.label)
+        local counted = (option.count or 0) > 0
+        if counted and not button.countBadge then
+            button.countBadge = Theme:Icon(button, "circle", 18, "online")
+            button.countBadge:SetPoint("RIGHT", button, "RIGHT", -6, 0)
+            button.countText = Theme:Text(button, 11, "window")
+            button.countText:SetPoint("CENTER", button.countBadge, "CENTER")
+        end
+        if button.countBadge then
+            button.countBadge:SetShown(counted)
+            button.countText:SetShown(counted)
+            if counted then
+                button.countText:SetText(tostring(option.count))
+                button.countBadge:SetSize(max(18, ceil(button.countText:GetStringWidth()) + 8), 18)
+            end
+        end
+        button.text:SetPoint("RIGHT", button, "RIGHT", counted and -32 or -4, 0)
         if option.color then
             button.text:SetTextColor(option.color.r, option.color.g, option.color.b)
         else

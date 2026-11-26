@@ -248,7 +248,29 @@ function Calendar:Refresh()
     self:LayoutGrid()
 end
 
+function Calendar:CountToday()
+    local clock = Events:GetClock()
+    local today = format("%04d-%02d-%02d", clock.year, clock.month, clock.day)
+    local now = format("%s %02d:%02d", today, clock.hour, clock.min)
+    local count = 0
+    for _, event in ipairs(Events:GetList()) do
+        if type(event.when) == "string" and event.when:sub(1, 10) == today and event.when >= now then count = count + 1 end
+    end
+    if Groups:CheckGuild() then
+        for _, entry in pairs(Groups:GetPlanned() or {}) do
+            local when = entry.when and Events:PlannedClock(entry.when)
+            if when and when:sub(1, 10) == today and when >= now then count = count + 1 end
+        end
+    end
+    return count
+end
+
+function Calendar:UpdateNavCount()
+    if Window.UpdateNavCount then Window:UpdateNavCount("calendar", self:CountToday()) end
+end
+
 function Calendar:QueueRefresh()
+    self:UpdateNavCount()
     if self.refreshQueued or not self.content or not self.content:IsVisible() then return end
     self.refreshQueued = true
     C_Timer.After(0, function()
@@ -335,3 +357,5 @@ for _, event in ipairs({"CALENDAR_UPDATE_EVENT_LIST", "CALENDAR_UPDATE_GUILD_EVE
     end
 end
 frame:SetScript("OnEvent", function() Calendar:QueueRefresh() end)
+frame:RegisterEvent("PLAYER_ENTERING_WORLD")
+C_Timer.NewTicker(30, function() Calendar:UpdateNavCount() end)

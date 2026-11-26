@@ -89,11 +89,60 @@ function Share:GetRemoteStore(key)
     return store
 end
 
+function Share:MergeInto(target, source)
+    for _, field in ipairs({"entries", "votes", "comments"}) do
+        target[field] = target[field] or {}
+        for id, value in pairs(source[field] or {}) do
+            local existing = target[field][id]
+            if existing == nil then
+                target[field][id] = value
+            elseif field ~= "entries" and type(existing) == "table" and type(value) == "table" then
+                for key, item in pairs(value) do
+                    if existing[key] == nil then existing[key] = item end
+                end
+            end
+        end
+    end
+end
+
+function Share:MergeRemoteStores()
+    local remote = GHTAB and GHTAB.FEEDBACKREMOTE
+    if not remote or not GuildHelper:IsForever() then return end
+    local keys = {}
+    for key, store in pairs(remote) do
+        if type(store) == "table" and store.name and key ~= store.name then tinsert(keys, key) end
+    end
+    for _, key in ipairs(keys) do
+        local store = remote[key]
+        local target = remote[store.name]
+        if not target then
+            remote[store.name] = store
+        else
+            local newer, older = target, store
+            if (store.updated or 0) > (target.updated or 0) then newer, older = store, target end
+            self:MergeInto(newer, older)
+            remote[store.name] = newer
+        end
+        remote[key] = nil
+        if GuildHelper.Feedback.remote == key then GuildHelper.Feedback.remote = store.name end
+    end
+end
+
+function Share:CountEntries(store)
+    local count = 0
+    for _, entry in pairs(store and store.entries or {}) do
+        if type(entry) == "table" and not entry.deleted then count = count + 1 end
+    end
+    return count
+end
+
 function Share:GetViewOptions()
+    self:MergeRemoteStores()
     local options = {
         {
             value = "",
-            label = self:GetViewLabel(nil)
+            label = self:GetViewLabel(nil),
+            count = self:CountEntries(GHTAB and GHTAB.FEEDBACK and GuildHelper.Feedback.guild and GHTAB.FEEDBACK[GuildHelper.Feedback.guild])
         }
     }
 
@@ -102,11 +151,12 @@ function Share:GetViewOptions()
         tinsert(keys, key)
     end
 
-    sort(keys)
+    sort(keys, function(a, b) return strlower(self:GetViewLabel(a)) < strlower(self:GetViewLabel(b)) end)
     for _, key in ipairs(keys) do
         tinsert(options, {
             value = key,
-            label = self:GetViewLabel(key)
+            label = self:GetViewLabel(key),
+            count = self:CountEntries(GHTAB.FEEDBACKREMOTE[key])
         })
     end
 
@@ -238,6 +288,7 @@ function Share:RequestDetail(key, entry)
 end
 
 function Share:GetRemoteKey(guild, sender)
+    if GuildHelper:IsForever() then return guild end
     local realm = sender:match("%-(.+)$") or GetRealmName() or ""
 
     return guild .. "-" .. realm

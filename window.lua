@@ -290,7 +290,7 @@ function Window:CreateNavButton(index, entry)
     button.text = Theme:Text(button, 13.5, "navText")
     button.text:SetPoint("LEFT", button, "LEFT", 38, 0)
     Theme:SetTrans(button.text, entry.label)
-    if entry.key == "orders" or entry.key == "groups" or entry.key == "raids" or entry.key == "feedback" or entry.key == "events" then
+    if entry.key == "orders" or entry.key == "groups" or entry.key == "raids" or entry.key == "feedback" or entry.key == "events" or entry.key == "calendar" then
         button.countBadge = Theme:Icon(button, "circle", 16, "online")
         button.countBadge:SetDrawLayer("ARTWORK", 1)
         button.count = Theme:Text(button, 11, "window")
@@ -301,6 +301,8 @@ function Window:CreateNavButton(index, entry)
             count = GuildHelper.Orders:Count()
         elseif entry.key == "groups" or entry.key == "raids" then
             count = GuildHelper.Groups:CountUnread()[entry.key]
+        elseif entry.key == "calendar" then
+            count = GuildHelper.Calendar and GuildHelper.Calendar:CountToday() or 0
         elseif entry.key == "events" then
             count = GuildHelper.Events:CountUnread()
         else
