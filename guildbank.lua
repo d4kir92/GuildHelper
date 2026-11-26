@@ -10,7 +10,7 @@ Bank.claims = {}
 Bank.queried = {}
 Bank.SLOTS = 98
 Bank.MAXTABS = 8
-Bank.MINVERSION = "0.9.0"
+Bank.MINVERSION = "0.9.1"
 
 function Bank:Identity()
     local guild = GuildHelper.Sync:GetGuildKey()
