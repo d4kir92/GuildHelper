@@ -113,15 +113,23 @@ function Orders:Encode(order)
     end
     local payload = table.concat({order.requester, order.crafter, order.recipe, order.delivery, order.status, table.concat(materials, ",")}, "~")
     if (order.amount or 1) > 1 then payload = payload .. "~" .. order.amount end
+    if (order.tip or 0) > 0 then payload = payload .. "~G~" .. format("%d", order.tip) end
     if order.note and order.note ~= "" then payload = payload .. "~N~" .. order.note end
     return payload
 end
 
+Orders.MAXTIP = 9999999999
 function Orders:Decode(id, payload)
     local body, note = payload:match("^(.-)~N~(.*)$")
     if body then
         if note == "" or self:CleanText(note, 240) ~= note then return end
         payload = body
+    end
+    local tipBody, tip = payload:match("^(.*)~G~(%d+)$")
+    tip = tipBody and tonumber(tip) or 0
+    if tipBody then
+        if tip < 1 or tip > self.MAXTIP then return end
+        payload = tipBody
     end
     local base, amount = payload:match("^(.*)~(%d+)$")
     amount = base and tonumber(amount) or 1
@@ -129,7 +137,7 @@ function Orders:Decode(id, payload)
     local requester, crafter, recipe, delivery, status, materials = (base or payload):match("^([^~]+)~([^~]+)~(%d+)~([MT])~([OCD])~([%d:.,%-]*)$")
     recipe = tonumber(recipe)
     if not requester or Groups:Name(requester) ~= requester or not crafter or Groups:Name(crafter) ~= crafter or requester == crafter then return end
-    if not recipe or recipe < 1 or recipe > 2147483647 or recipe ~= floor(recipe) then return end
+    if not recipe or recipe < 0 or recipe > 2147483647 or recipe ~= floor(recipe) then return end
     if (delivery ~= "M" and delivery ~= "T") or not self.states[status] or not materials then return end
     local rows = {}
     for record in materials:gmatch("[^,]+") do
@@ -145,7 +153,7 @@ function Orders:Decode(id, payload)
         if #options == 0 then return end
         tinsert(rows, {quantity = quantity, owned = owned, options = options})
     end
-    return {id = id, requester = requester, crafter = crafter, recipe = recipe, delivery = delivery, status = status, materials = rows, amount = amount, note = note}
+    return {id = id, requester = requester, crafter = crafter, recipe = recipe, delivery = delivery, status = status, materials = rows, amount = amount, note = note, tip = tip > 0 and tip or nil}
 end
 
 function Orders:Send(order, relay)
@@ -319,6 +327,7 @@ function Orders:OnMessage(message, sender)
         previous.status = order.status
         previous.closedAt, previous.archivedAt = nil, nil
         previous.note = previous.note or order.note
+        previous.tip = previous.tip or order.tip
     else
         store[id] = order
     end
@@ -373,7 +382,10 @@ function Orders:Compose(member, recipe, requirements)
     if not requirements or not store or not requester or not crafter or Groups:IsSelfName(crafter) then return end
     if not Recipes:CanOrder(Members:GetData(member), recipe) then return end
     local materials, limit = {}, 999
-    for index, row in ipairs(requirements) do
+    if recipe == Recipes.LOCKPICK then
+        materials, limit = self:GetLockedItems(), 1
+    end
+    for index, row in ipairs(recipe == Recipes.LOCKPICK and {} or requirements) do
         if row.quantity < 1 or row.quantity > 999999 then return end
         limit = min(limit, floor(999999 / row.quantity))
         materials[index] = {quantity = row.quantity, perCraft = row.quantity, owned = 0, options = row.options}
@@ -389,6 +401,18 @@ function Orders:Submit()
     if not draft or not store then return end
     self:UpdateAmount(self.page, draft)
     draft.note = self:CleanText(self.page.note:GetText(), 240)
+    draft.tip = self:ReadTip(self.page)
+    if draft.recipe == Recipes.LOCKPICK then
+        local kept = {}
+        for _, material in ipairs(draft.materials) do
+            if material.quantity > 0 then tinsert(kept, material) end
+        end
+        if #kept == 0 then
+            self.page.error:SetText(GuildHelper:Trans("LID_ORDER_NOLOCKS"))
+            return
+        end
+        draft.materials = kept
+    end
     draft.id = format("%d.%09d", time(), random(1, 999999999))
     if not Recipes:CanOrder(Sync:GetData(draft.crafterName), draft.recipe) or store[draft.id] ~= nil or not self:Decode(draft.id, self:Encode(draft)) or not self:Send(draft) then
         self.page.error:SetText(GuildHelper:Trans("LID_ORDER_ERROR"))
@@ -397,6 +421,68 @@ function Orders:Submit()
     store[draft.id] = draft
     self.draft, self.selected = nil, draft.id
     self:Refresh()
+end
+
+function Orders:IsLockedItem(bag, slot)
+    local tip = self.scanTip
+    if not tip then
+        tip = CreateFrame("GameTooltip", "GuildHelperOrderScanTip", nil, "GameTooltipTemplate")
+        self.scanTip = tip
+    end
+    tip:SetOwner(WorldFrame, "ANCHOR_NONE")
+    tip:SetBagItem(bag, slot)
+    local locked = false
+    for line = 2, min(6, tip:NumLines()) do
+        local text = _G["GuildHelperOrderScanTipTextLeft" .. line]
+        if text and text:GetText() == LOCKED then
+            locked = true
+            break
+        end
+    end
+    tip:Hide()
+    return locked
+end
+
+function Orders:GetLockedItems()
+    local container = C_Container
+    local getSlots = container and container.GetContainerNumSlots or GetContainerNumSlots
+    local getInfo = container and container.GetContainerItemInfo
+    local items, rows = {}, {}
+    if not getSlots or not LOCKED then return rows end
+    for bag = 0, NUM_BAG_SLOTS or 4 do
+        for slot = 1, getSlots(bag) or 0 do
+            local id, count
+            if getInfo then
+                local info = getInfo(bag, slot)
+                id, count = info and info.itemID, info and info.stackCount
+            elseif GetContainerItemInfo then
+                local _, itemCount, _, _, _, _, _, _, _, itemID = GetContainerItemInfo(bag, slot)
+                id, count = itemID, itemCount
+            end
+            if id and self:IsLockedItem(bag, slot) then
+                if not items[id] then
+                    items[id] = {quantity = 0, perCraft = 0, owned = 0, options = {id}, lock = true}
+                    tinsert(rows, items[id])
+                end
+                local row = items[id]
+                row.quantity = row.quantity + (count or 1)
+                row.perCraft, row.owned, row.max = row.quantity, row.quantity, row.quantity
+            end
+        end
+    end
+    return rows
+end
+
+function Orders:ReadTip(page)
+    local gold = tonumber(page.tipGold:GetText()) or 0
+    local silver = tonumber(page.tipSilver:GetText()) or 0
+    local copper = tonumber(page.tipCopper:GetText()) or 0
+    return min(self.MAXTIP, max(0, floor(gold) * 10000 + min(99, floor(silver)) * 100 + min(99, floor(copper))))
+end
+
+function Orders:FormatTip(tip)
+    local coins = C_CurrencyInfo and C_CurrencyInfo.GetCoinTextureString or GetCoinTextureString
+    return coins and coins(tip) or tostring(tip)
 end
 
 function Orders:Open(id)
@@ -478,11 +564,19 @@ function Orders:RenderDraft(page, draft)
         row.box:SetText(tostring(material.owned))
         row.box:SetScript("OnTextChanged", function(box)
             local entered = tonumber(box:GetText()) or 0
-            local value = min(material.quantity, max(0, floor(entered)))
+            local value = min(material.max or material.quantity, max(0, floor(entered)))
+            if material.lock then
+                material.quantity, material.perCraft = value, value
+                row.quantity:SetText(format("%dx", value))
+            end
             material.owned = value
             if entered ~= value then box:SetText(tostring(value)) end
         end)
     end
+    local tip = draft.tip or 0
+    page.tipGold:SetText(tostring(floor(tip / 10000)))
+    page.tipSilver:SetText(tostring(floor(tip / 100) % 100))
+    page.tipCopper:SetText(tostring(tip % 100))
 end
 
 function Orders:RenderDraftMaterials(page, draft)
@@ -577,8 +671,10 @@ function Orders:Refresh()
     page.submit:SetShown(draft ~= nil)
     page.abort:SetShown(draft ~= nil)
     page.have:SetShown(draft ~= nil)
-    page.amount:SetShown(draft ~= nil)
-    page.amountLabel:SetShown(draft ~= nil)
+    local lockDraft = draft ~= nil and draft.recipe == Recipes.LOCKPICK
+    page.amount:SetShown(draft ~= nil and not lockDraft)
+    page.amountLabel:SetShown(draft ~= nil and not lockDraft)
+    for _, element in ipairs(page.tip) do element:SetShown(draft ~= nil) end
     page.note:SetShown(draft ~= nil)
     page.noteLabel:SetShown(draft ~= nil)
     page.commentBox:SetShown(draft == nil and selected ~= nil)
@@ -592,7 +688,7 @@ function Orders:Refresh()
     page.whisper:SetShown(draft == nil and selected ~= nil)
     local order = draft or selected
     page.output:SetShown(order ~= nil)
-    Recipes:SetTooltip(page.output, order and order.recipe)
+    Recipes:SetTooltip(page.output, order and order.recipe ~= Recipes.LOCKPICK and order.recipe or nil)
     if order then
         local name, icon = Recipes:OutputDisplay(order.recipe)
         page.title:SetText(name)
@@ -607,9 +703,14 @@ function Orders:Refresh()
         local contact = incoming and selected.requester or selected.crafter
         self:ShowContact(page, contact)
         local rows = {
-            {label = GuildHelper:Trans(self:DeliveryLabel(selected.delivery)) .. "  ·  " .. GuildHelper:Trans("LID_ORDER_STATUS_" .. selected.status)},
-            {label = GuildHelper:Trans("LID_ORDER_AMOUNT") .. "  " .. (selected.amount or 1)}
+            {label = GuildHelper:Trans(self:DeliveryLabel(selected.delivery)) .. "  ·  " .. GuildHelper:Trans("LID_ORDER_STATUS_" .. selected.status)}
         }
+        if selected.recipe ~= Recipes.LOCKPICK then
+            tinsert(rows, {label = GuildHelper:Trans("LID_ORDER_AMOUNT") .. "  " .. (selected.amount or 1)})
+        end
+        if (selected.tip or 0) > 0 then
+            tinsert(rows, {label = GuildHelper:Trans("LID_ORDER_TIP") .. "  " .. self:FormatTip(selected.tip)})
+        end
         local available, ready = {}, true
         for _, material in ipairs(selected.materials) do
             local names, ids = Recipes:MaterialNames(material)
@@ -644,11 +745,12 @@ function Orders:Refresh()
         page.ready:SetShown(active)
         Theme:SetTrans(page.ready, ready and "LID_ORDER_READY" or "LID_ORDER_MATERIALS_MISSING")
         local trade = C_TradeSkillUI
-        page.openRecipe:SetShown(active and trade ~= nil and trade.OpenRecipe ~= nil)
+        local craftable = selected.recipe ~= Recipes.LOCKPICK
+        page.openRecipe:SetShown(craftable and active and trade ~= nil and trade.OpenRecipe ~= nil)
         page.openRecipe:SetScript("OnClick", function()
             trade.OpenRecipe(selected.recipe)
         end)
-        page.track:SetShown(active and trade ~= nil and trade.SetRecipeTracked ~= nil and trade.IsRecipeTracked ~= nil)
+        page.track:SetShown(craftable and active and trade ~= nil and trade.SetRecipeTracked ~= nil and trade.IsRecipeTracked ~= nil)
         if page.track:IsShown() then
             page.track:SetChecked(trade.IsRecipeTracked(selected.recipe, false))
             page.track:SetScript("OnClick", function(button)
@@ -764,6 +866,29 @@ function Orders:Build(content)
     page.amount:SetScript("OnEditFocusLost", function(box)
         if self.draft then box:SetText(tostring(self.draft.amount)) end
     end)
+    page.tip = {}
+    local tipAnchor
+    for _, coin in ipairs({{"tipCopper", 2, "Interface\\MoneyFrame\\UI-CopperIcon"}, {"tipSilver", 2, "Interface\\MoneyFrame\\UI-SilverIcon"}, {"tipGold", 6, "Interface\\MoneyFrame\\UI-GoldIcon"}}) do
+        local icon = side:CreateTexture(nil, "ARTWORK")
+        icon:SetSize(13, 13)
+        if tipAnchor then
+            icon:SetPoint("RIGHT", tipAnchor, "LEFT", -8, 0)
+        else
+            icon:SetPoint("TOPRIGHT", -14, -110)
+        end
+        icon:SetTexture(coin[3])
+        local box = Groups:CreateBox(side, coin[2], true)
+        box:SetPoint("RIGHT", icon, "LEFT", -3, 0)
+        box:SetWidth(coin[2] == 6 and 70 or 36)
+        page[coin[1]] = box
+        tinsert(page.tip, icon)
+        tinsert(page.tip, box)
+        tipAnchor = box
+    end
+    page.tipLabel = Theme:Text(side, 13, "text")
+    page.tipLabel:SetPoint("RIGHT", tipAnchor, "LEFT", -8, 0)
+    Theme:SetTrans(page.tipLabel, "LID_ORDER_TIP")
+    tinsert(page.tip, page.tipLabel)
     page.form:SetPoint("BOTTOMRIGHT", -10, 87)
     page.note = Groups:CreateBox(side, 240)
     page.note:SetPoint("BOTTOMLEFT", 12, 50)

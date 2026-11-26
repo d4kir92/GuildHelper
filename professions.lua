@@ -361,6 +361,7 @@ function Professions:Update()
         end
     end
     if not byRecipe then self:ShowPlayerRecipes(page, selected) end
+    if not byRecipe and page.filter == Recipes.LOCKPICKSKILL then page.orderRecipe, page.orderRequirements = Recipes.LOCKPICK, {} end
     local canOrder = page.member and not Members:IsSelf(page.member) and page.orderRequirements ~= nil
         and Recipes:CanOrder(Members:GetData(page.member), page.orderRecipe)
     page.order:SetEnabled(canOrder)
