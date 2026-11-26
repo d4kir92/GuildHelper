@@ -5,6 +5,8 @@ Requests.RETENTION = 30 * 86400
 Requests.MAXOPEN = 10
 Requests.MAXQUANTITY = 9999
 Requests.MAXMONEY = 9999999999
+Requests.MODES = {"S", "V"}
+Requests.MODESET = {S = true, V = true}
 Requests.CATEGORIES = {"M", "G", "A", "W", "X"}
 Requests.CATEGORYSET = {M = true, G = true, A = true, W = true, X = true}
 Requests.ICONS = {M = "INV_Fabric_Linen_01", G = "INV_Misc_Coin_01", A = "INV_Chest_Chain", W = "INV_Sword_04", X = "INV_Misc_QuestionMark"}
@@ -24,8 +26,16 @@ function Requests:GetStore()
     GHTAB = GHTAB or {}
     GHTAB.REQUESTS = GHTAB.REQUESTS or {}
     GHTAB.REQUESTS[guild] = GHTAB.REQUESTS[guild] or {}
+    local store = GHTAB.REQUESTS[guild]
+    if self.migrated ~= guild then
+        self.migrated = guild
+        for _, bucket in pairs(store) do
+            bucket.helpers, bucket.comments = bucket.helpers or {}, bucket.comments or {}
+            if bucket.request and not bucket.request.mode then bucket.request.mode = "S" end
+        end
+    end
 
-    return GHTAB.REQUESTS[guild]
+    return store
 end
 
 function Requests:GetSeen()
@@ -51,6 +61,7 @@ function Requests:Prune(store)
     for id, bucket in pairs(store or {}) do
         local revision = bucket.request and bucket.request.revision or 0
         for _, helper in pairs(bucket.helpers or {}) do revision = max(revision, helper.revision) end
+        for _, comment in pairs(bucket.comments or {}) do revision = max(revision, comment.revision) end
         if not self:IsFresh(revision) then
             store[id] = nil
             seen[id] = nil
@@ -60,12 +71,13 @@ end
 
 function Requests:Pack(row)
     if row.kind == "H" then return table.concat({"H", row.id, row.name, row.revision, row.state}, "~") end
+    if row.kind == "C" then return table.concat({"C", row.id, row.name, row.revision, row.cid, row.text}, "~") end
 
-    return table.concat({"Q", row.id, row.name, row.revision, row.status, row.category, row.item, row.quantity, row.gold, row.text}, "~")
+    return table.concat({"Q", row.id, row.name, row.revision, row.status, row.mode, row.category, row.item, row.quantity, row.gold, row.text}, "~")
 end
 
 function Requests:Unpack(packet)
-    local kind, id, name, revision, payload = packet:match("^([QH])~(%x+)~([^~]+)~(%d+)~(.*)$")
+    local kind, id, name, revision, payload = packet:match("^([QHC])~(%x+)~([^~]+)~(%d+)~(.*)$")
     local author = name and Groups:Name(name)
     if not author or #id > 32 or #id < 9 or #revision > 12 then return end
     local row = {kind = kind, id = id, name = name, author = author, revision = tonumber(revision)}
@@ -76,19 +88,28 @@ function Requests:Unpack(packet)
         return row
     end
 
-    local status, category, item, quantity, gold, text = payload:match("^([ODX])~(%u)~(%d+)~(%d+)~(%d+)~(.*)$")
+    if kind == "C" then
+        local cid, text = payload:match("^(%x+)~(.+)$")
+        if not cid or #cid > 32 or #cid < 9 or Groups:CleanText(text, 240) ~= text then return end
+        row.cid, row.text = cid, text
+
+        return row
+    end
+
+    local status, mode, category, item, quantity, gold, text = payload:match("^([ODX])~(%u)~(%u)~(%d+)~(%d+)~(%d+)~(.*)$")
     if not status or #item > 10 or #quantity > 4 or #gold > 10 then return end
     item, quantity, gold = tonumber(item), tonumber(quantity), tonumber(gold)
-    if not self.CATEGORYSET[category] or item > 2147483647 then return end
+    if not self.MODESET[mode] or not self.CATEGORYSET[category] or item > 2147483647 then return end
     if quantity < 1 or quantity > self.MAXQUANTITY or gold > self.MAXMONEY then return end
     if Groups:CleanText(text, 120) ~= text then return end
-    row.status, row.category, row.item, row.quantity, row.gold, row.text = status, category, item, quantity, gold, text
+    row.status, row.mode, row.category, row.item, row.quantity, row.gold, row.text = status, mode, category, item, quantity, gold, text
 
     return row
 end
 
 function Requests:RecordKey(row)
     if row.kind == "H" then return row.id .. ":H:" .. row.author end
+    if row.kind == "C" then return row.id .. ":C:" .. row.cid end
 
     return row.id
 end
@@ -98,14 +119,18 @@ function Requests:Merge(row)
     if not store or not self:IsFresh(row.revision) then return end
     local bucket = store[row.id]
     if not bucket then
-        bucket = {helpers = {}}
+        bucket = {helpers = {}, comments = {}}
         store[row.id] = bucket
     end
 
+    bucket.comments = bucket.comments or {}
     local current
     if row.kind == "H" then
         if bucket.request and bucket.request.author == row.author then return end
         current = bucket.helpers[row.author]
+    elseif row.kind == "C" then
+        current = bucket.comments[row.cid]
+        if current and current.author ~= row.author then return end
     else
         current = bucket.request
         if current and current.author ~= row.author then return end
@@ -121,6 +146,9 @@ function Requests:Merge(row)
     self.replay[self:RecordKey(row)] = nil
     if row.kind == "H" then
         bucket.helpers[row.author] = row
+    elseif row.kind == "C" then
+        bucket.comments[row.cid] = row
+        if not current then self:NotifyComment(row, bucket) end
     else
         bucket.request = row
     end
@@ -200,11 +228,75 @@ function Requests:CountOwnOpen()
     return count
 end
 
-function Requests:Publish(category, item, quantity, gold, text)
+function Requests:GetSubscriptions()
+    local subscriptions = GuildHelper:GetConfig("REQUESTSUBSCRIPTIONS", {})
+    subscriptions[self.guild or ""] = subscriptions[self.guild or ""] or {}
+
+    return subscriptions[self.guild or ""]
+end
+
+function Requests:SetSubscribed(id, subscribed)
+    self:GetSubscriptions()[id] = subscribed
+end
+
+function Requests:IsSubscribed(bucket)
+    local row = bucket and bucket.request
+    if not row then return false end
+    local subscribed = self:GetSubscriptions()[row.id]
+    if subscribed ~= nil then return subscribed end
+    if self:IsOwn(row) or self:IsHelping(bucket) then return true end
+    for _, comment in pairs(bucket.comments or {}) do
+        if Groups:IsSelfName(comment.author) then return true end
+    end
+
+    return false
+end
+
+function Requests:GetComments(bucket)
+    local list = {}
+    for _, comment in pairs(bucket and bucket.comments or {}) do tinsert(list, comment) end
+    table.sort(list, function(a, b)
+        if a.revision ~= b.revision then return a.revision < b.revision end
+
+        return a.cid < b.cid
+    end)
+
+    return list
+end
+
+function Requests:Comment(id, text)
+    local row = self:Get(id)
+    text = Groups:CleanText(text, 240)
+    if not row or row.status == "X" or text == "" then return end
+    local name, author = self:Author()
+    if not author then return end
+    local comment = {kind = "C", id = id, name = name, author = author, revision = GetServerTime(), cid = GuildHelper.Events:NewId(), text = text}
+    if self:Merge(comment) then
+        self:Send(comment)
+
+        return true
+    end
+end
+
+function Requests:NotifyComment(comment, bucket)
+    local notifications = GuildHelper.Notifications
+    if not notifications or not bucket.request or Groups:IsSelfName(comment.author) then return end
+    if comment.revision < (notifications.started or 0) - 60 or not self:IsSubscribed(bucket) then return end
+    notifications:RequestComment(comment)
+end
+
+function Requests:Open(id)
+    if not self:Get(id) then return end
+    self.draft, self.selected = nil, id
+    GuildHelper.Window.frame:Show()
+    GuildHelper.Window:SelectPage("requests")
+end
+
+function Requests:Publish(mode, category, item, quantity, gold, text)
     local name, author = self:Author()
     if not author or not self:GetStore() then return end
     local row = {kind = "Q", id = GuildHelper.Events:NewId(), name = name, author = author, revision = GetServerTime(), status = "O",
-        category = category, item = item, quantity = quantity, gold = gold, text = text}
+        mode = mode, category = category, item = item, quantity = quantity, gold = gold, text = text}
     if not self:Unpack(self:Pack(row)) then return end
     if self:Merge(row) then
         self:GetSeen()[row.id] = true
@@ -266,6 +358,7 @@ function Requests:Shareable(store)
     for _, bucket in pairs(store) do
         if bucket.request then records[bucket.request.id] = bucket.request end
         for _, helper in pairs(bucket.helpers) do records[self:RecordKey(helper)] = helper end
+        for _, comment in pairs(bucket.comments or {}) do records[self:RecordKey(comment)] = comment end
     end
 
     return records
@@ -328,31 +421,40 @@ function Requests:Tick()
         return
     end
 
-    if row.kind == "H" and self.replay[row.id] then key, row = row.id, self.replay[row.id] end
+    if row.kind ~= "Q" and self.replay[row.id] then key, row = row.id, self.replay[row.id] end
     self.replay[key] = nil
     self:Send(row)
 end
 
+function Requests:MailEntry(list, row, key, name)
+    local title, icon = self:Display(row)
+    local recipient = GuildHelper.Mail:Recipient(name)
+    tinsert(list, {
+        key = key,
+        incoming = true,
+        label = title,
+        icon = icon,
+        material = row.item > 0 and row.item or nil,
+        prefix = row.item > 0 and format("%dx", row.quantity) or nil,
+        value = strsplit("-", recipient),
+        recipient = recipient,
+        subject = Feedback:Cut(title, 60),
+        money = row.gold,
+        items = row.item > 0 and {{options = {row.item}, quantity = row.quantity}} or {}
+    })
+end
+
 function Requests:MailEntries(list)
-    local Mail = GuildHelper.Mail
     for id, bucket in pairs(self:GetStore() or {}) do
         local row = bucket.request
-        if row and row.status == "O" and not self:IsOwn(row) and self:IsHelping(bucket) and (row.item > 0 or row.gold > 0) then
-            local title, icon = self:Display(row)
-            local recipient = Mail:Recipient(row.name)
-            tinsert(list, {
-                key = "R" .. id,
-                incoming = true,
-                label = title,
-                icon = icon,
-                material = row.item > 0 and row.item or nil,
-                prefix = row.item > 0 and format("%dx", row.quantity) or nil,
-                value = strsplit("-", recipient),
-                recipient = recipient,
-                subject = Feedback:Cut(title, 60),
-                money = row.gold,
-                items = row.item > 0 and {{options = {row.item}, quantity = row.quantity}} or {}
-            })
+        if row and row.status == "O" and (row.item > 0 or row.gold > 0) then
+            if row.mode == "V" and self:IsOwn(row) then
+                for _, helper in ipairs(self:Helpers(bucket)) do
+                    self:MailEntry(list, row, "R" .. id .. ":" .. helper.author, helper.name)
+                end
+            elseif row.mode == "S" and not self:IsOwn(row) and self:IsHelping(bucket) then
+                self:MailEntry(list, row, "R" .. id, row.name)
+            end
         end
     end
 end

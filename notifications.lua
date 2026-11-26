@@ -2,7 +2,7 @@ local _, GuildHelper = ...
 local Notifications = {queue = {}, seen = {}, started = time()}
 Notifications.ADDED = "2026-11-26"
 Notifications.NEW_TYPES = {"NEWLIVE", "NEWPLANNED", "APPLICATION", "NEWIDEA", "NEWBUG"}
-Notifications.GROUPS = {{label = "LID_GROUPFINDER", kinds = {"NEWLIVE", "NEWPLANNED", "APPLICATION"}}, {label = "LID_FEEDBACK", kinds = {"NEWIDEA", "NEWBUG"}}}
+Notifications.GROUPS = {{label = "LID_GROUPFINDER", kinds = {"NEWLIVE", "NEWPLANNED", "APPLICATION"}}, {label = "LID_FEEDBACK", kinds = {"NEWIDEA", "NEWBUG"}}, {label = "LID_REQUESTS", kinds = {"REQUESTCOMMENT"}}}
 GuildHelper.Notifications = Notifications
 
 function Notifications:GetDisplayTime()
@@ -78,6 +78,8 @@ function Notifications:Create()
         elseif notice.log then
             GuildHelper.Window:SelectPage("log")
             GuildHelper.Window.frame:Show()
+        elseif notice.request and notice.guild == GuildHelper.Sync:GetGuildKey() then
+            GuildHelper.Requests:Open(notice.request)
         elseif notice.order and notice.guild == GuildHelper.Sync:GetGuildKey() then
             if GuildHelper.Orders:GetOpenIncoming(notice.id) then GuildHelper.Orders:Open(notice.id) end
         elseif (notice.applicant or notice.group) and notice.guild == GuildHelper.Sync:GetGuildKey() then
@@ -265,6 +267,15 @@ function Notifications:Comment(id, comment)
     self:Enqueue({id = id, guild = guild, author = comment.author or comment.owner, owner = comment.owner, queued = self:GetDisplayTime()})
 end
 
+function Notifications:RequestComment(comment)
+    local guild = GuildHelper.Sync:GetGuildKey()
+    if not guild or not self:IsEnabled("NOTIFYREQUESTCOMMENT") then return end
+    local key = guild .. ":request:" .. comment.cid
+    if self.seen[key] then return end
+    self.seen[key] = true
+    self:Enqueue({request = comment.id, cid = comment.cid, author = comment.name, guild = guild, setting = "NOTIFYREQUESTCOMMENT", queued = self:GetDisplayTime()})
+end
+
 function Notifications:LogEntry(text, setting)
     local guild = GuildHelper.Sync:GetGuildKey()
     if not guild or type(text) ~= "string" or text == "" then return end
@@ -394,6 +405,18 @@ function Notifications:Render()
         self:ShowActions("log")
         self.frame.title:SetText(GuildHelper:Trans("LID_GUILDLOG"))
         self.frame.text:SetText(self.current.log)
+        self.frame:Show()
+        return
+    end
+    if self.current.request then
+        local requests = GuildHelper.Requests
+        local row = requests:Get(self.current.request)
+        if not row or row.status == "X" then self:Dismiss() return end
+        self:Create()
+        self:ShowActions("requests")
+        self.frame.title:SetText(GuildHelper:Trans("LID_NOTIFICATIONCOMMENT"))
+        local author = GuildHelper.Orders:ContactLabel(self.current.author)
+        self.frame.text:SetText(format(GuildHelper:Trans("LID_NOTIFICATIONCOMMENTTEXT"), author, requests:Display(row)))
         self.frame:Show()
         return
     end
