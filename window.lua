@@ -5,7 +5,7 @@ GuildHelper.Window = Window
 Window.WIDTH = 1200
 Window.HEIGHT = 570
 Window.MINWIDTH = 1060
-Window.MINHEIGHT = 580
+Window.MINHEIGHT = 612
 Window.MINSCALE = 0.5
 Window.MAXSCALE = 2
 Window.TEMPLATES = {"ButtonFrameTemplate", "PortraitFrameTemplate", "BasicFrameTemplateWithInset"}
@@ -127,6 +127,10 @@ Window.NAV = {
         label = "LID_ORDER_TITLE"
     },
     {
+        key = "requests",
+        label = "LID_REQUESTS"
+    },
+    {
         key = "events",
         label = "LID_EVENTS"
     },
@@ -166,7 +170,7 @@ Window.FLAVORS = {
 }
 
 Window.builders = {}
-Window.NAVICONS = {dashboard = "INV_Misc_Map_01", members = "INV_Misc_GroupLooking", professions = "Trade_BlackSmithing", orders = "INV_Misc_Note_01", events = "INV_Misc_PocketWatch_01", groups = "INV_Misc_GroupNeedMore", raids = "INV_Misc_Head_Dragon_01", guildbank = "INV_Misc_Coin_01", calendar = "INV_Misc_PocketWatch_02", chars = "INV_Misc_Head_Human_01", log = "INV_Misc_Book_09", management = "INV_Misc_Gear_01", feedback = "INV_Misc_Note_01", settings = "Trade_Engineering"}
+Window.NAVICONS = {dashboard = "INV_Misc_Map_01", members = "INV_Misc_GroupLooking", professions = "Trade_BlackSmithing", orders = "INV_Misc_Note_01", requests = "INV_Scroll_03", events = "INV_Misc_PocketWatch_01", groups = "INV_Misc_GroupNeedMore", raids = "INV_Misc_Head_Dragon_01", guildbank = "INV_Misc_Coin_01", calendar = "INV_Misc_PocketWatch_02", chars = "INV_Misc_Head_Human_01", log = "INV_Misc_Book_09", management = "INV_Misc_Gear_01", feedback = "INV_Misc_Note_01", settings = "Trade_Engineering"}
 
 function Window:ApplyNavigation()
     local collapsed = GuildHelper:GetConfig("NAVCOLLAPSED", false)
@@ -290,7 +294,7 @@ function Window:CreateNavButton(index, entry)
     button.text = Theme:Text(button, 13.5, "navText")
     button.text:SetPoint("LEFT", button, "LEFT", 38, 0)
     Theme:SetTrans(button.text, entry.label)
-    if entry.key == "orders" or entry.key == "groups" or entry.key == "raids" or entry.key == "feedback" or entry.key == "events" or entry.key == "calendar" then
+    if entry.key == "orders" or entry.key == "requests" or entry.key == "groups" or entry.key == "raids" or entry.key == "feedback" or entry.key == "events" or entry.key == "calendar" then
         button.countBadge = Theme:Icon(button, "circle", 16, "online")
         button.countBadge:SetDrawLayer("ARTWORK", 1)
         button.count = Theme:Text(button, 11, "window")
@@ -299,6 +303,8 @@ function Window:CreateNavButton(index, entry)
         local count
         if entry.key == "orders" then
             count = GuildHelper.Orders:Count()
+        elseif entry.key == "requests" then
+            count = GuildHelper.Requests and GuildHelper.Requests:CountUnread() or 0
         elseif entry.key == "groups" or entry.key == "raids" then
             count = GuildHelper.Groups:CountUnread()[entry.key]
         elseif entry.key == "calendar" then

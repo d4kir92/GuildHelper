@@ -67,6 +67,8 @@ feedback.lua
 notifications.lua
 orders.lua
 mail.lua
+requests.lua
+requestpage.lua
 map.lua
 invite.lua
 settings.lua

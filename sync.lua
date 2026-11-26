@@ -576,6 +576,11 @@ function Sync:OnMessage(message, channel, sender)
 
         return
     end
+    if strsub(message, 1, 3) == "RQ~" and GuildHelper.Requests then
+        GuildHelper.Requests:OnMessage(message, sender)
+
+        return
+    end
     if strsub(message, 1, 3) == "GL~" and GuildHelper.Log then
         GuildHelper.Log:OnMessage(message, sender)
 

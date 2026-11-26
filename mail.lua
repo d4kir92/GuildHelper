@@ -1,7 +1,7 @@
 local _, GuildHelper = ...
 local Theme, Members, Groups = GuildHelper.Theme, GuildHelper.Members, GuildHelper.Groups
 local Orders, Recipes, Professions = GuildHelper.Orders, GuildHelper.Recipes, GuildHelper.Professions
-local Mail = {}
+local Mail = {watched = {}}
 GuildHelper.Mail = Mail
 
 function Mail:BagCount()
@@ -74,7 +74,8 @@ function Mail:OrderEntries(list)
                 tinsert(list, {
                     key = "O" .. order.id,
                     incoming = incoming,
-                    label = name,
+                    tip = money > 0,
+                    label = money > 0 and (name .. "  ·  " .. GuildHelper:Trans("LID_ORDER_TIP") .. " " .. Orders:FormatTip(money)) or name,
                     icon = icon,
                     material = first and first > 0 and first or nil,
                     prefix = format("%dx", order.amount or 1),
@@ -92,6 +93,7 @@ end
 function Mail:Collect()
     local list = {}
     self:OrderEntries(list)
+    if GuildHelper.Requests then GuildHelper.Requests:MailEntries(list) end
     table.sort(list, function(a, b)
         if a.incoming ~= b.incoming then return a.incoming end
 
@@ -211,8 +213,41 @@ function Mail:OpenSendTab()
     return SendMailFrame ~= nil and SendMailFrame:IsShown()
 end
 
-function Mail:Fill(entry)
-    if InCombatLockdown() or not self:OpenSendTab() or not SendMailNameEditBox then return end
+function Mail:Daylight()
+    local window = _G.DaylightUIMail
+    if type(window) == "table" and window.IsVisible and window:IsVisible() and type(window.pages) == "table" then return window end
+end
+
+function Mail:Host()
+    local daylight = self:Daylight()
+    if daylight then return daylight end
+    if MailFrame and MailFrame:IsVisible() then return MailFrame end
+end
+
+function Mail:FillDaylight(window, entry)
+    if window.current ~= "send" then
+        for _, tab in ipairs(window.tabs or {}) do
+            if tab.id == "send" then tab:Click() end
+        end
+    end
+
+    local page = window.pages.send
+    if not page or not page.to or not page.subject or not page.gold then return false end
+    page.to:SetText(entry.recipient)
+    page.to:ClearFocus()
+    local missing, problem = self:Attach(entry)
+    page.subject:SetText(entry.subject)
+    local money = entry.money or 0
+    if money > 0 and page.cod and page.cod.on then page.cod:Click() end
+    page.gold:SetText(money >= 10000 and tostring(floor(money / 10000)) or "")
+    page.silver:SetText(floor(money / 100) % 100 > 0 and tostring(floor(money / 100) % 100) or "")
+    page.copper:SetText(money % 100 > 0 and tostring(money % 100) or "")
+
+    return true, missing, problem
+end
+
+function Mail:FillGame(entry)
+    if not self:OpenSendTab() or not SendMailNameEditBox then return false end
     SendMailNameEditBox:SetText(entry.recipient)
     SendMailNameEditBox:ClearFocus()
     local missing, problem = self:Attach(entry)
@@ -223,11 +258,29 @@ function Mail:Fill(entry)
     end
 
     if SendMailFrame_Update then SendMailFrame_Update() end
+
+    return true, missing, problem
+end
+
+function Mail:Fill(entry)
+    if InCombatLockdown() then return end
+    local daylight = self:Daylight()
+    local ok, missing, problem
+    if daylight then
+        ok, missing, problem = self:FillDaylight(daylight, entry)
+    else
+        ok, missing, problem = self:FillGame(entry)
+    end
+
+    if not ok then return end
     local lines = {}
     if problem == "full" then tinsert(lines, GuildHelper:Trans("LID_MAIL_FULL")) end
     if problem == "failed" then tinsert(lines, GuildHelper:Trans("LID_MAIL_FAILED")) end
     if #missing > 0 then tinsert(lines, format(GuildHelper:Trans("LID_MAIL_MISSING"), table.concat(missing, ", "))) end
     if #lines == 0 then tinsert(lines, GuildHelper:Trans("LID_MAIL_READY")) end
+    if (entry.money or 0) > 0 then
+        tinsert(lines, format(GuildHelper:Trans(entry.tip and "LID_MAIL_TIP" or "LID_MAIL_GOLD"), Orders:FormatTip(entry.money)))
+    end
     self.selected = entry.key
     self.frame.status:SetText(table.concat(lines, "\n"))
     self:Refresh()
@@ -238,15 +291,28 @@ function Mail:Build()
     if self.frame and self.kind == kind then return self.frame end
     if self.frame then self.frame:Hide() end
     self.kind = kind
-    local frame = CreateFrame("Frame", nil, MailFrame)
+    local frame = CreateFrame("Frame", nil, UIParent)
     frame:SetWidth(300)
-    frame:SetPoint("TOPLEFT", MailFrame, "TOPRIGHT", 4, 0)
-    frame:SetPoint("BOTTOMLEFT", MailFrame, "BOTTOMRIGHT", 4, 0)
+    frame:Hide()
     frame:EnableMouse(true)
     Theme:Panel(frame, "window", "border", 10)
+    frame.badge = CreateFrame("Frame", nil, frame)
+    frame.badge:SetSize(20, 20)
+    frame.badge:SetPoint("TOPLEFT", 14, -11)
+    frame.badge:EnableMouse(true)
+    frame.badge.icon = frame.badge:CreateTexture(nil, "ARTWORK")
+    frame.badge.icon:SetAllPoints()
+    frame.badge.icon:SetTexture(135026)
+    frame.badge:SetScript("OnEnter", function(badge)
+        GameTooltip:SetOwner(badge, "ANCHOR_RIGHT")
+        GameTooltip:SetText("GuildHelper")
+        GameTooltip:AddLine(GuildHelper:Trans("LID_MAIL_ICONTIP"), 1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    frame.badge:SetScript("OnLeave", function() GameTooltip:Hide() end)
     frame.title = Theme:Text(frame, 15, "text")
-    frame.title:SetPoint("TOPLEFT", 14, -14)
-    frame.title:SetPoint("TOPRIGHT", -14, -14)
+    frame.title:SetPoint("LEFT", frame.badge, "RIGHT", 8, 0)
+    frame.title:SetPoint("RIGHT", frame, "RIGHT", -14, 0)
     frame.title:SetJustifyH("LEFT")
     Theme:SetTrans(frame.title, "LID_MAIL_TITLE")
     frame.hint = Theme:Text(frame, 12, "muted")
@@ -292,13 +358,48 @@ function Mail:Refresh()
     frame.empty:SetShown(#entries == 0)
 end
 
+function Mail:Place()
+    local frame = self.frame
+    if not frame then return end
+    local host = self.open and self:Host()
+    if not host then
+        frame:Hide()
+
+        return
+    end
+
+    frame:ClearAllPoints()
+    frame:SetPoint("TOPLEFT", host, "TOPRIGHT", 4, 0)
+    frame:SetPoint("BOTTOMLEFT", host, "BOTTOMRIGHT", 4, 0)
+    frame:SetFrameStrata(host:GetFrameStrata())
+    frame:SetFrameLevel(host:GetFrameLevel() + 10)
+    frame:Show()
+    self:Refresh()
+end
+
+function Mail:Watch(host)
+    if type(host) ~= "table" or not host.HookScript or self.watched[host] then return end
+    self.watched[host] = true
+    local function place()
+        C_Timer.After(0, function() Mail:Place() end)
+    end
+
+    host:HookScript("OnShow", place)
+    host:HookScript("OnHide", place)
+end
+
 function Mail:Open()
-    if not MailFrame then return end
     local frame = self:Build()
     frame.status:SetText("")
     self.selected = nil
-    frame:Show()
-    self:Refresh()
+    self.open = true
+    self:Watch(MailFrame)
+    self:Watch(_G.DaylightUIMail)
+    self:Place()
+    C_Timer.After(0.2, function()
+        Mail:Watch(_G.DaylightUIMail)
+        Mail:Place()
+    end)
 end
 
 function Mail:OnEvent(event)
@@ -309,6 +410,7 @@ function Mail:OnEvent(event)
         self.frame.status:SetText(GuildHelper:Trans("LID_MAIL_SENT"))
         self:Refresh()
     elseif event == "MAIL_CLOSED" and self.frame then
+        self.open = false
         self.frame:Hide()
     end
 end

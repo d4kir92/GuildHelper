@@ -116,6 +116,7 @@ loader:SetScript("OnEvent", function(self, event)
     GuildHelper:InitWindowKey()
     GuildHelper:AddSlash("guildhelper", GuildHelper.ToggleWindow)
     GuildHelper:AddSlash("guhe", GuildHelper.ToggleWindow)
+    GuildHelper:AddSlash("gh", GuildHelper.ToggleWindow)
     GuildHelper:AddSlash("ghtestlead", function()
         if not GuildHelper.FeedbackShare or not GuildHelper.FeedbackShare:IsDeveloper() then
             GuildHelper.testLeader = nil
