@@ -677,6 +677,32 @@ function Members:GetMenuSearch()
     return search
 end
 
+function Members:SwallowKeys()
+    local sink = self.keySink
+    if not sink then
+        sink = CreateFrame("EditBox", nil, Window.frame)
+        sink:SetSize(1, 1)
+        sink:SetPoint("TOPLEFT")
+        sink:SetAlpha(0)
+        sink:SetAutoFocus(false)
+        sink:EnableMouse(false)
+        sink:SetScript("OnTextChanged", function(sel)
+            if sel:GetText() ~= "" then sel:SetText("") end
+            sel.releaseAt = GetTime() + 0.6
+        end)
+        sink:SetScript("OnEscapePressed", sink.ClearFocus)
+        sink:SetScript("OnEnterPressed", sink.ClearFocus)
+        sink:SetScript("OnEditFocusLost", function(sel) sel:SetScript("OnUpdate", nil) end)
+        self.keySink = sink
+    end
+    sink.releaseAt = GetTime() + 0.6
+    sink:Show()
+    sink:SetFocus()
+    sink:SetScript("OnUpdate", function(sel)
+        if GetTime() >= sel.releaseAt then sel:ClearFocus() end
+    end)
+end
+
 function Members:FilterMenu(text)
     local menu = self.menu
     local terms = {}
@@ -710,6 +736,7 @@ function Members:FilterMenu(text)
 
     if #terms > 0 and #matches == 1 then
         menu:Hide()
+        self:SwallowKeys()
         menu.onSelect(matches[1].value)
 
         return

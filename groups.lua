@@ -1923,12 +1923,20 @@ function Groups:RefreshRoster(entry)
     if count == 0 then
         Dashboard:SetLine(self.roster, 1, GuildHelper:Trans("LID_NODATA"), nil, nil, true)
     else
+        local localLeader
+        if IsInGroup and IsInGroup() then
+            for _, member in ipairs(self:GetLiveRoster()) do
+                if member.leader then localLeader = self:Name(member.name) end
+            end
+        end
         for index, member in ipairs(roster) do
             local role = GuildHelper.Specs:Format(member, true)
             local guildMember = Members:FindByName(member.name)
             local name = Members:NameWithTwitch(guildMember, member.name)
             local level = guildMember and (guildMember.level or 0) > 0 and guildMember.level or member.level
-            local leader = (member.leader or (entry.leader and self:Name(member.name) == entry.leader)) and "|TInterface\\GroupFrame\\UI-Group-LeaderIcon:14:14|t " or ""
+            local key = self:Name(member.name)
+            local leaderKey = entry.leader or localLeader
+            local leader = (member.leader or (leaderKey and key == leaderKey)) and "|TInterface\\GroupFrame\\UI-Group-LeaderIcon:14:14|t " or ""
             Dashboard:SetLine(self.roster, index, (role and role .. "  " or "") .. Members:RaceIconMarkup(guildMember, 14) .. leader .. self:LevelTag(level, guildMember) .. name)
         end
     end
