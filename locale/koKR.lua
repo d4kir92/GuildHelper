@@ -75,6 +75,7 @@ GuildHelper:AddTrans("koKR", "LID_EVENT_ICON_SEARCH", "이름 또는 파일 ID�
 GuildHelper:AddTrans("koKR", "LID_EVENT_IMPORT", "WoW 달력에서 가져오기")
 GuildHelper:AddTrans("koKR", "LID_EVENT_INFO", "정보")
 GuildHelper:AddTrans("koKR", "LID_EVENT_INVALID_DATE", "올바른 날짜(YYYY-MM-DD)와 시간(HH:MM)을 입력하세요.")
+GuildHelper:AddTrans("koKR", "LID_EVENT_INVITEALL", "수락자 초대")
 GuildHelper:AddTrans("koKR", "LID_EVENT_RESPONSES", "응답")
 GuildHelper:AddTrans("koKR", "LID_EVENT_ROLE", "역할")
 GuildHelper:AddTrans("koKR", "LID_EVENT_RSVP_NOTE", "응답 메모")

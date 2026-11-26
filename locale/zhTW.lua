@@ -75,6 +75,7 @@ GuildHelper:AddTrans("zhTW", "LID_EVENT_ICON_SEARCH", "依名稱或檔案 ID 搜
 GuildHelper:AddTrans("zhTW", "LID_EVENT_IMPORT", "從魔獸世界行事曆匯入")
 GuildHelper:AddTrans("zhTW", "LID_EVENT_INFO", "資訊")
 GuildHelper:AddTrans("zhTW", "LID_EVENT_INVALID_DATE", "請輸入有效的日期（YYYY-MM-DD）與時間（HH:MM）。")
+GuildHelper:AddTrans("zhTW", "LID_EVENT_INVITEALL", "邀請已接受者")
 GuildHelper:AddTrans("zhTW", "LID_EVENT_RESPONSES", "報名回覆")
 GuildHelper:AddTrans("zhTW", "LID_EVENT_ROLE", "角色職責")
 GuildHelper:AddTrans("zhTW", "LID_EVENT_RSVP_NOTE", "報名備註")

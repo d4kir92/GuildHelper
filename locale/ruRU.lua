@@ -75,6 +75,7 @@ GuildHelper:AddTrans("ruRU", "LID_EVENT_ICON_SEARCH", "Поиск по имен�
 GuildHelper:AddTrans("ruRU", "LID_EVENT_IMPORT", "Импорт из календаря WoW")
 GuildHelper:AddTrans("ruRU", "LID_EVENT_INFO", "Информация")
 GuildHelper:AddTrans("ruRU", "LID_EVENT_INVALID_DATE", "Укажите корректную дату (ГГГГ-ММ-ДД) и время (ЧЧ:ММ).")
+GuildHelper:AddTrans("ruRU", "LID_EVENT_INVITEALL", "Пригласить принявших")
 GuildHelper:AddTrans("ruRU", "LID_EVENT_RESPONSES", "Ответы")
 GuildHelper:AddTrans("ruRU", "LID_EVENT_ROLE", "Роль")
 GuildHelper:AddTrans("ruRU", "LID_EVENT_RSVP_NOTE", "Комментарий к ответу")

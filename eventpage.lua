@@ -298,6 +298,9 @@ function Events:BuildDetail(panel)
         button:SetPoint("TOPLEFT", 16 + (index - 1) * 125, -168)
         detail.statuses[status] = button
     end
+    detail.inviteAll = self:Button(detail, "LID_EVENT_INVITEALL", 170, function() self:InviteAll(self.selected) end, true)
+    detail.inviteAll:SetPoint("TOPRIGHT", -16, -168)
+    detail.inviteAll:Hide()
     detail.list = self:List(detail, "LID_FBDETAIL")
     detail.list:SetPoint("TOPLEFT", 8, -208)
     detail.list:SetPoint("BOTTOMRIGHT", -8, 54)
@@ -320,6 +323,62 @@ function Events:BuildDetail(panel)
     end)
     send:SetEnabled(false)
     detail:Hide()
+end
+
+function Events:StartStamp(event)
+    local year, month, day, hour, minute = (event and event.when or ""):match("^(%d+)%-(%d+)%-(%d+) (%d+):(%d+)$")
+    if not year then return end
+    return time({year = tonumber(year), month = tonumber(month), day = tonumber(day), hour = tonumber(hour), min = tonumber(minute), sec = 0})
+end
+
+function Events:InviteOpen(event)
+    local start = self:StartStamp(event)
+    if not start or not Members:GetGroupInviteMode() then return false end
+    local now = time(self:GetClock())
+    return now >= start - 1800 and now <= start + 21600
+end
+
+function Events:InviteTarget(row)
+    if not row or self:IsOwn(row) then return end
+    local member = Members:FindByName(row.name)
+    if member and (not member.online or Members:IsSelf(member)) then return end
+    return member and member.name or row.name
+end
+
+function Events:InviteAll(id)
+    local bucket = self:Get(id)
+    if not bucket then return end
+    local queue = {}
+    for _, row in pairs(bucket.responses) do
+        local target = row.status == "A" and self:InviteTarget(row)
+        if target then tinsert(queue, target) end
+    end
+    self.inviteQueue, self.inviteUntil = queue, GetTime() + 90
+    self:ProcessInvites()
+end
+
+function Events:ProcessInvites()
+    local queue = self.inviteQueue
+    if not queue then return end
+    if #queue == 0 or GetTime() > self.inviteUntil or not Members:GetGroupInviteMode() then
+        self.inviteQueue = nil
+        return
+    end
+    local count = IsInRaid() and 40 or #queue
+    if not IsInRaid() then
+        if not IsInGroup() then
+            count = min(#queue, 4)
+        elseif GetNumGroupMembers() + #queue > 5 then
+            if UnitIsGroupLeader("player") then
+                if C_PartyInfo and C_PartyInfo.ConvertToRaid then C_PartyInfo.ConvertToRaid() elseif ConvertToRaid then ConvertToRaid() end
+            end
+            return
+        end
+    end
+    for _ = 1, min(count, #queue) do
+        Members:InviteName(table.remove(queue, 1))
+    end
+    if #queue == 0 then self.inviteQueue = nil end
 end
 
 function Events:Select(id)
@@ -385,10 +444,21 @@ function Events:RefreshDetail()
         if a.revision ~= b.revision then return a.revision < b.revision end
         return a.comment < b.comment
     end)
+    local inviteOpen = self:InviteOpen(event)
+    detail.inviteOpen = inviteOpen
+    local canInviteAll = false
     for _, row in ipairs(responses) do
         local meta = "  ·  " .. GuildHelper:Trans(self.roles[row.role]) .. "  ·  " .. GuildHelper:Trans(self.responded[row.status])
-        tinsert(items, {author = row, meta = meta, text = row.text})
+        local item = {author = row, meta = meta, text = row.text}
+        local target = inviteOpen and row.status ~= "D" and self:InviteTarget(row)
+        if target then
+            if row.status == "A" then canInviteAll = true end
+            item.tooltip = GuildHelper:Trans(Members:GetInviteLabel())
+            item.action = function() Members:InviteName(target) end
+        end
+        tinsert(items, item)
     end
+    detail.inviteAll:SetShown(canInviteAll)
     tinsert(items, {text = GuildHelper:Trans("LID_FBCOMMENTS"), color = "accent"})
     if #comments == 0 then tinsert(items, {text = GuildHelper:Trans("LID_FBNOCOMMENTS"), color = "muted"}) end
     for _, row in ipairs(comments) do
@@ -474,6 +544,21 @@ for _, event in ipairs({"GUILD_ROSTER_UPDATE", "INITIAL_CLUBS_LOADED", "CLUB_MEM
         pcall(roster.RegisterEvent, roster, event)
     end
 end
+local invites = CreateFrame("Frame")
+invites:RegisterEvent("GROUP_ROSTER_UPDATE")
+invites:SetScript("OnEvent", function()
+    if Events.inviteQueue then C_Timer.After(0.5, function() Events:ProcessInvites() end) end
+end)
+local inviteCheck = 0
+invites:SetScript("OnUpdate", function(_, elapsed)
+    inviteCheck = inviteCheck + elapsed
+    if inviteCheck < 15 then return end
+    inviteCheck = 0
+    local detail = Events.detail
+    if not detail or not detail:IsVisible() or not detail.event then return end
+    local bucket = Events:Get(detail.event)
+    if bucket and Events:InviteOpen(bucket.event) ~= detail.inviteOpen then Events:RefreshDetail() end
+end)
 roster:SetScript("OnEvent", function()
     if Events.content and Events.content:IsVisible() and IsInGuild() then
         Members:Scan()

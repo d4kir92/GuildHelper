@@ -75,6 +75,7 @@ GuildHelper:AddTrans("esMX", "LID_EVENT_ICON_SEARCH", "Buscar por nombre o ID de
 GuildHelper:AddTrans("esMX", "LID_EVENT_IMPORT", "Importar del calendario de WoW")
 GuildHelper:AddTrans("esMX", "LID_EVENT_INFO", "Información")
 GuildHelper:AddTrans("esMX", "LID_EVENT_INVALID_DATE", "Ingresa una fecha válida (AAAA-MM-DD) y una hora (HH:MM).")
+GuildHelper:AddTrans("esMX", "LID_EVENT_INVITEALL", "Invitar aceptados")
 GuildHelper:AddTrans("esMX", "LID_EVENT_RESPONSES", "Respuestas")
 GuildHelper:AddTrans("esMX", "LID_EVENT_ROLE", "Rol")
 GuildHelper:AddTrans("esMX", "LID_EVENT_RSVP_NOTE", "Comentario de respuesta")

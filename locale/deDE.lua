@@ -75,6 +75,7 @@ GuildHelper:AddTrans("deDE", "LID_EVENT_ICON_SEARCH", "Nach Name oder Datei-ID s
 GuildHelper:AddTrans("deDE", "LID_EVENT_IMPORT", "Aus WoW-Kalender übernehmen")
 GuildHelper:AddTrans("deDE", "LID_EVENT_INFO", "Info")
 GuildHelper:AddTrans("deDE", "LID_EVENT_INVALID_DATE", "Gib ein gültiges Datum (JJJJ-MM-TT) und eine Uhrzeit (HH:MM) ein.")
+GuildHelper:AddTrans("deDE", "LID_EVENT_INVITEALL", "Zusagen einladen")
 GuildHelper:AddTrans("deDE", "LID_EVENT_RESPONSES", "Rückmeldungen")
 GuildHelper:AddTrans("deDE", "LID_EVENT_ROLE", "Rolle")
 GuildHelper:AddTrans("deDE", "LID_EVENT_RSVP_NOTE", "Kommentar zur Rückmeldung")

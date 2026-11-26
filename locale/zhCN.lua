@@ -75,6 +75,7 @@ GuildHelper:AddTrans("zhCN", "LID_EVENT_ICON_SEARCH", "按名称或文件 ID 搜
 GuildHelper:AddTrans("zhCN", "LID_EVENT_IMPORT", "从魔兽世界日历导入")
 GuildHelper:AddTrans("zhCN", "LID_EVENT_INFO", "详情")
 GuildHelper:AddTrans("zhCN", "LID_EVENT_INVALID_DATE", "请输入有效的日期（YYYY-MM-DD）和时间（HH:MM）。")
+GuildHelper:AddTrans("zhCN", "LID_EVENT_INVITEALL", "邀请已接受者")
 GuildHelper:AddTrans("zhCN", "LID_EVENT_RESPONSES", "报名回复")
 GuildHelper:AddTrans("zhCN", "LID_EVENT_ROLE", "职责")
 GuildHelper:AddTrans("zhCN", "LID_EVENT_RSVP_NOTE", "报名备注")

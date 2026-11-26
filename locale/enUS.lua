@@ -75,6 +75,7 @@ GuildHelper:AddTrans("enUS", "LID_EVENT_ICON_SEARCH", "Search by name or file ID
 GuildHelper:AddTrans("enUS", "LID_EVENT_IMPORT", "Import from WoW calendar")
 GuildHelper:AddTrans("enUS", "LID_EVENT_INFO", "Info")
 GuildHelper:AddTrans("enUS", "LID_EVENT_INVALID_DATE", "Enter a valid date (YYYY-MM-DD) and time (HH:MM).")
+GuildHelper:AddTrans("enUS", "LID_EVENT_INVITEALL", "Invite accepted")
 GuildHelper:AddTrans("enUS", "LID_EVENT_RESPONSES", "Responses")
 GuildHelper:AddTrans("enUS", "LID_EVENT_ROLE", "Role")
 GuildHelper:AddTrans("enUS", "LID_EVENT_RSVP_NOTE", "Response comment")
