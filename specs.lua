@@ -286,6 +286,62 @@ function Specs:SetMain(value)
     GuildHelper.Sync:SendSpecs()
 end
 
+Specs.MAXACCOUNTCHARS = 40
+function Specs:GetAccountChars()
+    GHTAB = GHTAB or {}
+    GHTAB.ACCOUNTCHARS = GHTAB.ACCOUNTCHARS or {}
+
+    return GHTAB.ACCOUNTCHARS
+end
+
+function Specs:RecordCharacter()
+    local sync = GuildHelper.Sync
+    local guildKey, name = sync:GetGuildKey(), sync:GetOwnName()
+    if not guildKey or type(name) ~= "string" or name == "" or name:find("[~|,]") then return end
+    local key = sync:GetKey(name)
+    local all = self:GetAccountChars()
+    for otherGuild, chars in pairs(all) do
+        if otherGuild ~= guildKey then
+            chars[key] = nil
+            if not next(chars) then all[otherGuild] = nil end
+        end
+    end
+
+    all[guildKey] = all[guildKey] or {}
+    all[guildKey][key] = {name = name, seen = time()}
+end
+
+function Specs:GetAccountNames(inGuild)
+    local guildKey = GuildHelper.Sync:GetGuildKey()
+    local chars = guildKey and self:GetAccountChars()[guildKey] or {}
+    local list = {}
+    for _, char in pairs(chars) do
+        if not inGuild or inGuild(char.name) then tinsert(list, char) end
+    end
+    table.sort(list, function(a, b) return a.seen > b.seen end)
+    local names, size = {}, 2
+    for _, char in ipairs(list) do
+        if #names >= self.MAXACCOUNTCHARS or size + #char.name + 1 > 255 then break end
+        tinsert(names, char.name)
+        size = size + #char.name + 1
+    end
+
+    table.sort(names)
+
+    return names
+end
+
+function Specs:ParseAccountNames(payload)
+    if type(payload) ~= "string" or #payload > 253 or payload:find("[~|]") then return nil end
+    local names = {}
+    for name in payload:gmatch("[^,]+") do
+        if #name > 48 or #names >= self.MAXACCOUNTCHARS then return nil end
+        tinsert(names, name)
+    end
+
+    return names
+end
+
 function Specs:GetRoleLabel(role)
     local entry = self:GetRole(role)
 

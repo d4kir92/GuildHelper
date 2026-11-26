@@ -12,7 +12,7 @@ Sync.tokens = Sync.BURST
 Sync.queue = {}
 Sync.pump = CreateFrame("Frame")
 Sync.pump:SetScript("OnUpdate", function(_, elapsed) Sync:Pump(elapsed) end)
-Sync.GUILDTABLES = {"MEMBERDATA", "FEEDBACK", "ORDERS", "EVENTS", "GROUPS", "BRIDGE", "BRIDGEDATA", "MAINS", "ONLINEHISTORY"}
+Sync.GUILDTABLES = {"MEMBERDATA", "FEEDBACK", "ORDERS", "EVENTS", "GROUPS", "BRIDGE", "BRIDGEDATA", "MAINS", "ONLINEHISTORY", "ACCOUNTCHARS"}
 Sync.CHARTABLES = {"FEEDBACKUNREAD", "GROUPSVIEWED", "BANK"}
 Sync.migrated = {}
 function Sync:GetGuildKey()
@@ -421,6 +421,35 @@ function Sync:SendSpecs()
     local main = GuildHelper.Specs:GetMainName()
     self:Trace("Gespeicherter Main:", main or "(leer)", "Gilde:", self:GetGuildKey() or "(keine)")
     self:Send("M~" .. (main or ""), "M")
+    GuildHelper.Specs:RecordCharacter()
+    self:SendAccount(true)
+end
+
+function Sync:GetRosterKeys()
+    local total = GetNumGuildMembers() or 0
+    if total == 0 then return nil end
+    local keys = {}
+    for index = 1, total do
+        local name = GetGuildRosterInfo(index)
+        if not GuildHelper:CanAccessValue(name) or type(name) ~= "string" then return nil end
+        keys[self:GetKey(name)] = true
+    end
+
+    return keys
+end
+
+function Sync:SendAccount(force)
+    local roster = IsInGuild() and self:GetRosterKeys()
+    if not roster then return end
+    local names = GuildHelper.Specs:GetAccountNames(function(char) return roster[self:GetKey(char)] == true end)
+    local name = self:GetOwnName()
+    local entry = name and self:GetData(name)
+    if entry then entry.account = names end
+    local text = table.concat(names, ",")
+    local changed = text ~= self.lastAccount
+    self.lastAccount = text
+    if #names < 2 or (not force and not changed) then return end
+    self:Send("A~" .. text, "A")
 end
 
 function Sync:Parse(shortName, message, own)
@@ -631,6 +660,13 @@ function Sync:OnMessage(message, channel, sender)
             self:Trace("M empfangen:", shortName, "Main:", entry.main ~= "" and entry.main or "(leer)")
             self:Notify()
         end
+    elseif kind == "A" then
+        local names = strsub(message, 2, 2) == "~" and GuildHelper.Specs:ParseAccountNames(strsub(message, 3))
+        local entry = names and self:GetEntry(shortName)
+        if entry then
+            entry.account = names
+            self:Notify()
+        end
     elseif kind == "R" then
         if #message > 36 then return end
         local race, sex = message:match("^R~([a-z]+)~([23])$")
@@ -686,13 +722,18 @@ function Sync:Init()
     events:RegisterUnitEvent("UNIT_INVENTORY_CHANGED", "player")
     events:RegisterEvent("SKILL_LINES_CHANGED")
     events:RegisterEvent("PLAYER_GUILD_UPDATE")
-    if GuildHelper:IsForever() then events:RegisterEvent("GUILD_ROSTER_UPDATE") end
+    events:RegisterEvent("GUILD_ROSTER_UPDATE")
     events:SetScript("OnEvent", function(_, event, prefix, message, channel, sender)
         if event == "CHAT_MSG_ADDON" then
             if prefix == Sync.PREFIX then Sync:OnMessage(message, channel, sender) end
         elseif event == "GUILD_ROSTER_UPDATE" then
             if GuildHelper.Specs:MigrateMain() then Sync:SendSpecs() end
+            if Sync.lastAccount == nil then
+                GuildHelper.Specs:RecordCharacter()
+                Sync:SendAccount()
+            end
         else
+            if event == "PLAYER_GUILD_UPDATE" then Sync.lastAccount = nil end
             if event == "SKILL_LINES_CHANGED" and GuildHelper.Recipes then
                 local name = Sync:GetOwnName()
                 local entry = name and Sync:GetData(name)

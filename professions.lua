@@ -149,6 +149,16 @@ function Professions:ShowRows(panel, entries, onClick, selected, splits)
                 Members:FillAvatar(row.avatar, entry.member, Members:GetData(entry.member), r, g, b)
             end
             if row.avatar then row.avatar:SetShown(entry.member ~= nil) end
+            row.member = entry.member
+            if entry.member and not row.memberTip then
+                row.memberTip = true
+                row:HookScript("OnEnter", function(button)
+                    if button.member then Members:ShowTooltip(button) end
+                end)
+                row:HookScript("OnLeave", function(button)
+                    if button.member and GameTooltip:IsOwned(button) then GameTooltip:Hide() end
+                end)
+            end
             row:SetScript("OnClick", function(button)
                 if Recipes.LinkClick(button) then return end
                 onClick(entry.key)
@@ -311,6 +321,7 @@ function Professions:Update()
     page.baseNotice = notice
     self:UpdateRequestNotice()
     page.whisper:SetEnabled(page.member ~= nil and not Members:IsSelf(page.member))
+    self:UpdateWhisperAlt(page)
     self:ShowRows(page.filters, filters, function(key)
         page.filter = key
         if page.results then page.results.scroll:SetVerticalScroll(0) end
@@ -392,8 +403,26 @@ end
 function Professions:ResizeDetails(page, pageWidth)
     local width = page.byRecipe:GetChecked() and 244 or max(310, floor(pageWidth * 0.48))
     page.details:SetWidth(width)
-    page.whisper:SetWidth(width)
     page.order:SetWidth(width)
+    page.buttonWidth = width
+    self:LayoutWhisper(page)
+end
+
+function Professions:LayoutWhisper(page)
+    local width = page.buttonWidth or page.whisper:GetWidth()
+    local alt = page.whisperAlt and page.whisperAlt.target
+    local half = floor((width - 6) / 2)
+    page.whisper:SetWidth(alt and half or width)
+    if not page.whisperAlt then return end
+    page.whisperAlt:SetShown(alt ~= nil)
+    page.whisperAlt:SetWidth(width - 6 - half)
+end
+
+function Professions:UpdateWhisperAlt(page)
+    local alt = Members:GetOnlineAlt(page.member)
+    page.whisperAlt.target = alt
+    if alt then page.whisperAlt.text:SetText(format(GuildHelper:Trans("LID_WHISPERALT"), Members:ColoredName(alt))) end
+    self:LayoutWhisper(page)
 end
 
 function Professions:ShowPlayerRecipes(page, selected)
@@ -661,6 +690,18 @@ function Professions:Build(content)
     page.whisper = Members:CreateButton(page, "LID_WHISPER", true)
     page.whisper:SetPoint("BOTTOMRIGHT")
     page.whisper:SetScript("OnClick", function() Members:Whisper(page.member) end)
+    page.whisperAlt = Members:CreateButton(page, "LID_WHISPER")
+    page.whisperAlt.text.ghTrans = nil
+    page.whisperAlt:SetPoint("RIGHT", page.whisper, "LEFT", -6, 0)
+    page.whisperAlt:SetScript("OnClick", function(button) Members:Whisper(button.target) end)
+    page.whisperAlt:HookScript("OnEnter", function(button)
+        if not button.target then return end
+        GameTooltip:SetOwner(button, "ANCHOR_TOP")
+        GameTooltip:SetText(format(GuildHelper:Trans("LID_WHISPERALTTIP"), page.member and page.member.short or "", button.target.short), 1, 1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    page.whisperAlt:HookScript("OnLeave", function() GameTooltip:Hide() end)
+    page.whisperAlt:Hide()
     page.order = Members:CreateButton(page, "LID_ORDER_NEW", true)
     page.order:SetPoint("BOTTOMRIGHT", page.whisper, "TOPRIGHT", 0, 4)
     page.order:SetScript("OnClick", function()

@@ -209,6 +209,65 @@ function Members:GetDeclaredMain(member, byName, byFirstName)
     return byName[key]
 end
 
+function Members:GetAccountGroups(byName)
+    local parent = {}
+    local function find(member)
+        while parent[member] and parent[member] ~= member do member = parent[member] end
+
+        return member
+    end
+
+    for _, member in ipairs(self.list) do
+        local data = self:GetData(member)
+        for _, name in ipairs(data and data.account or {}) do
+            local other = byName[GuildHelper.Sync:GetKey(name)]
+            if other and other ~= member then
+                parent[member] = parent[member] or member
+                parent[other] = parent[other] or other
+                local a, b = find(member), find(other)
+                if a ~= b then parent[b] = a end
+            end
+        end
+    end
+
+    local groups = {}
+    for member in pairs(parent) do
+        local root = find(member)
+        groups[root] = groups[root] or {}
+        tinsert(groups[root], member)
+    end
+
+    return groups
+end
+
+function Members:LinkAccounts(byName)
+    for _, group in pairs(self:GetAccountGroups(byName)) do
+        local main
+        for _, member in ipairs(group) do
+            if member.declaredMain then main = member end
+        end
+
+        if not main then
+            for _, member in ipairs(group) do
+                if member.main and member.main.main == nil then
+                    for _, other in ipairs(group) do
+                        if other == member.main then main = other end
+                    end
+                end
+            end
+        end
+
+        table.sort(group, function(a, b) return a.key < b.key end)
+        for _, member in ipairs(group) do
+            if main then
+                member.main = member ~= main and main or nil
+            else
+                member.accountGroup = group
+            end
+        end
+    end
+end
+
 function Members:LinkMains()
     local byName = {}
     local byFirstName
@@ -232,6 +291,7 @@ function Members:LinkMains()
         member.main = nil
         member.alts = nil
         member.declaredMain = false
+        member.accountGroup = nil
     end
 
     for _, member in ipairs(self.list) do
@@ -243,6 +303,8 @@ function Members:LinkMains()
             member.main = self:FindMainInNote(member, member.note, byName) or self:FindMainInNote(member, member.officerNote, byName)
         end
     end
+
+    self:LinkAccounts(byName)
 
     for _, member in ipairs(self.list) do
         local main = member.main
@@ -1368,7 +1430,53 @@ function Members:ShowTooltip(row)
     if layer then GameTooltip:AddDoubleLine(GuildHelper:Trans("LID_LAYER"), layer, 0.7, 0.7, 0.7, 1, 1, 1) end
     if member.note ~= "" then GameTooltip:AddDoubleLine(GuildHelper:Trans("LID_NOTE"), member.note, 0.7, 0.7, 0.7, 1, 1, 1) end
     if member.officerNote ~= "" then GameTooltip:AddDoubleLine(GuildHelper:Trans("LID_OFFICERNOTE"), member.officerNote, 0.7, 0.7, 0.7, 1, 1, 1) end
+    self:AddOtherCharacters(member)
     GameTooltip:Show()
+end
+
+function Members:GetOtherCharacters(member)
+    local main = member.main or member
+    local list = {}
+    if main ~= member then tinsert(list, main) end
+    for _, alt in ipairs(main.alts or {}) do
+        if alt ~= member then tinsert(list, alt) end
+    end
+
+    if #list == 0 then
+        for _, other in ipairs(member.accountGroup or {}) do
+            if other ~= member then tinsert(list, other) end
+        end
+    end
+
+    table.sort(list, function(a, b)
+        if a.online ~= b.online then return a.online == true end
+
+        return a.key < b.key
+    end)
+
+    return list
+end
+
+function Members:GetOnlineAlt(member)
+    if member == nil or member.online then return nil end
+    for _, other in ipairs(self:GetOtherCharacters(member)) do
+        if other.online and not self:IsSelf(other) then return other end
+    end
+end
+
+function Members:AddOtherCharacters(member)
+    local others = self:GetOtherCharacters(member)
+    if #others == 0 then return end
+    GameTooltip:AddLine(" ")
+    GameTooltip:AddLine(GuildHelper:Trans("LID_OTHERCHARS"), 0.7, 0.7, 0.7)
+    for _, other in ipairs(others) do
+        local label = self:ColoredName(other) .. (other.level and ("  |cffaaaaaa" .. other.level .. "|r") or "")
+        if other.online then
+            GameTooltip:AddDoubleLine(label, GuildHelper:Trans("LID_ONLINE"), 1, 1, 1, 0.3, 0.9, 0.3)
+        else
+            GameTooltip:AddLine(label, 1, 1, 1)
+        end
+    end
 end
 
 function Members:OpenPlayerMenu(member, anchor)
