@@ -1848,6 +1848,16 @@ function Members:CreateButton(parent, label, primary)
         return native
     end
 
+    if Theme:IsDaylight() then
+        local api = Theme:GetDaylightAPI()
+        local daylight = api.Button(parent, "", 32)
+        daylight:SetWidth(90)
+        Theme:SetTrans(daylight.text, label)
+        if primary and api.MainButton then api.MainButton(daylight, true) end
+
+        return daylight
+    end
+
     local button = CreateFrame("Button", nil, parent)
     button:SetSize(90, 32)
     if primary then

@@ -101,15 +101,33 @@ function Groups:QueueAnnouncement(entry)
     end
 end
 
-function Groups:TickAnnouncements()
+function Groups:NeedsClickToPost()
+    return self.chatNeedsClick == true or C_RestrictedActions ~= nil
+end
+
+function Groups:IsChatRestricted()
+    if InCombatLockdown() then return true end
+    if C_ChatInfo and C_ChatInfo.InChatMessagingLockdown and C_ChatInfo.InChatMessagingLockdown() then return true end
+    local restricted = C_RestrictedActions and C_RestrictedActions.IsAddOnRestrictionActive
+    if restricted and Enum and Enum.AddOnRestrictionType then
+        for _, value in pairs(Enum.AddOnRestrictionType) do
+            if restricted(value) then return true end
+        end
+    end
+
+    return false
+end
+
+function Groups:TickAnnouncements(timed)
     if not self.guild or self:GetChatCooldown() > 0 then return end
     if C_GuildInfo and C_GuildInfo.CanSpeakInGuildChat and not C_GuildInfo.CanSpeakInGuildChat() then return end
-    if C_ChatInfo and C_ChatInfo.InChatMessagingLockdown and C_ChatInfo.InChatMessagingLockdown() then return end
+    if self:IsChatRestricted() then return end
     local now, clock = time(), GetTime()
     local selected, oldest, text, liveState
+    local prompt = timed and self:NeedsClickToPost()
 
     local last = GuildHelper:GetConfig("GROUPCHATLAST", 0)
-    if now - last >= 120 then
+    if now - last >= 120 and not (prompt and self.planPromptAt and clock - self.planPromptAt < 120) then
         for _, entry in pairs(self:GetPlanned() or {}) do
             if self:IsOwn(entry) and entry.chatPending then
                 self.announcements[entry.key] = self.announcements[entry.key] or {queued = clock}
@@ -131,7 +149,8 @@ function Groups:TickAnnouncements()
             if self:IsOwn(live) and (not selected or (live.lastChatAt or 0) < (selected.lastChatAt or 0)) then
                 local candidate = self:AnnouncementText(live)
                 local state = self:GetLiveChatState(live, candidate)
-                if self:GetLiveAnnouncementDelay(live, state, clock, now) == 0 then
+                local prompted = prompt and live.chatPromptState == state and clock - (live.chatPromptAt or 0) < (live.chatRepeatMinutes or self.DEFAULTCHATREPEATMINUTES) * 60
+                if not prompted and self:GetLiveAnnouncementDelay(live, state, clock, now) == 0 then
                     selected, text, liveState = live, candidate, state
                 end
             end
@@ -139,10 +158,41 @@ function Groups:TickAnnouncements()
     end
 
     if not selected then return end
+    if prompt then
+        self:PromptAnnouncement(selected, liveState, clock)
+        return
+    end
+    self:SendAnnouncement(selected, text, liveState)
+end
+
+function Groups:PromptAnnouncement(entry, state, clock)
+    if entry.kind == "P" then
+        self.planPromptAt = clock
+    else
+        entry.chatPromptAt, entry.chatPromptState = clock, state
+    end
+    if GuildHelper.Notifications then GuildHelper.Notifications:Repost(entry.key) end
+end
+
+function Groups:PostNow(key)
+    local entry = self:Find(key)
+    if not entry or not self:IsOwn(entry) then return end
+    if self:GetChatCooldown() > 0 or self:IsChatRestricted() then
+        UIErrorsFrame:AddMessage(GuildHelper:Trans("LID_GROUPREPOSTLATER"), 1, 0.3, 0.3)
+        return
+    end
+    local text = self:AnnouncementText(entry)
+    self:SendAnnouncement(entry, text, entry.kind ~= "P" and self:GetLiveChatState(entry, text) or nil)
+    self:Refresh()
+end
+
+function Groups:SendAnnouncement(selected, text, liveState)
+    local now, clock = time(), GetTime()
     local send = C_ChatInfo and C_ChatInfo.SendChatMessage or SendChatMessage
     if not send then return end
     text = text or self:AnnouncementText(selected)
     if #text > 255 then return end
+    self.chatSendingAt = clock
     send(text, "GUILD")
     GuildHelper:SetConfig("GROUPCHATLAST", now)
     self.lastChatSend = clock
@@ -257,3 +307,10 @@ function Groups:RegisterChatRoleIcons()
 end
 
 Groups:RegisterChatRoleIcons()
+
+Groups.chatGuard = CreateFrame("Frame")
+Groups.chatGuard:RegisterEvent("ADDON_ACTION_BLOCKED")
+Groups.chatGuard:SetScript("OnEvent", function(_, _, addon)
+    if addon ~= "GuildHelper" or not Groups.chatSendingAt or GetTime() - Groups.chatSendingAt > 2 then return end
+    Groups.chatNeedsClick = true
+end)

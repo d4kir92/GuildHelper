@@ -1,6 +1,8 @@
 local _, GuildHelper = ...
 local Notifications = {queue = {}, seen = {}, started = time()}
-Notifications.NEW_TYPES = {"NEWLIVE", "NEWPLANNED", "NEWIDEA", "NEWBUG"}
+Notifications.ADDED = "2026-11-26"
+Notifications.NEW_TYPES = {"NEWLIVE", "NEWPLANNED", "APPLICATION", "NEWIDEA", "NEWBUG"}
+Notifications.GROUPS = {{label = "LID_GROUPFINDER", kinds = {"NEWLIVE", "NEWPLANNED", "APPLICATION"}}, {label = "LID_FEEDBACK", kinds = {"NEWIDEA", "NEWBUG"}}}
 GuildHelper.Notifications = Notifications
 
 function Notifications:GetDisplayTime()
@@ -66,6 +68,13 @@ function Notifications:Create()
         local feedback = GuildHelper.Feedback
         if notice.debug then
             GuildHelper:MSG(notice.title .. (notice.setting and (" -> " .. notice.setting .. " = " .. tostring(self:IsEnabled(notice.setting))) or ""))
+            if notice.page then
+                GuildHelper.Window:SelectPage(notice.page)
+                GuildHelper.Window.frame:Show()
+            end
+        elseif notice.repost then
+            local entry = GuildHelper.Groups:Find(notice.repost)
+            if entry then GuildHelper.Groups:OpenListing(entry) end
         elseif notice.log then
             GuildHelper.Window:SelectPage("log")
             GuildHelper.Window.frame:Show()
@@ -88,19 +97,28 @@ function Notifications:Create()
         end
         self:Dismiss()
     end)
-    frame.openGroups = GuildHelper.Members:CreateButton(frame, "LID_GROUPFINDER")
-    frame.openGroups:SetWidth(160)
-    frame.openGroups:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -14, 10)
-    frame.openGroups:SetScript("OnClick", frame:GetScript("OnClick"))
-    frame.openGroups:Hide()
-    frame.mute = GuildHelper.Settings:CreateCheck(frame)
-    frame.mute:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 12, 12)
-    frame.mute:SetScript("OnClick", function(sel) self:ToggleCurrentSetting(sel) end)
-    frame.muteText = Theme:Text(frame, 12, "muted")
-    frame.muteText:SetPoint("LEFT", frame.mute, "RIGHT", 6, 0)
-    frame.muteText:SetPoint("RIGHT", frame, "RIGHT", -14, 0)
-    frame.muteText:SetJustifyH("LEFT")
-    Theme:SetTrans(frame.muteText, "LID_NOTIFICATIONMUTE")
+    frame.open = GuildHelper.Members:CreateButton(frame, "LID_GROUPFINDER")
+    frame.open:SetWidth(160)
+    frame.open:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -14, 10)
+    local openPage = frame:GetScript("OnClick")
+    frame.open:SetScript("OnClick", function()
+        local notice = not self.editing and self.current
+        if notice and notice.repost then
+            GuildHelper.Groups:PostNow(notice.repost)
+            self:Dismiss()
+        elseif notice and notice.debug and notice.action then
+            GuildHelper:MSG(notice.title .. " -> " .. GuildHelper:Trans(notice.action))
+            self:Dismiss()
+        else
+            openPage(frame)
+        end
+    end)
+    frame.open:Hide()
+    frame.mute = GuildHelper.Members:CreateButton(frame, "LID_NOTIFICATIONMUTE")
+    frame.mute:SetWidth(150)
+    frame.mute:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 14, 10)
+    frame.mute:SetScript("OnClick", function() self:MuteCurrent() end)
+    frame.mute:Hide()
     self:RestorePosition()
     frame:Hide()
 end
@@ -115,25 +133,55 @@ function Notifications:IsEnabled(setting)
     return GuildHelper:GetConfig(setting, true) == true
 end
 
-function Notifications:ToggleCurrentSetting(check)
+function Notifications:MuteCurrent()
     local setting = self.current and self.current.setting
     if not setting then return end
-    local enabled = not self:IsEnabled(setting)
-    GuildHelper:SetConfig(setting, enabled)
-    check:SetChecked(not enabled)
-    self.expires = self:GetDisplayTime() + 8
-    if GuildHelper.Settings.notificationRows then GuildHelper.Settings:UpdateMap() end
+    if not StaticPopupDialogs or not StaticPopup_Show then
+        self:ApplyMute(setting)
+        return
+    end
+    StaticPopupDialogs.GUILDHELPER_NOTIFYMUTE = {
+        text = GuildHelper:Trans("LID_NOTIFICATIONMUTECONFIRM"),
+        button1 = YES,
+        button2 = NO,
+        OnAccept = function() Notifications:ApplyMute(setting) end,
+        OnHide = function() Notifications.confirming = nil end,
+        timeout = 0,
+        whileDead = true,
+        hideOnEscape = true,
+        preferredIndex = 3,
+    }
+    self.confirming = true
+    StaticPopup_Show("GUILDHELPER_NOTIFYMUTE", self.frame.title:GetText() or "")
 end
 
-function Notifications:ShowGroupAction(shown)
+function Notifications:ApplyMute(setting)
+    GuildHelper:SetConfig(setting, false)
+    if GuildHelper.Settings.notificationRows then GuildHelper.Settings:UpdateMap() end
+    if self.current and self.current.setting == setting then self:Dismiss() end
+end
+
+function Notifications:GetPageLabel(page)
+    for _, nav in ipairs(GuildHelper.Window.NAV) do
+        if nav.key == page then return nav.label end
+    end
+
+    return nil
+end
+
+function Notifications:ShowActions(page, action)
     local frame = self.frame
-    local setting = not shown and not self.editing and self.current and self.current.setting
-    frame.openGroups:SetShown(shown)
-    frame.mute:SetShown(setting ~= nil)
-    frame.muteText:SetShown(setting ~= nil)
-    if setting then frame.mute:SetChecked(not self:IsEnabled(setting)) end
-    frame:SetHeight(shown and 142 or (setting and 128 or 100))
-    frame.text:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -14, shown and 50 or (setting and 40 or 12))
+    local muted = not self.editing and self.current ~= nil and self.current.setting ~= nil
+    local label = not self.editing and (action or (page and self:GetPageLabel(page)))
+    if label then
+        GuildHelper.Theme:SetTrans(frame.open.text, label)
+        frame.open:SetWidth(min(170, max(120, ceil(frame.open.text:GetStringWidth()) + 32)))
+    end
+    frame.open:SetShown(label and true or false)
+    frame.mute:SetShown(muted)
+    local row = frame.open:IsShown() or muted
+    frame:SetHeight(row and 142 or 100)
+    frame.text:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -14, row and 50 or 12)
 end
 
 function Notifications:SetEditing(active)
@@ -142,7 +190,7 @@ function Notifications:SetEditing(active)
     self.editing = active == true
     self.dragged = nil
     if self.editing then
-        self:ShowGroupAction(false)
+        self:ShowActions(nil)
         self.frame.title:SetText(GuildHelper:Trans("LID_NOTIFICATIONS"))
         self.frame.text:SetText(GuildHelper:Trans("LID_NOTIFICATIONMOVE"))
         self.frame:Show()
@@ -178,10 +226,20 @@ function Notifications:Enqueue(notice)
     tinsert(self.queue, notice)
 end
 
+function Notifications:Repost(key)
+    local guild = GuildHelper.Sync:GetGuildKey()
+    if not guild or (self.current and self.current.repost == key) then return end
+    for _, queued in ipairs(self.queue) do
+        if queued.repost == key then return end
+    end
+    self:Enqueue({repost = key, guild = guild, queued = self:GetDisplayTime()})
+end
+
 function Notifications:Application(id, applicant, author)
     local guild = GuildHelper.Sync:GetGuildKey()
     if not guild then return end
-    self:Enqueue({id = id, guild = guild, applicant = applicant, author = author, queued = self:GetDisplayTime()})
+    if not self:IsEnabled("NOTIFYAPPLICATION") then return end
+    self:Enqueue({id = id, guild = guild, applicant = applicant, author = author, setting = "NOTIFYAPPLICATION", queued = self:GetDisplayTime()})
 end
 
 function Notifications:NewEntry(id, owner, created, category, group)
@@ -191,8 +249,8 @@ function Notifications:NewEntry(id, owner, created, category, group)
     local key = guild .. ":" .. category .. ":" .. id
     if self.seen[key] then return end
     self.seen[key] = true
-    if not self:IsEnabled(category) then return end
-    self:Enqueue({id = id, guild = guild, category = category, setting = category, group = group, queued = self:GetDisplayTime()})
+    if not self:IsEnabled("NOTIFY" .. category) then return end
+    self:Enqueue({id = id, guild = guild, category = category, setting = "NOTIFY" .. category, group = group, queued = self:GetDisplayTime()})
 end
 
 function Notifications:Comment(id, comment)
@@ -213,7 +271,49 @@ function Notifications:LogEntry(text, setting)
     self:Enqueue({log = text:gsub("|H.-|h(.-)|h", "%1"), guild = guild, setting = setting, queued = self:GetDisplayTime()})
 end
 
-Notifications.DEBUGTYPES = {"NEWLIVE", "NEWPLANNED", "NEWIDEA", "NEWBUG", "LOG", "APPLICATION", "COMMENT"}
+function Notifications:GetDebugSamples()
+    local sample = {author = UnitName("player") or "?", activity = GetZoneText and GetZoneText() or "?", title = GuildHelper:Trans("LID_NOTIFYSAMPLETITLE")}
+    for _, member in ipairs(GuildHelper.Members.list or {}) do
+        if member.online and member.short and not GuildHelper.Members:IsSelf(member) then
+            sample.author = member.short
+            break
+        end
+    end
+
+    local activities = GuildHelper.Groups:GetModeActivities("L")
+    for _, option in ipairs(activities or {}) do
+        if not option.header and option.label then
+            sample.activity = option.label
+            break
+        end
+    end
+
+    local newest
+    local store = GuildHelper.Feedback:GetStore()
+    for _, entry in pairs(store and store.entries or {}) do
+        if not entry.deleted and entry.title and (not newest or (entry.created or 0) > (newest.created or 0)) then newest = entry end
+    end
+    if newest then sample.title = newest.title end
+
+    local Log = GuildHelper.Log
+    local logStore = Log and Log:GetStore()
+    local logEntry
+    for _, entry in pairs(logStore and logStore.entries or {}) do
+        if Log.types[entry.kind] and (not logEntry or (entry.time or 0) > (logEntry.time or 0)) then logEntry = entry end
+    end
+    if logEntry then
+        local definition = Log.types[logEntry.kind]
+        sample.log = Log:FormatEntry(logEntry):gsub("|H.-|h(.-)|h", "%1")
+        sample.logSetting = "NOTIFYLOG" .. strupper(definition.filter or logEntry.kind)
+    else
+        sample.log = format(GuildHelper:Trans("LID_LOGLEVEL"), sample.author, UnitLevel("player") or 1)
+        sample.logSetting = "NOTIFYLOGLEVEL"
+    end
+
+    return sample
+end
+
+Notifications.DEBUGTYPES = {"NEWLIVE", "NEWPLANNED", "NEWIDEA", "NEWBUG", "LOG", "APPLICATION", "COMMENT", "REPOST"}
 function Notifications:Debug(kind)
     kind = strupper(kind or "")
     local list = {}
@@ -226,17 +326,23 @@ function Notifications:Debug(kind)
     end
 
     local guild = GuildHelper.Sync:GetGuildKey()
-    local logOption = GuildHelper.Log and GuildHelper.Log:GetNotifyOptions()[1]
+    local sample = self:GetDebugSamples()
     for _, value in ipairs(list) do
-        local notice = {debug = true, guild = guild, queued = self:GetDisplayTime(), text = GuildHelper:Trans("LID_NOTIFICATIONTEST")}
+        local notice = {debug = true, guild = guild, queued = self:GetDisplayTime()}
         if value == "LOG" then
-            notice.title, notice.setting = GuildHelper:Trans("LID_GUILDLOG"), logOption and logOption.key
+            notice.title, notice.text, notice.setting, notice.page = GuildHelper:Trans("LID_GUILDLOG"), sample.log, sample.logSetting, "log"
         elseif value == "APPLICATION" then
-            notice.title, notice.groupAction = GuildHelper:Trans("LID_NOTIFICATIONAPPLICATION"), true
+            notice.title, notice.page, notice.setting = GuildHelper:Trans("LID_NOTIFICATIONAPPLICATION"), "groups", "NOTIFYAPPLICATION"
+            notice.text = sample.author .. "\n" .. sample.activity
+        elseif value == "REPOST" then
+            notice.title, notice.text, notice.action = GuildHelper:Trans("LID_GROUPREPOSTTITLE"), sample.activity, "LID_GROUPREPOSTNOW"
         elseif value == "COMMENT" then
-            notice.title = GuildHelper:Trans("LID_NOTIFICATIONCOMMENT")
+            notice.title, notice.page = GuildHelper:Trans("LID_NOTIFICATIONCOMMENT"), "feedback"
+            notice.text = format(GuildHelper:Trans("LID_NOTIFICATIONCOMMENTTEXT"), sample.author, sample.title)
         else
-            notice.title, notice.setting = GuildHelper:Trans("LID_NOTIFICATION" .. value), value
+            notice.title, notice.setting = GuildHelper:Trans("LID_NOTIFICATION" .. value), "NOTIFY" .. value
+            notice.page = (value == "NEWLIVE" or value == "NEWPLANNED") and "groups" or "feedback"
+            notice.text = (value == "NEWLIVE" or value == "NEWPLANNED") and sample.activity or sample.title
         end
         tinsert(self.queue, notice)
     end
@@ -258,7 +364,7 @@ function Notifications:Render()
     end
     if self.current.test then
         self:Create()
-        self:ShowGroupAction(false)
+        self:ShowActions(nil)
         self.frame.title:SetText(GuildHelper:Trans("LID_NOTIFICATIONS"))
         self.frame.text:SetText(GuildHelper:Trans("LID_NOTIFICATIONTEST"))
         self.frame:Show()
@@ -266,15 +372,26 @@ function Notifications:Render()
     end
     if self.current.debug then
         self:Create()
-        self:ShowGroupAction(self.current.groupAction == true)
+        self:ShowActions(self.current.page, self.current.action)
         self.frame.title:SetText(self.current.title)
         self.frame.text:SetText(self.current.text)
         self.frame:Show()
         return
     end
+    if self.current.repost then
+        local groups = GuildHelper.Groups
+        local entry = groups:Find(self.current.repost)
+        if not entry or not groups:IsOwn(entry) then self:Dismiss() return end
+        self:Create()
+        self:ShowActions(nil, "LID_GROUPREPOSTNOW")
+        self.frame.title:SetText(GuildHelper:Trans("LID_GROUPREPOSTTITLE"))
+        self.frame.text:SetText(groups:GetActivityName(entry))
+        self.frame:Show()
+        return
+    end
     if self.current.log then
         self:Create()
-        self:ShowGroupAction(false)
+        self:ShowActions("log")
         self.frame.title:SetText(GuildHelper:Trans("LID_GUILDLOG"))
         self.frame.text:SetText(self.current.log)
         self.frame:Show()
@@ -284,7 +401,7 @@ function Notifications:Render()
         local order = GuildHelper.Orders:GetOpenIncoming(self.current.id)
         if not order then self:Dismiss() return end
         self:Create()
-        self:ShowGroupAction(false)
+        self:ShowActions("orders")
         self.frame.title:SetText(GuildHelper:Trans("LID_ORDER_NOTIFICATION"))
         self.frame.text:SetText(GuildHelper.Recipes:Name(order.recipe) .. "\n" .. GuildHelper.Orders:ContactLabel(order.requester, nil, true))
         self.frame:Show()
@@ -296,7 +413,7 @@ function Notifications:Render()
         local entry = source:Find(self.current.id)
         if not entry then self:Dismiss() return end
         self:Create()
-        self:ShowGroupAction(false)
+        self:ShowActions(self.current.group and source:GetPageForMode(source:GetListingMode(entry)) or "feedback")
         self.frame.title:SetText(GuildHelper:Trans("LID_NOTIFICATION" .. self.current.category))
         self.frame.text:SetText(self.current.group and source:GetActivityName(entry) or entry.title)
         self.frame:Show()
@@ -310,7 +427,7 @@ function Notifications:Render()
             return
         end
         self:Create()
-        self:ShowGroupAction(true)
+        self:ShowActions(groups:GetPageForMode(groups:GetListingMode(entry)))
         self.frame.title:SetText(GuildHelper:Trans("LID_NOTIFICATIONAPPLICATION"))
         self.frame.text:SetText(self.current.author .. "\n" .. groups:GetActivityName(entry))
         self.frame:Show()
@@ -319,7 +436,7 @@ function Notifications:Render()
     local entry = GuildHelper.Feedback:Find(self.current.id)
     if not entry or not GuildHelper.Feedback:IsSubscribed(entry) then self:Dismiss() return end
     self:Create()
-    self:ShowGroupAction(false)
+    self:ShowActions("feedback")
     self.frame.title:SetText(GuildHelper:Trans("LID_NOTIFICATIONCOMMENT"))
     local author = GuildHelper.Feedback:AuthorLabel(self.current)
     self.frame.text:SetText(format(GuildHelper:Trans("LID_NOTIFICATIONCOMMENTTEXT"), author, entry.title))
@@ -332,7 +449,7 @@ function Notifications:Tick()
     if self.current and self.current.guild ~= guild then self:Dismiss() end
     if self.editing then return end
     if self.current then
-        if self.frame and self.frame:IsMouseOver() then self.expires = self:GetDisplayTime() + 8 end
+        if self.confirming or (self.frame and self.frame:IsMouseOver()) then self.expires = self:GetDisplayTime() + 8 end
         if self:GetDisplayTime() >= (self.expires or 0) then self:Dismiss() end
     end
     if not self.current then
@@ -344,12 +461,12 @@ function Notifications:Tick()
                 self.current = table.remove(self.queue, 1)
                 self.expires = self:GetDisplayTime() + 8
                 break
-            elseif not notice.order and not notice.applicant and not notice.category and not notice.log and not GuildHelper.Feedback:Find(notice.id) then
+            elseif not notice.order and not notice.applicant and not notice.category and not notice.log and not notice.repost and not GuildHelper.Feedback:Find(notice.id) then
                 if self:GetDisplayTime() - notice.queued < 30 then return end
                 table.remove(self.queue, 1)
             else
                 self.current = table.remove(self.queue, 1)
-                self.expires = self:GetDisplayTime() + 8
+                self.expires = self:GetDisplayTime() + (self.current.repost and 30 or 8)
                 break
             end
         end

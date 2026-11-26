@@ -27,10 +27,12 @@ end
 function Settings:GetDesignOptions()
     local options = {}
     for _, key in ipairs(Theme.ORDER) do
-        tinsert(options, {
-            value = key,
-            label = GuildHelper:Trans(Theme.DESIGNS[key].label)
-        })
+        if not Theme.DESIGNS[key].daylight or Theme:GetDaylightAPI() then
+            tinsert(options, {
+                value = key,
+                label = GuildHelper:Trans(Theme.DESIGNS[key].label)
+            })
+        end
     end
 
     return options
@@ -279,7 +281,15 @@ Settings.DISPLAYOPTIONS = {
 }
 
 function Settings:GetMapOption(key)
-    for _, list in ipairs({self.MAPOPTIONS, self.INVITEOPTIONS, self.DISPLAYOPTIONS, self.notificationOptions or {}}) do
+    if key == "NOTIFYLOGALL" then
+        self:GetNotificationOptions()
+        for _, option in ipairs(self.logNotificationOptions) do
+            if not self:GetMapOption(option.key) then return false end
+        end
+
+        return true
+    end
+    for _, list in ipairs({self.MAPOPTIONS, self.INVITEOPTIONS, self.DISPLAYOPTIONS, self:GetNotificationOptions()}) do
         for _, option in ipairs(list) do
             if option.key == key then return GuildHelper:GetConfig(key, option.default) == true end
         end
@@ -293,6 +303,10 @@ function Settings:IsMapOptionEnabled(option)
 end
 
 function Settings:ToggleMapOption(option)
+    if option.master then
+        self:ToggleLogNotifications()
+        return
+    end
     if self:IsMapOptionEnabled(option) then
         GuildHelper:SetConfig(option.key, not self:GetMapOption(option.key))
         if option.key == "MMBTN" then GuildHelper:SetMinimapVisible(self:GetMapOption("MMBTN")) end
@@ -324,7 +338,15 @@ function Settings:CreateMapRow(panel, index, option)
     local check = self:CreateCheck(row)
     check:SetPoint("LEFT", row, "LEFT", 6, 0)
     local title = Theme:Text(row, 13, "text")
-    title:SetPoint("LEFT", row, "LEFT", 38, 0)
+    if option.added and GuildHelper.UI and GuildHelper.UI.IsNew and GuildHelper.UI:IsNew(option.added) then
+        local badge = Theme:Text(row, 11, "accent")
+        badge:SetPoint("LEFT", row, "LEFT", 38, 0)
+        badge.ghFormat = "[%s]"
+        Theme:SetTrans(badge, "LID_NEW")
+        title:SetPoint("LEFT", badge, "RIGHT", 6, 0)
+    else
+        title:SetPoint("LEFT", row, "LEFT", 38, 0)
+    end
     title:SetPoint("RIGHT", row, "RIGHT", -8, 0)
     Theme:SetTrans(title, option.label)
     for _, frame in ipairs({row, check}) do
@@ -481,33 +503,29 @@ function Settings:CreateNotificationPanel(content, anchor)
     local header = Theme:Text(panel, 11, "muted")
     header:SetPoint("TOPLEFT", panel, "TOPLEFT", 18, -16)
     Theme:SetTrans(header, "LID_NOTIFICATIONS", true)
-    self.notificationOptions = {}
+    self:GetNotificationOptions()
     self.notificationRows = {}
-    for index, key in ipairs(GuildHelper.Notifications.NEW_TYPES) do
-        local option = {key = key, default = true, label = "LID_NOTIFICATION" .. key, display = true}
-        self.notificationOptions[index] = option
-        self.notificationRows[index] = self:CreateMapRow(panel, index, option)
+    local y, group = -36, nil
+    if self.whatsNew then
+        self.whatsNew:AddSettingsCheckbox({
+            AddCheckbox = function(_, options) return Settings:CreateWhatsNewRow(panel, y, options) end
+        })
+        y = y - self.MAPROW - 4
     end
-
-    local y = -36 - #GuildHelper.Notifications.NEW_TYPES * self.MAPROW - 10
-    local logHeader = Theme:Text(panel, 11, "muted")
-    logHeader:SetPoint("TOPLEFT", panel, "TOPLEFT", 18, y - 8)
-    Theme:SetTrans(logHeader, "LID_GUILDLOG", true)
-    local all = Members:CreateButton(panel, "LID_LOGNOTIFYALL")
-    all:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -18, y)
-    all:SetWidth(max(140, all.text:GetStringWidth() + 32))
-    all:SetScript("OnClick", function() Settings:ToggleLogNotifications() end)
-    y = y - 38
-    self.logNotificationOptions = {}
-    for _, option in ipairs(GuildHelper.Log and GuildHelper.Log:GetNotifyOptions() or {}) do
+    for _, option in ipairs(self:GetNotificationLayout()) do
+        if option.group ~= group then
+            group = option.group
+            local sub = Theme:Text(panel, 12, "text")
+            sub:SetPoint("TOPLEFT", panel, "TOPLEFT", 18, y - 6)
+            Theme:SetTrans(sub, group)
+            y = y - 26
+        end
         local entry = self:CreateMapRow(panel, 1, option)
         entry.row:ClearAllPoints()
-        entry.row:SetPoint("TOPLEFT", panel, "TOPLEFT", 10, y)
+        entry.row:SetPoint("TOPLEFT", panel, "TOPLEFT", 10 + (option.indent or 0) * 20, y)
         entry.row:SetPoint("RIGHT", panel, "RIGHT", -10, 0)
         y = y - self.MAPROW
-        tinsert(self.notificationOptions, option)
         tinsert(self.notificationRows, entry)
-        tinsert(self.logNotificationOptions, option)
     end
 
     local position = Members:CreateButton(panel, "LID_NOTIFICATIONPOSITION")
@@ -524,6 +542,105 @@ function Settings:CreateNotificationPanel(content, anchor)
     test:SetScript("OnClick", function() GuildHelper.Notifications:Test() end)
 
     return panel
+end
+
+function Settings:GetNotificationOptions()
+    if self.notificationOptions then return self.notificationOptions end
+    local Notifications = GuildHelper.Notifications
+    self.notificationOptions, self.newNotificationOptions, self.logNotificationOptions = {}, {}, {}
+    for _, group in ipairs(Notifications.GROUPS) do
+        for _, kind in ipairs(group.kinds) do
+            local option = {key = "NOTIFY" .. kind, default = true, label = "LID_NOTIFICATION" .. kind, display = true, added = Notifications.ADDED, group = group.label}
+            tinsert(self.newNotificationOptions, option)
+            tinsert(self.notificationOptions, option)
+        end
+    end
+    for _, option in ipairs(GuildHelper.Log and GuildHelper.Log:GetNotifyOptions() or {}) do
+        option.group, option.indent = "LID_GUILDLOG", 1
+        tinsert(self.logNotificationOptions, option)
+        tinsert(self.notificationOptions, option)
+    end
+    self.logAllOption = {key = "NOTIFYLOGALL", label = "LID_NOTIFYLOGALL", display = true, added = Notifications.ADDED, group = "LID_GUILDLOG", master = true}
+
+    return self.notificationOptions
+end
+
+function Settings:GetNotificationLayout()
+    local list = {}
+    for _, option in ipairs(self.newNotificationOptions) do tinsert(list, option) end
+    if #self.logNotificationOptions > 0 then tinsert(list, self.logAllOption) end
+    for _, option in ipairs(self.logNotificationOptions) do tinsert(list, option) end
+
+    return list
+end
+
+function Settings:CreateWhatsNewRow(panel, y, options)
+    local entry = self:CreateMapRow(panel, 1, {key = "WHATSNEWROW", label = options.label})
+    entry.row:ClearAllPoints()
+    entry.row:SetPoint("TOPLEFT", panel, "TOPLEFT", 10, y)
+    entry.row:SetPoint("RIGHT", panel, "RIGHT", -10, 0)
+    local checked = options.value == true
+    entry.check:SetChecked(checked)
+    local proxy = {}
+    function proxy:SetChecked(value)
+        checked = value == true
+        entry.check:SetChecked(checked)
+    end
+
+    function proxy:GetChecked()
+        return checked
+    end
+
+    for _, frame in ipairs({entry.row, entry.check}) do
+        frame:SetScript("OnClick", function()
+            proxy:SetChecked(not checked)
+            options.func(checked)
+        end)
+        frame:SetScript("OnEnter", nil)
+    end
+
+    return proxy
+end
+
+function Settings:GetWhatsNewSettings()
+    local elements = {}
+    local top = {settingLabel = "LID_NOTIFICATIONS", level = 1}
+    local groups = {}
+    self:GetNotificationOptions()
+    for _, option in ipairs(self:GetNotificationLayout()) do
+        if option.added then
+            local key = option.key
+            groups[option.group] = groups[option.group] or {settingLabel = option.group, category = top, level = 2}
+            tinsert(elements, {
+                settingLabel = option.label,
+                added = option.added,
+                indent = option.indent,
+                category = groups[option.group],
+                checkbox = {
+                    GetChecked = function() return Settings:GetMapOption(key) end,
+                    SetChecked = function(_, value)
+                        if Settings:GetMapOption(key) ~= (value == true) then Settings:ToggleMapOption(option) end
+                    end
+                },
+                setting = {label = option.label, added = option.added}
+            })
+        end
+    end
+
+    return {elements = elements}
+end
+
+function Settings:InitWhatsNew()
+    if self.whatsNew or not GuildHelper.CreateUIWhatsNew then return end
+    GHTAB = GHTAB or {}
+    GHTAB.WHATSNEW = GHTAB.WHATSNEW or {}
+    self.whatsNew = GuildHelper:CreateUIWhatsNew({
+        name = "GuildHelperWhatsNew",
+        title = "GuildHelper",
+        db = GHTAB.WHATSNEW,
+        since = GuildHelper.Notifications.ADDED,
+        getSettings = function() return Settings:GetWhatsNewSettings() end
+    })
 end
 
 function Settings:ToggleLogNotifications()
@@ -704,3 +821,23 @@ Window:SetPageBuilder("chars", function(content, entry)
     content.OnPageShow = function() Settings:UpdateCharacter() end
 end)
 Window:SetPageBuilder("settings", function(content) Settings:Build(content) end)
+
+Settings.events = CreateFrame("Frame")
+Settings.events:RegisterEvent("PLAYER_LOGIN")
+Settings.events:RegisterEvent("PLAYER_ENTERING_WORLD")
+Settings.events:SetScript("OnEvent", function(sel, event)
+    if event == "PLAYER_LOGIN" then
+        Settings:InitWhatsNew()
+        return
+    end
+    sel:UnregisterEvent("PLAYER_ENTERING_WORLD")
+    C_Timer.After(4, function()
+        if Settings.whatsNew and not InCombatLockdown() then Settings.whatsNew:ShowIfNew() end
+    end)
+end)
+GuildHelper:AddSlash("ghwhatsnew", function()
+    if not Settings.whatsNew then return end
+    wipe(GHTAB.WHATSNEW.seen or {})
+    GHTAB.WHATSNEW.enabled = nil
+    Settings.whatsNew:ShowIfNew()
+end)

@@ -305,6 +305,32 @@ function Sync:GetOwnProfessions()
         end
     end
 
+    local skillInfo = C_SkillInfo
+    if skillInfo and skillInfo.GetNumSkillLines and skillInfo.GetSkillLineInfo then
+        for index = 1, skillInfo.GetNumSkillLines() or 0 do
+            local info = skillInfo.GetSkillLineInfo(index)
+            if info and not info.isHeader and info.name then
+                local id = self.classProfessions[info.skillID] and info.skillID or self:GetProfessionID(info.name)
+                if id and self.classProfessions[id] and not seen[id] then
+                    seen[id] = true
+                    tinsert(list, {info.name, info.rank or 0, info.maxRank or 0, id})
+                end
+            end
+        end
+    end
+
+    if skillInfo and skillInfo.GetSkillLineInfoByID then
+        for id in pairs(self.classProfessions) do
+            if not seen[id] then
+                local info = skillInfo.GetSkillLineInfoByID(id)
+                if info and info.name and (info.rank or 0) > 0 then
+                    seen[id] = true
+                    tinsert(list, {info.name, info.rank, info.maxRank or 0, id})
+                end
+            end
+        end
+    end
+
     if C_TradeSkillUI and C_TradeSkillUI.GetProfessionInfoBySkillLineID then
         for id in pairs(self.classProfessions) do
             if not seen[id] then

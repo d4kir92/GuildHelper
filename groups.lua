@@ -1457,7 +1457,7 @@ function Groups:Tick()
     for _, entry in pairs(self.live) do
         if self:IsOwn(entry) then self:TickOwnLive(entry, now) end
     end
-    self:TickAnnouncements()
+    self:TickAnnouncements(true)
     if not self.rosterReadyAt or now >= self.rosterReadyAt then self.dirty = nil end
     for key, entry in pairs(self.live) do
         if not self:IsOwn(entry) and (entry.expires or 0) <= now then

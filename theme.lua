@@ -134,6 +134,64 @@ Theme.DESIGNS = {
     },
 }
 
+Theme.DESIGNS.daylight = {
+    label = "LID_DESIGNDAYLIGHT",
+    daylight = true,
+    colors = setmetatable({}, {__index = Theme.DESIGNS.obsidian.colors}),
+}
+tinsert(Theme.ORDER, "daylight")
+Theme.DAYLIGHTCOLORS = {text = "TEXT", navText = "LABEL", muted = "LABEL", thumb = "LABEL", online = "GOOD"}
+Theme.DAYLIGHTACCENT = {accent = 1, navActive = 0.18, pillActive = 0.18, rowSelected = 0.16}
+function Theme:GetDaylightAPI()
+    local api = DaylightUI and DaylightUI.API
+    if type(api) == "table" and api.major == 1 and api.Accent and api.Colors then return api end
+
+    return nil
+end
+
+Theme.DAYLIGHTSHELLS = {window = true, panel = true, card = true}
+function Theme:IsDaylight()
+    return self:GetDesignTable().daylight == true and self:GetDaylightAPI() ~= nil
+end
+
+function Theme:GetBuildKind()
+    if self:IsNative() then return "native" end
+
+    return self:IsDaylight() and "daylight" or "flat"
+end
+
+function Theme:DaylightPanel(frame, fillKey)
+    local api = self:GetDaylightAPI()
+    api.Skin(frame, {window = fillKey == "window"})
+    frame:HookScript("OnSizeChanged", function(sel) api.Skin(sel) end)
+    local static = {
+        SetColor = function() end,
+        SetShown = function() end
+    }
+
+    return static, static
+end
+
+function Theme:GetDaylightColor(key)
+    local api = self:GetDaylightAPI()
+    if not api then return nil end
+    local mix = self.DAYLIGHTACCENT[key]
+    if mix then
+        local r, g, b = api.Accent()
+        if r then
+            local base = self.DESIGNS.obsidian.colors.panel
+            return base[1] + (r - base[1]) * mix, base[2] + (g - base[2]) * mix, base[3] + (b - base[3]) * mix, 1
+        end
+    end
+
+    local name = self.DAYLIGHTCOLORS[key]
+    local colors = name and api.Colors()
+    local color = colors and colors[name]
+    if type(color) ~= "table" then return nil end
+
+    return color.r or color[1], color.g or color[2], color.b or color[3], 1
+end
+
 Theme.DIALOG = {
     bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
     edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
@@ -196,15 +254,16 @@ end
 function GuildHelper:GetDesign()
     local value = GuildHelper:GetConfig("DESIGN", Theme.DEFAULT)
     if Theme.DESIGNS[value] == nil then return Theme.DEFAULT end
+    if Theme.DESIGNS[value].daylight and not Theme:GetDaylightAPI() then return Theme.DEFAULT end
 
     return value
 end
 
 function GuildHelper:SetDesign(value)
     if Theme.DESIGNS[value] == nil then value = Theme.DEFAULT end
-    local wasNative = Theme:IsNative()
+    local wasKind = Theme:GetBuildKind()
     GuildHelper:SetConfig("DESIGN", value)
-    if wasNative ~= Theme:IsNative() and GuildHelper.Window.frame then
+    if wasKind ~= Theme:GetBuildKind() and GuildHelper.Window.frame then
         GuildHelper.Window:Rebuild()
     else
         Theme:Refresh()
@@ -290,6 +349,10 @@ function Theme:GetDesignTable()
 end
 
 function Theme:GetColor(key)
+    if self:GetDesignTable().daylight then
+        local r, g, b, a = self:GetDaylightColor(key)
+        if r then return r, g, b, a end
+    end
     local color = self:GetDesignTable().colors[key] or self.DESIGNS[self.DEFAULT].colors[key]
     if color == nil then return 1, 1, 1, 1 end
 
@@ -297,6 +360,11 @@ function Theme:GetColor(key)
 end
 
 function Theme:GetClassColor(classFile)
+    local api = classFile and self:GetDesignTable().daylight and self:GetDaylightAPI()
+    if api and api.ClassColor then
+        local r, g, b = api.ClassColor(classFile)
+        if r then return {r = r, g = g, b = b} end
+    end
     local color = classFile and RAID_CLASS_COLORS and RAID_CLASS_COLORS[classFile]
     if not color or not GuildHelper:GetConfig("STRONGCLASSCOLORS", false) then return color end
 
@@ -323,6 +391,8 @@ end
 function Theme:GetFont()
     local lang = GuildHelper:GetLanguage()
     local font = self:GetDesignTable().font
+    local api = self:GetDesignTable().daylight and self:GetDaylightAPI()
+    if api and api.Font then font = api.Font() or font end
     if font and self.WESTERN[lang] and self.WESTERN[GetLocale()] then return font end
     if lang ~= GetLocale() and self.LANGFONTS[lang] then return self.LANGFONTS[lang] end
 
@@ -438,6 +508,7 @@ end
 function Theme:ApplyTrans(text)
     if text.ghTrans == nil then return end
     local value = GuildHelper:Trans(text.ghTrans)
+    if text.ghFormat then value = format(text.ghFormat, value) end
     text:SetText(text.ghUpper and strupper(value) or value)
 end
 
@@ -494,6 +565,7 @@ end
 
 function Theme:Panel(frame, fillKey, borderKey, radius, layer)
     if self:IsNative() then return self:NativePanel(frame, fillKey, borderKey) end
+    if self.DAYLIGHTSHELLS[fillKey] and self:IsDaylight() then return self:DaylightPanel(frame, fillKey) end
     local border = borderKey and self:Round(frame, borderKey, radius, layer, 0)
     local fill = self:Round(frame, fillKey, borderKey and radius - 1 or radius, layer, 1, borderKey and 1 or 0)
 
@@ -543,3 +615,34 @@ function Theme:Refresh()
         callback()
     end
 end
+
+function Theme:SuggestDaylight()
+    local api = self:GetDaylightAPI()
+    if not api or GuildHelper:GetConfig("DAYLIGHTSUGGESTED", false) == true then return end
+    GuildHelper:SetConfig("DAYLIGHTSUGGESTED", true)
+    if GuildHelper:GetDesign() == "daylight" or not StaticPopupDialogs or not StaticPopup_Show then return end
+    StaticPopupDialogs.GUILDHELPER_DAYLIGHT = {
+        text = GuildHelper:Trans("LID_DAYLIGHTSUGGEST"),
+        button1 = YES,
+        button2 = NO,
+        OnAccept = function() GuildHelper:SetDesign("daylight") end,
+        timeout = 0,
+        whileDead = true,
+        hideOnEscape = true,
+        preferredIndex = 3,
+    }
+    StaticPopup_Show("GUILDHELPER_DAYLIGHT")
+end
+
+Theme.events = CreateFrame("Frame")
+Theme.events:RegisterEvent("PLAYER_LOGIN")
+Theme.events:SetScript("OnEvent", function()
+    local api = Theme:GetDaylightAPI()
+    if not api then return end
+    if api.On then
+        api.On("StyleChanged", function()
+            if Theme:GetDesignTable().daylight then Theme:Refresh() end
+        end, "GuildHelper")
+    end
+    C_Timer.After(6, function() Theme:SuggestDaylight() end)
+end)

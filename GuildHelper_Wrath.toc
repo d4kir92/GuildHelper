@@ -27,6 +27,7 @@
 ## DefaultState: enabled
 ## SavedVariables: GHTAB
 ## SavedVariablesPerCharacter: GHTABPC
+## OptionalDeps: DaylightUI
 ## X-Curse-Project-ID: 1787470
 ## X-Wago-ID: b6XyB0Kp
 ## IconTexture: 135026

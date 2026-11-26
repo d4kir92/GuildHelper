@@ -552,6 +552,15 @@ function Window:CreateCloseButton(frame)
         return native
     end
 
+    local api = Theme:IsDaylight() and Theme:GetDaylightAPI()
+    if api and api.Close then
+        local daylight = api.Close(frame, function() frame:Hide() end)
+        daylight:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -self.MARGIN, -24)
+        daylight:SetFrameLevel(frame:GetFrameLevel() + 10)
+
+        return daylight
+    end
+
     local close = CreateFrame("Button", nil, frame)
     close:SetSize(31, 31)
     close:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -self.MARGIN, -24)

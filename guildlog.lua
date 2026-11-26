@@ -150,7 +150,7 @@ function Log:GetNotifyOptions()
     local list = {}
     for _, filter in ipairs(self.FILTERS) do
         if not filter.available or filter.available() then
-            tinsert(list, {key = "LOGNOTIFY" .. strupper(filter.key), default = true, label = filter.label, display = true})
+            tinsert(list, {key = "NOTIFYLOG" .. strupper(filter.key), default = true, label = filter.label, display = true, added = GuildHelper.Notifications.ADDED})
         end
     end
 
@@ -161,7 +161,7 @@ function Log:Notify(entry)
     local definition = self.types[entry.kind]
     local Notifications = GuildHelper.Notifications
     if not definition or not entry.exact or not Notifications or entry.time < Notifications.started or entry.time < self:Now() - 600 then return end
-    local setting = "LOGNOTIFY" .. strupper(definition.filter or entry.kind)
+    local setting = "NOTIFYLOG" .. strupper(definition.filter or entry.kind)
     if not Notifications:IsEnabled(setting) then return end
     if not definition.group and Groups:IsSelfName(entry.name) then return end
     local seenKey = "log:" .. entry.kind .. ":" .. tostring(entry.value) .. ":" .. (definition.group and tostring(entry.run or entry.time) or entry.name)

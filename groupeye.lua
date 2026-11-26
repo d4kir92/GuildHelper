@@ -105,7 +105,7 @@ function Eye:Create()
     GHTABPC = GHTABPC or {}
     GHTABPC.GROUPEYE = GHTABPC.GROUPEYE or {minimapPos = 200}
     local params = {
-        name = "GuildHelperGroupEye",
+        name = "GuildHelperLFG",
         icon = self.LEGACY.file,
         dbtab = GHTABPC.GROUPEYE,
         dbkey = "",
