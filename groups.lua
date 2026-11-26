@@ -570,6 +570,29 @@ function Groups:CollectLegacyQuests(list)
     self.scanningQuests = nil
 end
 
+function Groups:GetOwnQuestID()
+    local entry = self:GetOwnLive("Q")
+    local questID = entry and tonumber(entry.activity:match("^q(%d+)$"))
+
+    return questID, entry
+end
+
+function Groups:IsQuestObjectiveDone(questID)
+    if C_QuestLog and C_QuestLog.IsComplete then return C_QuestLog.IsComplete(questID) == true end
+    if not GetQuestLogIndexByID or not GetQuestLogTitle then return false end
+    local index = GetQuestLogIndexByID(questID)
+    if not index or index <= 0 then return false end
+    local _, _, _, _, _, isComplete = GetQuestLogTitle(index)
+
+    return isComplete == 1
+end
+
+function Groups:CheckQuestListing(finishedID)
+    local questID, entry = self:GetOwnQuestID()
+    if not questID then return end
+    if questID == finishedID or self:IsQuestObjectiveDone(questID) then self:Close(entry) end
+end
+
 function Groups:SortOutdoorActivities(list)
     table.sort(list, function(a, b)
         local levelA, levelB = a.level or 0, b.level or 0
@@ -2305,7 +2328,10 @@ Groups.events:RegisterEvent("GUILD_ROSTER_UPDATE")
 Groups.events:RegisterEvent("QUEST_LOG_UPDATE")
 if not C_EventUtils or not C_EventUtils.IsEventValid or C_EventUtils.IsEventValid("ROLE_CHANGED_INFORM") then Groups.events:RegisterEvent("ROLE_CHANGED_INFORM") end
 if C_EventUtils == nil or C_EventUtils.IsEventValid == nil or C_EventUtils.IsEventValid("PLAYER_ROLES_ASSIGNED") then Groups.events:RegisterEvent("PLAYER_ROLES_ASSIGNED") end
-Groups.events:SetScript("OnEvent", function(_, event, _, reloadingUI)
+for _, event in ipairs({"QUEST_TURNED_IN", "QUEST_REMOVED"}) do
+    if not C_EventUtils or not C_EventUtils.IsEventValid or C_EventUtils.IsEventValid(event) then Groups.events:RegisterEvent(event) end
+end
+Groups.events:SetScript("OnEvent", function(_, event, arg1, reloadingUI)
     if event == "PLAYER_LOGOUT" then
         Groups:SaveLiveForReload()
         for _, entry in pairs(Groups.live) do
@@ -2318,7 +2344,11 @@ Groups.events:SetScript("OnEvent", function(_, event, _, reloadingUI)
     elseif event == "QUEST_LOG_UPDATE" then
         if Groups.scanningQuests then return end
         Groups.questActivities = nil
+        Groups:CheckQuestListing()
         if Groups.content and Groups.content:IsVisible() and Groups.mode == "Q" then Groups:Refresh() end
+    elseif event == "QUEST_TURNED_IN" or event == "QUEST_REMOVED" then
+        Groups.questActivities = nil
+        Groups:CheckQuestListing(arg1)
     elseif event == "GUILD_ROSTER_UPDATE" then
         if Groups.content and Groups.content:IsVisible() then
             GuildHelper.Members:Scan()

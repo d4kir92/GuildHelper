@@ -1336,9 +1336,19 @@ function Members:ShowTooltip(row)
     local member = row.member
     if member == nil then return end
     local layer = GuildHelper.Layer:GetTooltipLine(member)
-    if member.note == "" and member.officerNote == "" and layer == nil then return end
+    local r, g, b = self:GetClassColor(member)
     GameTooltip:SetOwner(row, "ANCHOR_CURSOR")
-    GameTooltip:AddLine(member.short, self:GetClassColor(member))
+    GameTooltip:AddLine(member.short, r, g, b)
+    if member.level then GameTooltip:AddDoubleLine(LEVEL, member.level, 0.7, 0.7, 0.7, 1, 1, 1) end
+    if member.className and member.className ~= "" then GameTooltip:AddDoubleLine(CLASS, member.className, 0.7, 0.7, 0.7, r, g, b) end
+    if member.rank and member.rank ~= "" then GameTooltip:AddDoubleLine(GuildHelper:Trans("LID_RANK"), member.rank, 0.7, 0.7, 0.7, 1, 1, 1) end
+    local twitch = self:GetTwitchName(member)
+    if twitch and twitch ~= "" then GameTooltip:AddDoubleLine(GuildHelper:Trans("LID_TWITCH"), twitch, 0.7, 0.7, 0.7, 1, 1, 1) end
+    local professionIcons = {}
+    for _, profession in ipairs(GuildHelper.Sync:GetPrimaryProfessions(self:GetData(member))) do
+        tinsert(professionIcons, GuildHelper.Specs:GetIconString(profession.icon, nil, 16))
+    end
+    if #professionIcons > 0 then GameTooltip:AddDoubleLine(GuildHelper:Trans("LID_PROFESSIONS"), table.concat(professionIcons, " "), 0.7, 0.7, 0.7, 1, 1, 1) end
     if layer then GameTooltip:AddDoubleLine(GuildHelper:Trans("LID_LAYER"), layer, 0.7, 0.7, 0.7, 1, 1, 1) end
     if member.note ~= "" then GameTooltip:AddDoubleLine(GuildHelper:Trans("LID_NOTE"), member.note, 0.7, 0.7, 0.7, 1, 1, 1) end
     if member.officerNote ~= "" then GameTooltip:AddDoubleLine(GuildHelper:Trans("LID_OFFICERNOTE"), member.officerNote, 0.7, 0.7, 0.7, 1, 1, 1) end

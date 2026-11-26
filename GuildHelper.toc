@@ -64,6 +64,7 @@ members.lua
 dashboard.lua
 onlinehistory.lua
 groups.lua
+groupeye.lua
 data\retail\recipeskills.lua
 recipes.lua
 professions.lua

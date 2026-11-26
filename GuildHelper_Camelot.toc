@@ -56,6 +56,7 @@ members.lua
 dashboard.lua
 onlinehistory.lua
 groups.lua
+groupeye.lua
 data\forever\recipeskills.lua
 data\forever\finalencounters.lua
 recipes.lua

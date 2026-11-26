@@ -484,7 +484,7 @@ function Settings:CreateNotificationPanel(content, anchor)
     self.notificationOptions = {}
     self.notificationRows = {}
     for index, key in ipairs(GuildHelper.Notifications.NEW_TYPES) do
-        local option = {key = key, default = false, label = "LID_NOTIFICATION" .. key, display = true}
+        local option = {key = key, default = true, label = "LID_NOTIFICATION" .. key, display = true}
         self.notificationOptions[index] = option
         self.notificationRows[index] = self:CreateMapRow(panel, index, option)
     end
@@ -551,6 +551,7 @@ function Settings:Build(content)
     scroll:SetScript("OnScrollRangeChanged", function(sel)
         sel:SetVerticalScroll(min(sel:GetVerticalScroll(), sel:GetVerticalScrollRange()))
     end)
+    GuildHelper.Feedback:AddThumb(scroll, 2)
 
     local panel = CreateFrame("Frame", nil, body)
     panel:SetPoint("TOPLEFT", body, "TOPLEFT", 0, 0)

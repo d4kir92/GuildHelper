@@ -56,6 +56,7 @@ members.lua
 dashboard.lua
 onlinehistory.lua
 groups.lua
+groupeye.lua
 data\tbc\recipeskills.lua
 recipes.lua
 professions.lua
