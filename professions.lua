@@ -203,7 +203,7 @@ function Professions:Update()
                 local spell = self.skillSpells[id]
                 local getTexture = C_Spell and C_Spell.GetSpellTexture or GetSpellTexture
                 local icon = spell and getTexture and getTexture(spell)
-                counts[key] = {key = key, name = name, count = 0, icon = icon or "Interface\\Icons\\Trade_BlackSmithing"}
+                counts[key] = {key = key, name = name, count = 0, icon = icon or Sync.classProfessions[id] or "Interface\\Icons\\Trade_BlackSmithing"}
                 tinsert(filters, counts[key])
             end
             if not seen[key] then counts[key].count = counts[key].count + 1 end

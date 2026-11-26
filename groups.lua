@@ -718,7 +718,9 @@ function Groups:GetLiveRoster(soloRole)
                         if primary and self.roleOrder[primary.role] then role = primary.role end
                     end
                     local level = UnitLevel(unit)
-                    tinsert(roster, {name = name, role = role, level = GuildHelper:CanAccessValues(level) and level or nil})
+                    local leader = UnitIsGroupLeader and UnitIsGroupLeader(unit)
+                    tinsert(roster, {name = name, role = role, level = GuildHelper:CanAccessValues(level) and level or nil,
+                        leader = GuildHelper:CanAccessValues(leader) and leader == true or nil})
                 end
             end
         end
@@ -901,13 +903,14 @@ end
 
 function Groups:BroadcastRoster(entry, force)
     local roster = self:GetLiveRoster(entry.soloRole)
-    local records = {}
+    local records, leader = {}, ""
     for _, member in ipairs(roster) do
         tinsert(records, "~" .. member.name .. "~" .. member.role)
+        if member.leader then leader = member.name end
     end
-    local signature = table.concat(records)
+    local signature = table.concat(records) .. "~" .. leader
     if not force and entry.rosterSignature == signature then return end
-    entry.roster, entry.rosterSignature = roster, signature
+    entry.roster, entry.rosterSignature, entry.leader = roster, signature, leader ~= "" and leader or nil
 
     self.signupSerial = self.signupSerial + 1
     local header = "M~" .. entry.id .. "~" .. self.signupSerial .. "~"
@@ -923,6 +926,7 @@ function Groups:BroadcastRoster(entry, force)
     for index, chunk in ipairs(chunks) do
         self:Send(header .. index .. "~" .. #chunks .. chunk)
     end
+    self:Send("K~" .. entry.id .. "~" .. leader)
 end
 
 function Groups:BroadcastSignups(entry)
@@ -1375,6 +1379,13 @@ function Groups:OnMessage(message, sender)
         changed = self:ReadSignupSnapshot(owner, parts)
     elseif command == "M" then
         changed = self:ReadRoster(owner, parts)
+    elseif command == "K" and #parts == 4 then
+        local entry = self.live[owner .. "#" .. parts[3]]
+        local leader = parts[4] ~= "" and self:Name(parts[4]) or nil
+        if entry and entry.leader ~= leader then
+            entry.leader = leader
+            changed = true
+        end
     elseif command == "A" or command == "W" then
         changed = self:ReadApplication(owner, sender, parts)
     end
@@ -1917,7 +1928,8 @@ function Groups:RefreshRoster(entry)
             local guildMember = Members:FindByName(member.name)
             local name = Members:NameWithTwitch(guildMember, member.name)
             local level = guildMember and (guildMember.level or 0) > 0 and guildMember.level or member.level
-            Dashboard:SetLine(self.roster, index, (role and role .. "  " or "") .. Members:RaceIconMarkup(guildMember, 14) .. self:LevelTag(level, guildMember) .. name)
+            local leader = (member.leader or (entry.leader and self:Name(member.name) == entry.leader)) and "|TInterface\\GroupFrame\\UI-Group-LeaderIcon:14:14|t " or ""
+            Dashboard:SetLine(self.roster, index, (role and role .. "  " or "") .. Members:RaceIconMarkup(guildMember, 14) .. leader .. self:LevelTag(level, guildMember) .. name)
         end
     end
     Dashboard:FinishList(self.roster, max(1, count))

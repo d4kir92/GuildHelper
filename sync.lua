@@ -171,7 +171,11 @@ Sync.professionNames = {
     [755] = {enUS = "Jewelcrafting", deDE = "Juwelierskunst"},
     [773] = {enUS = "Inscription", deDE = "Inschriftenkunde"},
     [794] = {enUS = "Archaeology", deDE = "Archäologie"},
+    [633] = {enUS = "Lockpicking", deDE = "Schlossknacken"},
+    [3012] = {enUS = "Comprehension", deDE = "Verständnis"},
 }
+
+Sync.classProfessions = {[633] = 136058, [3012] = 135933}
 
 Sync.primaryProfessionIcons = {
     [164] = 136241,
@@ -241,20 +245,22 @@ function Sync:IsCraftingProfession(id)
 end
 
 function Sync:GroupProfessions(entries, getID)
-    local crafting, gathering, secondary = {}, {}, {}
+    local crafting, gathering, secondary, class = {}, {}, {}, {}
     for _, entry in ipairs(entries) do
         local id = getID(entry)
         if self.gatheringProfessions[id] then
             tinsert(gathering, entry)
         elseif id == 129 or id == 185 or id == 356 or id == 794 then
             tinsert(secondary, entry)
+        elseif self.classProfessions[id] then
+            tinsert(class, entry)
         else
             tinsert(crafting, entry)
         end
     end
 
     local splits = {}
-    for _, group in ipairs({gathering, secondary}) do
+    for _, group in ipairs({gathering, secondary, class}) do
         if #group > 0 then
             if #crafting > 0 then tinsert(splits, #crafting + 1) end
             for _, entry in ipairs(group) do tinsert(crafting, entry) end
@@ -264,30 +270,50 @@ function Sync:GroupProfessions(entries, getID)
 end
 
 function Sync:GetOwnProfessions()
-    local list = {}
-    if GetProfessions and GetProfessionInfo then
+    local list, seen = {}, {}
+    local professionAPI = GetProfessions and GetProfessionInfo
+    if professionAPI then
         local indices = {GetProfessions()}
-        for i = 1, 5 do
+        for i = 1, 6 do
             local index = indices[i]
             if index then
                 local name, _, rank, maxRank, _, _, skillLineID = GetProfessionInfo(index)
                 if name then
-                    tinsert(list, {name, rank or 0, maxRank or 0, self:GetProfessionID(name, skillLineID)})
+                    local id = self:GetProfessionID(name, skillLineID)
+                    if id then seen[id] = true end
+                    tinsert(list, {name, rank or 0, maxRank or 0, id})
                 end
             end
         end
-
-        return list
     end
 
-    if GetNumSkillLines == nil then return list end
-    local header = nil
-    for i = 1, GetNumSkillLines() do
-        local name, isHeader, _, rank, _, _, maxRank = GetSkillLineInfo(i)
-        if isHeader then
-            header = name
-        elseif name and (header == TRADE_SKILLS or (SECONDARY_SKILLS and header == SECONDARY_SKILLS)) then
-            tinsert(list, {name, rank or 0, maxRank or 0, self:GetProfessionID(name)})
+    if GetNumSkillLines and GetSkillLineInfo then
+        local header = nil
+        for i = 1, GetNumSkillLines() do
+            local name, isHeader, _, rank, _, _, maxRank = GetSkillLineInfo(i)
+            if isHeader then
+                header = name
+            elseif name then
+                local id = self:GetProfessionID(name)
+                local wanted = (id and self.classProfessions[id]) or
+                    (not professionAPI and (header == TRADE_SKILLS or (SECONDARY_SKILLS and header == SECONDARY_SKILLS)))
+                if wanted and not (id and seen[id]) then
+                    if id then seen[id] = true end
+                    tinsert(list, {name, rank or 0, maxRank or 0, id})
+                end
+            end
+        end
+    end
+
+    if C_TradeSkillUI and C_TradeSkillUI.GetProfessionInfoBySkillLineID then
+        for id in pairs(self.classProfessions) do
+            if not seen[id] then
+                local ok, info = pcall(C_TradeSkillUI.GetProfessionInfoBySkillLineID, id)
+                if ok and type(info) == "table" and (info.skillLevel or 0) > 0 then
+                    seen[id] = true
+                    tinsert(list, {self:GetProfessionName(id, info.professionName), info.skillLevel, info.maxSkillLevel or 0, id})
+                end
+            end
         end
     end
 
