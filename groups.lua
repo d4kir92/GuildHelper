@@ -234,7 +234,10 @@ Groups.loadingScreens = {
     [540] = 131844, [542] = 131844, [543] = 131844, [545] = 131832, [546] = 131832,
     [547] = 131832, [548] = 131832, [552] = 131875, [553] = 131875, [554] = 131875,
     [555] = 131821, [556] = 131821, [557] = 131821, [558] = 131821, [560] = 131830,
-    [585] = 131874, [189001] = 131852, [189002] = 131852, [189003] = 131852, [189004] = 131852,
+    [585] = 131874, [249] = 131863, [309] = 131886, [409] = 131851, [469] = 131827,
+    [509] = 131818, [531] = 131819, [533] = 131854, [2784] = 6213069, [2789] = 6213071,
+    [2791] = 6213070, [2804] = 6650900, [2807] = 131866, [2832] = 6730949, [2856] = 6422642,
+    [2875] = 6514589, [2921] = 131854, [189001] = 131852, [189002] = 131852, [189003] = 131852, [189004] = 131852,
     [329001] = 131871, [329002] = 131871, [429001] = 131835, [429002] = 131835, [429003] = 131835
 }
 
@@ -255,6 +258,8 @@ Groups.classicDungeonMaps = {
 
 Groups.foreverMapArt = {
     [2959] = 7963775, [2998] = 7963777, [2999] = 7963782, [3065] = 7963781,
+    [2970] = 7963741, [2974] = 7963784, [2994] = 7963734, [3001] = 7963783, [3039] = 7963780,
+    [2720] = 7963776, [2806] = 7963779, [2817] = 7963779, [2853] = 7963776, [3109] = 7963776,
     [16544] = 7963775, [16611] = 7963782, [16732] = 7963777, [16919] = 7963781,
     [900001] = 7963741, [900002] = 7963780, [900003] = 7963734, [900004] = 7963784, [900005] = 7963783
 }
@@ -712,7 +717,8 @@ function Groups:GetLiveRoster(soloRole)
                         local primary = GuildHelper.Specs:GetOwn()[1]
                         if primary and self.roleOrder[primary.role] then role = primary.role end
                     end
-                    tinsert(roster, {name = name, role = role})
+                    local level = UnitLevel(unit)
+                    tinsert(roster, {name = name, role = role, level = GuildHelper:CanAccessValues(level) and level or nil})
                 end
             end
         end
@@ -1645,7 +1651,7 @@ function Groups:BuildForm(content)
             end
             draft.activity = value
             self:Refresh()
-        end)
+        end, nil, true)
     end)
 
     self.needsLabel = self:Text(self.form, "LID_GROUPNEEDS", 14, -51)
@@ -1885,6 +1891,19 @@ function Groups:ScrollPage(delta)
     if scroll then scroll:SetVerticalScroll(min(max(scroll:GetVerticalScroll() - delta * 40, 0), scroll:GetVerticalScrollRange())) end
 end
 
+function Groups:LevelTag(level, member)
+    if type(level) ~= "number" or level <= 0 then return "" end
+    local classHex = "|cffffffff"
+    if member then
+        local r, g, b = GuildHelper.Members:GetClassColor(member)
+        classHex = format("|cff%02x%02x%02x", r * 255, g * 255, b * 255)
+    end
+    local difficulty = (GetCreatureDifficultyColor or GetQuestDifficultyColor)(level)
+    local levelHex = format("|cff%02x%02x%02x", difficulty.r * 255, difficulty.g * 255, difficulty.b * 255)
+
+    return classHex .. "[" .. levelHex .. level .. "|r" .. classHex .. "]|r "
+end
+
 function Groups:RefreshRoster(entry)
     local Dashboard, Members = GuildHelper.Dashboard, GuildHelper.Members
     local roster = entry.roster or {}
@@ -1897,7 +1916,8 @@ function Groups:RefreshRoster(entry)
             local role = GuildHelper.Specs:Format(member, true)
             local guildMember = Members:FindByName(member.name)
             local name = Members:NameWithTwitch(guildMember, member.name)
-            Dashboard:SetLine(self.roster, index, (role and role .. "  " or "") .. Members:RaceIconMarkup(guildMember, 14) .. name)
+            local level = guildMember and (guildMember.level or 0) > 0 and guildMember.level or member.level
+            Dashboard:SetLine(self.roster, index, (role and role .. "  " or "") .. Members:RaceIconMarkup(guildMember, 14) .. self:LevelTag(level, guildMember) .. name)
         end
     end
     Dashboard:FinishList(self.roster, max(1, count))
@@ -1964,13 +1984,7 @@ function Groups:RefreshRequests(entry)
         local label = applicant.name
         if member then
             local r, g, b = GuildHelper.Members:GetClassColor(member)
-            local classHex = format("|cff%02x%02x%02x", r * 255, g * 255, b * 255)
-            label = classHex .. label .. "|r"
-            if (member.level or 0) > 0 then
-                local difficulty = (GetCreatureDifficultyColor or GetQuestDifficultyColor)(member.level)
-                local levelHex = format("|cff%02x%02x%02x", difficulty.r * 255, difficulty.g * 255, difficulty.b * 255)
-                label = classHex .. "[" .. levelHex .. member.level .. "|r" .. classHex .. "]|r " .. label
-            end
+            label = self:LevelTag(member.level, member) .. format("|cff%02x%02x%02x", r * 255, g * 255, b * 255) .. label .. "|r"
         end
         row.text:SetText(label .. details)
 

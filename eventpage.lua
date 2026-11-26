@@ -265,11 +265,25 @@ function Events:BuildDetail(panel)
     detail.meta:SetWordWrap(false)
     Groups:Text(detail, "LID_EVENT_ROLE", 16, -63)
     for index, role in ipairs({"TANK", "HEALER", "DAMAGER"}) do
-        local button = self:Button(detail, self.roles[role], 119, function()
+        local button = self:Button(detail, nil, 50, function()
             detail.role = role
             self:RefreshDetail()
         end)
-        button:SetPoint("TOPLEFT", 16 + (index - 1) * 125, -79)
+        button.icon = button:CreateTexture(nil, "OVERLAY")
+        button.icon:SetSize(22, 22)
+        button.icon:SetPoint("CENTER")
+        button.icon:SetTexture(GuildHelper.Specs.ROLEICONS)
+        button.icon:SetTexCoord(unpack(GuildHelper.Specs:GetRole(role).coords))
+        button:HookScript("OnEnter", function(sel)
+            GameTooltip:SetOwner(sel, "ANCHOR_TOP")
+            GameTooltip:SetText(GuildHelper:Trans(self.roles[role]))
+            GameTooltip:Show()
+        end)
+        button:HookScript("OnLeave", function(sel)
+            if GameTooltip:IsOwned(sel) then GameTooltip:Hide() end
+            if sel.fill and not sel.native and detail.role == role then Theme:SetKey(sel.fill, "pillActive") end
+        end)
+        button:SetPoint("TOPLEFT", 16 + (index - 1) * 56, -79)
         detail.roles[role] = button
     end
     Groups:Text(detail, "LID_EVENT_RSVP_NOTE", 16, -115)
@@ -311,8 +325,10 @@ end
 function Events:Select(id)
     self:GetStore()
     self.selected, self.draft = id, nil
+    self:MarkSeen(id)
     if self.detail then self.detail.confirmDelete = nil end
     self:Refresh()
+    self:UpdateUnread()
 end
 
 function Events:RefreshDetail()
@@ -334,7 +350,14 @@ function Events:RefreshDetail()
     end
 
     for role, button in pairs(detail.roles) do
-        Theme:SetKey(button.text, detail.role == role and "accent" or "text")
+        local active = detail.role == role
+        button.icon:SetDesaturated(detail.role ~= nil and not active)
+        button.icon:SetAlpha((detail.role == nil or active) and 1 or 0.45)
+        if button.native then
+            if active then button:LockHighlight() else button:UnlockHighlight() end
+        elseif button.fill then
+            Theme:SetKey(button.fill, active and "pillActive" or "control")
+        end
     end
     for status, button in pairs(detail.statuses) do
         button:SetEnabled(detail.role ~= nil)
@@ -363,7 +386,7 @@ function Events:RefreshDetail()
         return a.comment < b.comment
     end)
     for _, row in ipairs(responses) do
-        local meta = "  ·  " .. GuildHelper:Trans(self.roles[row.role]) .. "  ·  " .. GuildHelper:Trans(self.statuses[row.status])
+        local meta = "  ·  " .. GuildHelper:Trans(self.roles[row.role]) .. "  ·  " .. GuildHelper:Trans(self.responded[row.status])
         tinsert(items, {author = row, meta = meta, text = row.text})
     end
     tinsert(items, {text = GuildHelper:Trans("LID_FBCOMMENTS"), color = "accent"})
@@ -396,7 +419,7 @@ function Events:Refresh()
     local items = {}
     for _, event in ipairs(self:GetList()) do
         tinsert(items, {text = self:IconMarkup(self:GetIcon(event.id), 14) .. event.title .. "\n" .. event.when, selected = event.id == self.selected and not self.draft,
-            action = function() self:Select(event.id) end})
+            color = self:IsUnread(event) and "accent" or nil, action = function() self:Select(event.id) end})
     end
     if #items == 0 then tinsert(items, {text = GuildHelper:Trans("LID_EVENT_EMPTY"), color = "muted"}) end
     self:RenderList(self.list, items)
@@ -408,6 +431,7 @@ end
 
 function Events:OnChanged()
     self:Refresh()
+    self:UpdateUnread()
     if GuildHelper.Calendar then GuildHelper.Calendar:QueueRefresh() end
 end
 

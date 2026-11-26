@@ -2,6 +2,7 @@ local _, GuildHelper = ...
 local Events = {
     roles = {TANK = "LID_ROLETANK", HEALER = "LID_ROLEHEALER", DAMAGER = "LID_ROLEDAMAGER"},
     statuses = {A = "LID_EVENT_ACCEPT", T = "LID_EVENT_TENTATIVE", D = "LID_EVENT_DECLINE"},
+    responded = {A = "LID_EVENT_ACCEPTED", T = "LID_EVENT_TENTATIVE", D = "LID_EVENT_DECLINED"},
     pending = {},
     pendingDeletions = {},
     replay = {},
@@ -75,6 +76,52 @@ function Events:GetStore()
     GHTAB.EVENTS[guild] = GHTAB.EVENTS[guild] or {}
 
     return GHTAB.EVENTS[guild]
+end
+
+function Events:GetSeen()
+    local store = self:GetStore()
+    if not store then return end
+    GHTABPC = GHTABPC or {}
+    GHTABPC.EVENTSSEEN = GHTABPC.EVENTSSEEN or {}
+    local seen = GHTABPC.EVENTSSEEN[self.guild]
+    if not seen then
+        seen = {}
+        for id, bucket in pairs(store) do
+            if bucket.event then seen[id] = true end
+        end
+        GHTABPC.EVENTSSEEN[self.guild] = seen
+    end
+
+    return seen
+end
+
+function Events:IsUnread(event)
+    local seen = self:GetSeen()
+    return seen ~= nil and event ~= nil and not seen[event.id] and not self:IsOwn(event)
+end
+
+function Events:MarkSeen(id)
+    local seen = self:GetSeen()
+    if seen and id then seen[id] = true end
+end
+
+function Events:CountUnread()
+    local seen = self:GetSeen()
+    if not seen then return 0 end
+    local store, count = self:GetStore(), 0
+    for id in pairs(seen) do
+        if not (store[id] and store[id].event) then seen[id] = nil end
+    end
+    for _, bucket in pairs(store) do
+        if bucket.event and self:IsUnread(bucket.event) then count = count + 1 end
+    end
+
+    return count
+end
+
+function Events:UpdateUnread()
+    local Window = GuildHelper.Window
+    if Window and Window.UpdateNavCount then Window:UpdateNavCount("events", self:CountUnread()) end
 end
 
 function Events:Get(id)

@@ -611,12 +611,118 @@ function Members:GetMenu()
     menu.ghNoInside = true
     Theme:Panel(menu, "card", "border", 7)
     menu.buttons = {}
+    menu.top = 0
+    menu:SetScript("OnHide", function(sel)
+        if sel.search then
+            sel.search:ClearFocus()
+            sel.search:SetText("")
+        end
+    end)
     self.menu = menu
 
     return menu
 end
 
-function Members:OpenMenu(anchor, options, current, onSelect, atCursor)
+function Members:GetMenuSearch()
+    local menu = self:GetMenu()
+    if menu.search then return menu.search end
+    local box, search
+    local inset = 32
+    if Theme:IsNative() then
+        search = Theme:FlatNative(CreateFrame("EditBox", nil, menu, "InputBoxTemplate"))
+        search:SetPoint("TOPLEFT", menu, "TOPLEFT", 12, -5)
+        search:SetPoint("TOPRIGHT", menu, "TOPRIGHT", -9, -5)
+        search:SetHeight(24)
+        box = search
+        inset = 2
+    else
+        box = CreateFrame("Frame", nil, menu)
+        box:SetPoint("TOPLEFT", menu, "TOPLEFT", 5, -5)
+        box:SetPoint("TOPRIGHT", menu, "TOPRIGHT", -9, -5)
+        box:SetHeight(26)
+        box.fill, box.border = Theme:Panel(box, "control", "accent", 7)
+        local icon = Theme:Icon(box, "search", 12, "muted")
+        icon:SetPoint("LEFT", box, "LEFT", 12, 0)
+        search = CreateFrame("EditBox", nil, box)
+        search:SetPoint("TOPLEFT", box, "TOPLEFT", 32, 0)
+        search:SetPoint("BOTTOMRIGHT", box, "BOTTOMRIGHT", -8, 0)
+        Theme:Track(search, "text", "text", 12.5)
+    end
+
+    search.box = box
+    search:SetAutoFocus(false)
+    search:SetMaxLetters(60)
+    search.placeholder = Theme:Text(box, 12.5, "muted")
+    search.placeholder:SetPoint("LEFT", box, "LEFT", inset, 0)
+    search.placeholder:SetPoint("RIGHT", box, "RIGHT", -8, 0)
+    Theme:SetTrans(search.placeholder, "LID_SEARCHPLACEHOLDER")
+    search:SetScript("OnEscapePressed", function() menu:Hide() end)
+    search:SetScript("OnEnterPressed", function()
+        for _, option in ipairs(menu.options) do
+            if not option.header and not option.disabled then
+                menu:Hide()
+                menu.onSelect(option.value)
+
+                return
+            end
+        end
+    end)
+    search:SetScript("OnTextChanged", function(sel, user)
+        local text = sel:GetText() or ""
+        sel.placeholder:SetShown(text == "")
+        if user then Members:FilterMenu(text) end
+    end)
+    menu.search = search
+
+    return search
+end
+
+function Members:FilterMenu(text)
+    local menu = self.menu
+    local terms = {}
+    for word in strlower(text or ""):gmatch("%S+") do
+        tinsert(terms, word)
+    end
+
+    local filtered, header, matches = {}, nil, {}
+    for _, option in ipairs(menu.allOptions) do
+        if option.header then
+            header = option
+        else
+            local label = strlower(option.label or "")
+            local found = true
+            for _, term in ipairs(terms) do
+                if not label:find(term, 1, true) then
+                    found = false
+                    break
+                end
+            end
+            if found then
+                if header then
+                    tinsert(filtered, header)
+                    header = nil
+                end
+                tinsert(filtered, option)
+                if not option.disabled then tinsert(matches, option) end
+            end
+        end
+    end
+
+    if #terms > 0 and #matches == 1 then
+        menu:Hide()
+        menu.onSelect(matches[1].value)
+
+        return
+    end
+
+    menu.options = filtered
+    menu.offset = 0
+    menu.visible = min(#filtered, menu.maxVisible)
+    menu:SetHeight(menu.top + max(1, menu.visible) * menu.rowHeight + 10)
+    self:RenderMenu()
+end
+
+function Members:OpenMenu(anchor, options, current, onSelect, atCursor, searchable)
     local menu = self:GetMenu()
     if menu:IsShown() and menu.anchor == anchor then
         menu:Hide()
@@ -626,10 +732,13 @@ function Members:OpenMenu(anchor, options, current, onSelect, atCursor)
 
     menu.anchor = anchor
     menu.options = options
+    menu.allOptions = options
     menu.current = current
     menu.onSelect = onSelect
     menu.rowHeight = options.cards and 58 or 24
-    menu.visible = min(#options, options.cards and 7 or self.MENUROWS)
+    menu.maxVisible = options.cards and 7 or self.MENUROWS
+    menu.visible = min(#options, menu.maxVisible)
+    menu.top = searchable and 32 or 0
     menu.offset = 0
     for i, option in ipairs(options) do
         if not option.header and option.value == current then menu.offset = max(0, min(i - floor(menu.visible / 2), #options - menu.visible)) end
@@ -667,7 +776,13 @@ function Members:OpenMenu(anchor, options, current, onSelect, atCursor)
         width = max(width, menu.measure:GetStringWidth() + (option.texture and 126 or 36))
     end
 
-    menu:SetSize(min(width, 420), menu.visible * menu.rowHeight + 10)
+    menu:SetSize(min(width, 420), menu.top + menu.visible * menu.rowHeight + 10)
+    if menu.search or searchable then
+        local search = self:GetMenuSearch()
+        search.box:SetShown(searchable == true)
+        search:SetText("")
+        search.placeholder:Show()
+    end
     menu:ClearAllPoints()
     if atCursor then
         local x, y = GetCursorPosition()
@@ -684,6 +799,7 @@ function Members:OpenMenu(anchor, options, current, onSelect, atCursor)
     end
     self:RenderMenu()
     menu:Show()
+    if searchable then menu.search:SetFocus() end
 end
 
 function Members:RenderMenu()
@@ -720,7 +836,7 @@ function Members:RenderMenu()
             menu.buttons[i] = button
         end
 
-        local y = -5 - (i - 1) * menu.rowHeight
+        local y = -5 - menu.top - (i - 1) * menu.rowHeight
         button:SetHeight(menu.rowHeight - (menu.options.cards and 3 or 0))
         button:SetPoint("TOPLEFT", menu, "TOPLEFT", 5, y)
         button:SetPoint("TOPRIGHT", menu, "TOPRIGHT", -9, y)
@@ -759,7 +875,7 @@ function Members:RenderMenu()
         menu.thumb:SetColorTexture(Theme:GetColor("muted"))
         menu.thumb:SetHeight(size)
         menu.thumb:ClearAllPoints()
-        menu.thumb:SetPoint("TOPRIGHT", menu, "TOPRIGHT", -4, -5 - (track - size) * menu.offset / (total - menu.visible))
+        menu.thumb:SetPoint("TOPRIGHT", menu, "TOPRIGHT", -4, -5 - menu.top - (track - size) * menu.offset / (total - menu.visible))
     end
 end
 
