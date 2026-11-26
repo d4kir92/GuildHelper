@@ -382,10 +382,11 @@ function Orders:Compose(member, recipe, requirements)
     if not requirements or not store or not requester or not crafter or Groups:IsSelfName(crafter) then return end
     if not Recipes:CanOrder(Members:GetData(member), recipe) then return end
     local materials, limit = {}, 999
-    if recipe == Recipes.LOCKPICK then
-        materials, limit = self:GetLockedItems(), 1
+    local service = Recipes:GetServiceSkill(recipe)
+    if service then
+        materials, limit = self:GetServiceItems(service), 1
     end
-    for index, row in ipairs(recipe == Recipes.LOCKPICK and {} or requirements) do
+    for index, row in ipairs(service and {} or requirements) do
         if row.quantity < 1 or row.quantity > 999999 then return end
         limit = min(limit, floor(999999 / row.quantity))
         materials[index] = {quantity = row.quantity, perCraft = row.quantity, owned = 0, options = row.options}
@@ -402,13 +403,14 @@ function Orders:Submit()
     self:UpdateAmount(self.page, draft)
     draft.note = self:CleanText(self.page.note:GetText(), 240)
     draft.tip = self:ReadTip(self.page)
-    if draft.recipe == Recipes.LOCKPICK then
+    local service = Recipes:GetServiceSkill(draft.recipe)
+    if service then
         local kept = {}
         for _, material in ipairs(draft.materials) do
             if material.quantity > 0 then tinsert(kept, material) end
         end
         if #kept == 0 then
-            self.page.error:SetText(GuildHelper:Trans("LID_ORDER_NOLOCKS"))
+            self.page.error:SetText(GuildHelper:Trans(self.SERVICEITEMS[service].empty))
             return
         end
         draft.materials = kept
@@ -423,7 +425,34 @@ function Orders:Submit()
     self:Refresh()
 end
 
-function Orders:IsLockedItem(bag, slot)
+Orders.SERVICEITEMS = {
+    [633] = {match = "IsLockedLine", empty = "LID_ORDER_NOLOCKS"},
+    [3012] = {match = "IsComprehensionLine", empty = "LID_ORDER_NOSCROLLS"},
+}
+
+function Orders:IsLockedLine(text)
+    return LOCKED ~= nil and text == LOCKED
+end
+
+function Orders:GetSkillPattern()
+    if self.skillPattern ~= nil or not ITEM_MIN_SKILL then return self.skillPattern end
+    local template = ITEM_MIN_SKILL:gsub("%%%d%$s", "%%s"):gsub("%%%d%$d", "%%d"):gsub("%%s", "\001"):gsub("%%d", "\002")
+    template = template:gsub("([%%%(%)%.%+%-%*%?%[%]%^%$])", "%%%1"):gsub("\001", "(.+)"):gsub("\002", "%%d+")
+    self.skillPattern = "^" .. template .. "$"
+    return self.skillPattern
+end
+
+function Orders:IsComprehensionLine(text)
+    local pattern = self:GetSkillPattern()
+    local skill = pattern and text:match(pattern)
+    if not skill then return false end
+    local names = Sync.professionNames[3012] or {}
+    if skill == names.enUS or skill == names.deDE or skill == Sync:GetProfessionName(3012) then return true end
+    local info = C_SkillInfo and C_SkillInfo.GetSkillLineInfoByID and C_SkillInfo.GetSkillLineInfoByID(3012)
+    return info ~= nil and info.name == skill
+end
+
+function Orders:MatchesService(bag, slot, service)
     local tip = self.scanTip
     if not tip then
         tip = CreateFrame("GameTooltip", "GuildHelperOrderScanTip", nil, "GameTooltipTemplate")
@@ -431,24 +460,25 @@ function Orders:IsLockedItem(bag, slot)
     end
     tip:SetOwner(WorldFrame, "ANCHOR_NONE")
     tip:SetBagItem(bag, slot)
-    local locked = false
-    for line = 2, min(6, tip:NumLines()) do
+    local matcher, found = self[self.SERVICEITEMS[service].match], false
+    for line = 2, min(12, tip:NumLines()) do
         local text = _G["GuildHelperOrderScanTipTextLeft" .. line]
-        if text and text:GetText() == LOCKED then
-            locked = true
+        text = text and text:GetText()
+        if type(text) == "string" and matcher(self, text) then
+            found = true
             break
         end
     end
     tip:Hide()
-    return locked
+    return found
 end
 
-function Orders:GetLockedItems()
+function Orders:GetServiceItems(service)
     local container = C_Container
     local getSlots = container and container.GetContainerNumSlots or GetContainerNumSlots
     local getInfo = container and container.GetContainerItemInfo
     local items, rows = {}, {}
-    if not getSlots or not LOCKED then return rows end
+    if not getSlots or not self.SERVICEITEMS[service] then return rows end
     for bag = 0, NUM_BAG_SLOTS or 4 do
         for slot = 1, getSlots(bag) or 0 do
             local id, count
@@ -459,7 +489,7 @@ function Orders:GetLockedItems()
                 local _, itemCount, _, _, _, _, _, _, _, itemID = GetContainerItemInfo(bag, slot)
                 id, count = itemID, itemCount
             end
-            if id and self:IsLockedItem(bag, slot) then
+            if id and self:MatchesService(bag, slot, service) then
                 if not items[id] then
                     items[id] = {quantity = 0, perCraft = 0, owned = 0, options = {id}, lock = true}
                     tinsert(rows, items[id])
@@ -671,7 +701,7 @@ function Orders:Refresh()
     page.submit:SetShown(draft ~= nil)
     page.abort:SetShown(draft ~= nil)
     page.have:SetShown(draft ~= nil)
-    local lockDraft = draft ~= nil and draft.recipe == Recipes.LOCKPICK
+    local lockDraft = draft ~= nil and Recipes:GetServiceSkill(draft.recipe) ~= nil
     page.amount:SetShown(draft ~= nil and not lockDraft)
     page.amountLabel:SetShown(draft ~= nil and not lockDraft)
     for _, element in ipairs(page.tip) do element:SetShown(draft ~= nil) end
@@ -688,7 +718,7 @@ function Orders:Refresh()
     page.whisper:SetShown(draft == nil and selected ~= nil)
     local order = draft or selected
     page.output:SetShown(order ~= nil)
-    Recipes:SetTooltip(page.output, order and order.recipe ~= Recipes.LOCKPICK and order.recipe or nil)
+    Recipes:SetTooltip(page.output, order and not Recipes:GetServiceSkill(order.recipe) and order.recipe or nil)
     if order then
         local name, icon = Recipes:OutputDisplay(order.recipe)
         page.title:SetText(name)
@@ -705,7 +735,7 @@ function Orders:Refresh()
         local rows = {
             {label = GuildHelper:Trans(self:DeliveryLabel(selected.delivery)) .. "  ·  " .. GuildHelper:Trans("LID_ORDER_STATUS_" .. selected.status)}
         }
-        if selected.recipe ~= Recipes.LOCKPICK then
+        if not Recipes:GetServiceSkill(selected.recipe) then
             tinsert(rows, {label = GuildHelper:Trans("LID_ORDER_AMOUNT") .. "  " .. (selected.amount or 1)})
         end
         if (selected.tip or 0) > 0 then
@@ -745,7 +775,7 @@ function Orders:Refresh()
         page.ready:SetShown(active)
         Theme:SetTrans(page.ready, ready and "LID_ORDER_READY" or "LID_ORDER_MATERIALS_MISSING")
         local trade = C_TradeSkillUI
-        local craftable = selected.recipe ~= Recipes.LOCKPICK
+        local craftable = not Recipes:GetServiceSkill(selected.recipe)
         page.openRecipe:SetShown(craftable and active and trade ~= nil and trade.OpenRecipe ~= nil)
         page.openRecipe:SetScript("OnClick", function()
             trade.OpenRecipe(selected.recipe)

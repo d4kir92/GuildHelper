@@ -3,11 +3,16 @@ local Sync = GuildHelper.Sync
 local Trade = C_TradeSkillUI
 local Recipes = {pending = {}, sent = {}, names = {}, itemRequests = {}, bindingRequests = {}, icons = {}, outputs = {}, materialSearch = {}, verifiedTokenPrefix = "0"}
 GuildHelper.Recipes = Recipes
-Recipes.LOCKPICK = 0
-Recipes.LOCKPICKSKILL = 633
+Recipes.SERVICES = {[0] = 633, [1] = 3012}
+Recipes.SERVICEBYSKILL = {[633] = 0, [3012] = 1}
+function Recipes:GetServiceSkill(id)
+    return id and self.SERVICES[id]
+end
+
 
 function Recipes:Name(id)
-    if id == self.LOCKPICK then return Sync:GetProfessionName(self.LOCKPICKSKILL, "Lockpicking") end
+    local service = self:GetServiceSkill(id)
+    if service then return Sync:GetProfessionName(service, Sync.professionNames[service] and Sync.professionNames[service].enUS or tostring(service)) end
     if self.names[id] then return self.names[id] end
     local name = C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(id) or GetSpellInfo and GetSpellInfo(id)
     if not name and Trade and Trade.GetRecipeInfo then
@@ -19,7 +24,7 @@ function Recipes:Name(id)
 end
 
 function Recipes:Output(id)
-    if id == self.LOCKPICK then return nil end
+    if self:GetServiceSkill(id) then return nil end
     local outputs = GHTAB and GHTAB.RECIPEOUTPUTS
     if outputs and outputs[id] ~= nil then return outputs[id] end
     if self.outputs[id] ~= nil then return self.outputs[id] end
@@ -59,9 +64,10 @@ function Recipes:CanSee(data, key, id)
 end
 
 function Recipes:CanOrder(data, id)
-    if id == self.LOCKPICK then
+    local service = self:GetServiceSkill(id)
+    if service then
         for _, profession in ipairs(data and data.professions or {}) do
-            if Sync:GetProfessionID(profession[1], profession[4]) == self.LOCKPICKSKILL then return true end
+            if Sync:GetProfessionID(profession[1], profession[4]) == service then return true end
         end
 
         return false
@@ -73,7 +79,7 @@ function Recipes:CanOrder(data, id)
 end
 
 function Recipes:Icon(id)
-    if id == self.LOCKPICK then return Sync.classProfessions[self.LOCKPICKSKILL] end
+    if self:GetServiceSkill(id) then return Sync.classProfessions[self:GetServiceSkill(id)] end
     if self.icons[id] then return self.icons[id] end
     local item = self:Output(id)
     local getIcon = C_Item and C_Item.GetItemIconByID or GetItemIcon
