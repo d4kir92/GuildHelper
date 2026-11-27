@@ -310,9 +310,21 @@ function Mail:Build()
         GameTooltip:Show()
     end)
     frame.badge:SetScript("OnLeave", function() GameTooltip:Hide() end)
-    frame.title = Theme:Text(frame, 15, "text")
+    frame.badge:SetScript("OnMouseUp", function() Mail:Toggle() end)
+    frame.header = CreateFrame("Button", nil, frame)
+    frame.header:SetPoint("TOPLEFT", frame.badge, "TOPRIGHT", 0, 4)
+    frame.header:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -8, -7)
+    frame.header:SetHeight(28)
+    frame.header:SetScript("OnClick", function() Mail:Toggle() end)
+    frame.arrow = Theme:Icon(frame.header, "arrowdown", 14, "muted")
+    frame.arrow:SetPoint("RIGHT", frame.header, "RIGHT", -6, 0)
+    frame.countBadge = Theme:Icon(frame.header, "circle", 18, "online")
+    frame.countBadge:SetPoint("RIGHT", frame.arrow, "LEFT", -8, 0)
+    frame.count = Theme:Text(frame.header, 11, "window")
+    frame.count:SetPoint("CENTER", frame.countBadge, "CENTER")
+    frame.title = Theme:Text(frame.header, 15, "text")
     frame.title:SetPoint("LEFT", frame.badge, "RIGHT", 8, 0)
-    frame.title:SetPoint("RIGHT", frame, "RIGHT", -14, 0)
+    frame.title:SetPoint("RIGHT", frame.countBadge, "LEFT", -6, 0)
     frame.title:SetJustifyH("LEFT")
     Theme:SetTrans(frame.title, "LID_MAIL_TITLE")
     frame.hint = Theme:Text(frame, 12, "muted")
@@ -356,6 +368,39 @@ function Mail:Refresh()
         if byKey[key] then self:Fill(byKey[key]) end
     end, self.selected, splits)
     frame.empty:SetShown(#entries == 0)
+    self:UpdateCount(#entries)
+end
+
+function Mail:IsCollapsed()
+    return not GuildHelper:GetConfig("MAILEXPANDED", false)
+end
+
+function Mail:UpdateCount(count)
+    local frame = self.frame
+    if not frame then return end
+    self.count = count or self.count or 0
+    local visible = self:IsCollapsed() and self.count > 0
+    frame.countBadge:SetShown(visible)
+    frame.count:SetShown(visible)
+    if not visible then return end
+    frame.count:SetText(tostring(self.count))
+    frame.countBadge:SetSize(max(18, ceil(frame.count:GetStringWidth()) + 8), 18)
+end
+
+function Mail:ApplyCollapsed()
+    local frame = self.frame
+    if not frame then return end
+    local collapsed = self:IsCollapsed()
+    frame.hint:SetShown(not collapsed)
+    frame.list:SetShown(not collapsed)
+    frame.status:SetShown(not collapsed)
+    frame.arrow:SetTexture(Theme.MEDIA .. (collapsed and "arrowdown" or "arrowup"))
+    self:UpdateCount()
+end
+
+function Mail:Toggle()
+    GuildHelper:SetConfig("MAILEXPANDED", self:IsCollapsed())
+    self:Place()
 end
 
 function Mail:Place()
@@ -370,7 +415,12 @@ function Mail:Place()
 
     frame:ClearAllPoints()
     frame:SetPoint("TOPLEFT", host, "TOPRIGHT", 4, 0)
-    frame:SetPoint("BOTTOMLEFT", host, "BOTTOMRIGHT", 4, 0)
+    if self:IsCollapsed() then
+        frame:SetHeight(42)
+    else
+        frame:SetPoint("BOTTOMLEFT", host, "BOTTOMRIGHT", 4, 0)
+    end
+    self:ApplyCollapsed()
     frame:SetFrameStrata(host:GetFrameStrata())
     frame:SetFrameLevel(host:GetFrameLevel() + 10)
     frame:Show()
