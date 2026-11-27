@@ -547,7 +547,12 @@ end
 function Settings:GetNotificationOptions()
     if self.notificationOptions then return self.notificationOptions end
     local Notifications = GuildHelper.Notifications
-    self.notificationOptions, self.newNotificationOptions, self.logNotificationOptions = {}, {}, {}
+    self.notificationOptions, self.newNotificationOptions, self.logNotificationOptions, self.holdNotificationOptions = {}, {}, {}, {}
+    for _, kind in ipairs(Notifications.HOLDKINDS) do
+        local option = {key = "NOTIFYHOLD" .. kind, default = true, label = "LID_NOTIFYHOLD" .. kind, desc = "LID_NOTIFYHOLDDESC", display = true, added = Notifications.HOLDADDED, group = "LID_NOTIFYHOLD"}
+        tinsert(self.holdNotificationOptions, option)
+        tinsert(self.notificationOptions, option)
+    end
     for _, group in ipairs(Notifications.GROUPS) do
         for _, kind in ipairs(group.kinds) do
             local option = {key = "NOTIFY" .. kind, default = true, label = "LID_NOTIFICATION" .. kind, display = true, added = Notifications.ADDED, group = group.label}
@@ -567,6 +572,7 @@ end
 
 function Settings:GetNotificationLayout()
     local list = {}
+    for _, option in ipairs(self.holdNotificationOptions) do tinsert(list, option) end
     for _, option in ipairs(self.newNotificationOptions) do tinsert(list, option) end
     if #self.logNotificationOptions > 0 then tinsert(list, self.logAllOption) end
     for _, option in ipairs(self.logNotificationOptions) do tinsert(list, option) end

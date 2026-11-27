@@ -3,10 +3,34 @@ local Notifications = {queue = {}, seen = {}, started = time()}
 Notifications.ADDED = "2026-11-26"
 Notifications.NEW_TYPES = {"NEWLIVE", "NEWPLANNED", "APPLICATION", "NEWIDEA", "NEWBUG"}
 Notifications.GROUPS = {{label = "LID_GROUPFINDER", kinds = {"NEWLIVE", "NEWPLANNED", "APPLICATION"}}, {label = "LID_FEEDBACK", kinds = {"NEWIDEA", "NEWBUG"}}, {label = "LID_REQUESTS", kinds = {"REQUESTCOMMENT"}}}
+Notifications.HOLDADDED = "2026-11-27"
+Notifications.HOLDKINDS = {"PVP", "PARTY", "RAID"}
+Notifications.HOLDTYPES = {pvp = "PVP", arena = "PVP", party = "PARTY", raid = "RAID"}
 GuildHelper.Notifications = Notifications
 
 function Notifications:GetDisplayTime()
-    return (self.combatStart or GetTime()) - (self.combatDuration or 0)
+    return (self.pauseStart or GetTime()) - (self.pauseDuration or 0)
+end
+
+function Notifications:IsHeld()
+    if not IsInInstance then return false end
+    local inInstance, kind = IsInInstance()
+    local hold = inInstance and self.HOLDTYPES[kind]
+    if not hold then return false end
+
+    return self:IsEnabled("NOTIFYHOLD" .. hold)
+end
+
+function Notifications:UpdatePause()
+    local paused = InCombatLockdown() or self:IsHeld()
+    if paused and not self.pauseStart then
+        self.pauseStart = GetTime()
+    elseif not paused and self.pauseStart then
+        self.pauseDuration = (self.pauseDuration or 0) + GetTime() - self.pauseStart
+        self.pauseStart = nil
+    end
+
+    return paused
 end
 
 function Notifications:RestorePosition()
@@ -369,7 +393,7 @@ end
 
 function Notifications:Render()
     if self.editing then return end
-    if not self.current or InCombatLockdown() then
+    if not self.current or InCombatLockdown() or (not self.current.test and self:IsHeld()) then
         if self.frame then self.frame:Hide() end
         return
     end
@@ -467,7 +491,10 @@ function Notifications:Render()
 end
 
 function Notifications:Tick()
-    if InCombatLockdown() then return end
+    if self:UpdatePause() then
+        if self.current and not self.editing then self:Render() end
+        return
+    end
     local guild = GuildHelper.Sync:GetGuildKey()
     if self.current and self.current.guild ~= guild then self:Dismiss() end
     if self.editing then return end
@@ -503,16 +530,11 @@ Notifications.events:RegisterEvent("PLAYER_REGEN_DISABLED")
 Notifications.events:RegisterEvent("PLAYER_REGEN_ENABLED")
 Notifications.events:SetScript("OnEvent", function(_, event)
     if event == "PLAYER_REGEN_DISABLED" then
-        Notifications.combatStart = GetTime()
+        Notifications:UpdatePause()
         Notifications:Render()
         return
     end
     if event == "PLAYER_REGEN_ENABLED" then
-        if Notifications.combatStart then
-            local duration = GetTime() - Notifications.combatStart
-            Notifications.combatDuration = (Notifications.combatDuration or 0) + duration
-            Notifications.combatStart = nil
-        end
         Notifications:Tick()
         return
     end
