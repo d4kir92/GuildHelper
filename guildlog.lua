@@ -13,6 +13,7 @@ local Log = {
         MISTS = {20, 40, 60, 70, 80, 85, 90}
     },
     TESTACHIEVEMENT = 6,
+    LEGACYFLAG = 134217728,
     PROFESSIONCAPS = {CLASSIC = 300, TBC = 375, WRATH = 450, CATA = 525, MISTS = 600},
     CLEARWINDOW = 900,
     FINALNPCS = {
@@ -590,10 +591,14 @@ end
 
 function Log:GetLegacyPoints(id)
     if not GuildHelper:IsForever() or not GetAchievementInfo or type(id) ~= "number" then return nil end
-    local ok, achievementID, _, points = pcall(GetAchievementInfo, id)
-    if not ok or achievementID ~= id or type(points) ~= "number" or points < 1 then return nil end
+    local ok, achievementID, _, points, _, _, _, _, _, flags, _, rewardText, isGuild, _, _, isStatistic = pcall(GetAchievementInfo, id)
+    if not ok or achievementID ~= id or isGuild or isStatistic then return nil end
+    if type(flags) ~= "number" or floor(flags / self.LEGACYFLAG) % 2 ~= 1 then return nil end
+    local rewardPoints = type(rewardText) == "string" and tonumber(rewardText:match("(%d+)"))
+    if rewardPoints and rewardPoints >= 1 then return rewardPoints end
+    if type(points) == "number" and points >= 1 then return points end
 
-    return points
+    return 1
 end
 
 function Log:OnGuildAchievement(message, sender)
